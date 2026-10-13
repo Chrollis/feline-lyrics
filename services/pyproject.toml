@@ -1,0 +1,16 @@
+[project]
+name = "felyrics"
+version = "0.0.0"
+description = "Felyrics Backend Service"
+requires-python = ">=3.12, <3.13"
+dependencies = [
+    "fastapi",
+    "uvicorn[standard]",
+    "stable-ts[fw]",
+    "librosa",
+    "fugashi[unidic-lite]",
+    "kiwipiepy",
+    "hanja",
+    "pypinyin",
+    "romanizer",
+] # av is excluded; it is built by custom scripts under LGPL
