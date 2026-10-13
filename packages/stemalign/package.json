@@ -1,0 +1,17 @@
+{
+    "name": "@felyrics/stemalign",
+    "version": "0.0.0",
+    "private": true,
+    "description": "Felyrics vocal separation and forced alignment.",
+    "main": "./out/main/index.js",
+    "scripts": {
+        "typecheck": "tsc --noEmit -p tsconfig.json",
+        "build": "tsc -p tsconfig.json",
+        "smoke": "node scripts/checks/model/smoke.mjs"
+    },
+    "types": "./out/main/index.d.ts",
+    "type": "module",
+    "dependencies": {
+        "onnxruntime-node": "^1.30.0"
+    }
+}
