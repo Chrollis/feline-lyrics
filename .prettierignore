@@ -1,0 +1,11 @@
+node_modules/
+out/
+dist/
+reference/
+cache/
+output/
+ffmpeg/
+package-lock.json
+packages/stemalign/scripts/fixtures/*-golden.json
+*.svg
+*.md

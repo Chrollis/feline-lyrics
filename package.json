@@ -1,0 +1,31 @@
+{
+    "name": "felyrics",
+    "version": "0.0.0",
+    "private": true,
+    "description": "Feline-lyrics, lyrics timing and karaoke video compostion.",
+    "scripts": {
+        "lint": "eslint .",
+        "format": "prettier --write .",
+        "format:check": "prettier --check .",
+        "typecheck": "npm run typecheck --workspaces --if-present"
+    },
+    "license": "MPL-2.0",
+    "type": "module",
+    "packageManager": "npm@12.2.0",
+    "engines": {
+        "node": ">=22.12.0"
+    },
+    "workspaces": [
+        "apps/*",
+        "packages/*"
+    ],
+    "devDependencies": {
+        "@eslint/js": "^10.0.1",
+        "eslint": "^10.12.0",
+        "eslint-config-prettier": "^10.1.8",
+        "eslint-plugin-react-hooks": "^7.1.1",
+        "globals": "^17.13.0",
+        "prettier": "^3.9.9",
+        "typescript-eslint": "^8.71.1"
+    }
+}

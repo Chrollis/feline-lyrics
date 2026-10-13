@@ -1,0 +1,22 @@
+# Reference
+/reference/
+/tests/
+
+# Cache
+/cache/
+__pycache__
+
+# Output
+/output/
+**/out/**
+
+# Environment
+/python/
+/models/
+
+# Node
+node_modules
+dist
+
+# Local notes
+/docs/.note.md

@@ -1,0 +1,25 @@
+{
+    "name": "@felyrics/desktop",
+    "version": "0.0.0",
+    "private": true,
+    "description": "Felyrics desktop application.",
+    "main": "./out/main/index.js",
+    "scripts": {
+        "dev": "electron-vite dev",
+        "build": "electron-vite build",
+        "preview": "electron-vite preview",
+        "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p src/renderer/tsconfig.json"
+    },
+    "devDependencies": {
+        "@types/node": "^26.6.5",
+        "@types/react": "^19.3.0",
+        "@types/react-dom": "^19.3.0",
+        "@vitejs/plugin-react": "^5.1.4",
+        "electron": "^44.7.0",
+        "electron-vite": "^5.0.0",
+        "react": "^19.3.0",
+        "react-dom": "^19.3.0",
+        "typescript": "^7.0.2",
+        "vite": "^7.3.7"
+    }
+}
