@@ -3,8 +3,9 @@
 ONNX-backed source separation and forced alignment for Felyrics.
 
 The package takes an already-decoded audio buffer plus ONNX model bytes. It
-returns either one audio buffer per stem, or word-level timings for a lyric
-text. It never touches the filesystem, the network or an audio decoder:
+returns either one audio buffer per stem, or word-level timings grouped into
+sentences for a lyric text. It never touches the filesystem, the network or an
+audio decoder:
 reading model files, decoding audio and writing results are the caller's job.
 
 - Separation and forced alignment are both implemented and verified, and both
@@ -65,9 +66,11 @@ const handle = await openModel({
     executionProviders: ['dml', 'cpu'],
 });
 try {
-    const { words } = await align(audio, lyrics, handle, { language: 'ja' });
-    for (const word of words) {
-        console.log(word.word, word.start, word.end, word.probability);
+    const result = await align(audio, lyrics, handle, { language: 'ja' });
+    for (const segment of result.segments) {
+        for (const word of segment.words) {
+            console.log(word.word, word.start, word.end, word.probability);
+        }
     }
 } finally {
     await handle.release();
@@ -75,12 +78,55 @@ try {
 ```
 
 `encoderPath` and `decoderPath` are absolute paths to the Whisper pair; a
-`*_data` sidecar next to the graph is resolved by ONNX Runtime itself. `words`
-is one flat list of `{ word, tokens, start, end, probability }` and no segments
-appear anywhere: a caller that wants segments builds them. A word the model
-could not place is dropped rather than guessed, so `words` may be shorter than
-the lyrics. Pass `splitWordsBySpace: false` for languages written without
-spaces, such as Chinese or Japanese.
+`*_data` sidecar next to the graph is resolved by ONNX Runtime itself. The
+result mirrors `stable_whisper.WhisperResult.to_dict()`:
+
+```ts
+interface AlignmentResult {
+    text: string;
+    segments: readonly AlignmentSegment[];
+    language: string;
+    ori_dict: AlignmentOriginal;
+    regroup_history: string;
+    nonspeech_sections: readonly AlignmentSilence[];
+}
+```
+
+- there is no flat word list: the words live inside a segment, so flatten with
+  `result.segments.flatMap((segment) => segment.words)`
+- `text` is the surviving segments concatenated, not the input lyrics: a word
+  the model could not place is dropped rather than guessed, so it can be shorter
+  than what was passed in
+- a segment is what `Segment.to_dict()` reports: `start`, `end` and `text`, the
+  `words` it holds, plus the metadata it carries (`seek`, `tokens`,
+  `temperature`, `avg_logprob`, `compression_ratio`, `no_speech_prob`), which is
+  `null` where the model gave nothing
+- a word is one `{ word, tokens, start, end, probability }`: a start and an end
+  in floating-point seconds, rounded to three decimals (banker's rounding)
+- `ori_dict` is the snapshot taken after suppression and before regrouping,
+  `regroup_history` is the calls that ran, and `nonspeech_sections` is the
+  merged silence, filled only while suppressing
+- pass `splitWordsBySpace: false` for languages written without spaces, such as
+  Chinese or Japanese
+
+The switches keep the stable_ts defaults, and each can be turned off:
+
+- `suppressSilence` (`true`) suppresses the words that fall inside a detected
+  silence
+- `suppressWordTimestamps` (`true`) suppresses every word of a segment; with
+  `false` only the first and the last word are touched
+- `useWordPosition` (`true`) lets the trailing punctuation and the position of
+  the word decide which edge survives
+- `regroup` (`'da'`) regroups the suppressed words into sentences with the
+  stable_ts algorithm; `false` leaves one flat segment per run, any other string
+  is an algorithm string for `regroupSegments`, and an unknown call is rejected
+
+`regroup.ts` ports `WhisperResult.regroup`, for the default algorithm only
+(`isp`, `cm`, `sg`, `sp` and `sl`). stable-ts models word locks and some of its
+methods exist only to move them around, so a lock request is rejected instead of
+being ignored. The pieces are exported too: `makeSegment`,
+`splitSegmentByChars`, `suppressSegmentSilence`, `regroupSegments`,
+`parseRegroupAlgo` and `DEFAULT_REGROUP_ALGO`.
 
 This is not the only alignment route in Felyrics. Here the Whisper pair runs on
 whatever execution providers the caller names, and that is what sets the model

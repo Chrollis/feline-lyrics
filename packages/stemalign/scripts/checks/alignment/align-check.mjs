@@ -5,6 +5,9 @@ import { align } from '../../../out/main/alignment/align.js';
 import { inspectWhisper } from '../../../out/main/alignment/whisper.js';
 import { inspectWhisperSettings } from '../../../out/main/alignment/settings.js';
 
+const flatWords = (result) =>
+    result.segments.flatMap((segment) => segment.words);
+
 const directory = new URL(
     '../../../../../models/Xenova/whisper-base/',
     import.meta.url,
@@ -101,10 +104,23 @@ try {
         onProgress: first.onProgress,
         failureThreshold: 0,
     });
-    assert.equal(result.text, words);
-    assert.ok(result.words.length >= 1, 'some words must align');
-    assert.ok(result.words.length <= 30, 'no word may be invented');
-    checkWords(words, result.words);
+    // `text` is the concatenation of the surviving segments: stable_ts drops the
+    // words that never got a timestamp, so it can be shorter than the input text.
+    assert.equal(
+        result.text,
+        flatWords(result)
+            .map((word) => word.word)
+            .join(''),
+    );
+    assert.equal(result.language, 'en');
+    assert.ok(result.segments.length >= 1, 'a run must produce a segment');
+    assert.ok(
+        typeof result.regroup_history === 'string',
+        'regroup must report its history',
+    );
+    assert.ok(flatWords(result).length >= 1, 'some words must align');
+    assert.ok(flatWords(result).length <= 30, 'no word may be invented');
+    checkWords(words, flatWords(result));
     const last = first.events[first.events.length - 1];
     assert.ok(last !== undefined, 'alignment must report progress');
     // aligner.mjs:1010 -- the flag means "the failure guard never tripped",
@@ -121,7 +137,7 @@ try {
     }
     console.log(
         'a 65 second signal aligned',
-        result.words.length,
+        flatWords(result).length,
         'of 30 words in',
         first.events.length,
         'window(s)',
@@ -135,7 +151,10 @@ try {
         { onProgress: small.onProgress, failureThreshold: 0 },
     );
     const cleanLast = small.events[small.events.length - 1];
-    assert.ok(clean.words.length >= 1, 'the single word must align');
+    assert.ok(
+        flatWords(clean).length >= 1,
+        'the single word must align',
+    );
     assert.equal(cleanLast?.finished, true, 'a clean run reports finished');
     console.log('a clean run reports finished', cleanLast?.finished);
 
@@ -152,19 +171,24 @@ try {
     const dropped = await align(short, longText, handle, {
         failureThreshold: 0,
     });
-    assert.equal(dropped.text, longText);
+    assert.equal(
+        dropped.text,
+        flatWords(dropped)
+            .map((word) => word.word)
+            .join(''),
+    );
     assert.ok(
-        dropped.words.length > 0,
+        flatWords(dropped).length > 0,
         'the first window must align something',
     );
     assert.ok(
-        dropped.words.length < 400,
+        flatWords(dropped).length < 400,
         'words without a timestamp must be dropped',
     );
-    checkWords(longText, dropped.words);
+    checkWords(longText, flatWords(dropped));
     console.log(
         'a five second signal kept',
-        dropped.words.length,
+        flatWords(dropped).length,
         'of 400 words and dropped the rest',
     );
 
@@ -215,8 +239,9 @@ try {
         handle,
         {},
     );
-    assert.equal(mixed.text, 'hello');
-    assert.deepEqual(mixed.words, []);
+    assert.equal(mixed.text, '');
+    assert.deepEqual(mixed.segments, []);
+    assert.deepEqual(flatWords(mixed), []);
     console.log('a three channel silence downmixes and aligns nothing');
     await assert.rejects(
         align({ sampleRate: 0, channels: [zero] }, 'hello', handle, {}),

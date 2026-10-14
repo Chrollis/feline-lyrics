@@ -19,7 +19,10 @@ import {
     silenceMask,
 } from './non-speech.js';
 import type { SilenceSpan } from './non-speech.js';
-import { suppressSilence } from './suppress-silence.js';
+import { DEFAULT_REGROUP_ALGO, regroupSegments } from './regroup.js';
+import type { RegroupResult } from './regroup.js';
+import { makeSegment, suppressSegmentSilence } from './segment.js';
+import type { AlignmentSegment } from './segment.js';
 import { inspectWhisper, WHISPER_ENCODER_DOWNSAMPLE } from './whisper.js';
 import type { WhisperLayout } from './whisper.js';
 import { inspectWhisperSettings } from './settings.js';
@@ -35,9 +38,37 @@ import {
     stripWord,
 } from './words.js';
 
+/** A non-speech section of the audio, like stable_ts `nonspeech_sections`. */
+export interface AlignmentSilence {
+    readonly start: number;
+    readonly end: number;
+}
+
+/**
+ * The snapshot stable_ts keeps in `ori_dict`: the segments as they looked after
+ * suppression and before regrouping.
+ */
+export interface AlignmentOriginal {
+    readonly text: string;
+    readonly segments: readonly AlignmentSegment[];
+    readonly language: string;
+    readonly ori_dict: Readonly<Record<string, never>>;
+    readonly regroup_history: string;
+    readonly nonspeech_sections: readonly AlignmentSilence[];
+}
+
+/**
+ * The alignment result, mirroring `stable_whisper.WhisperResult.to_dict()`.
+ * `text` is the concatenation of the surviving segments, not the input text:
+ * words that never got a timestamp are dropped (see `align()`).
+ */
 export interface AlignmentResult {
     readonly text: string;
-    readonly words: readonly WordTiming[];
+    readonly segments: readonly AlignmentSegment[];
+    readonly language: string;
+    readonly ori_dict: AlignmentOriginal;
+    readonly regroup_history: string;
+    readonly nonspeech_sections: readonly AlignmentSilence[];
 }
 
 export interface AlignProgress {
@@ -58,6 +89,27 @@ export interface AlignOptions {
     readonly minSilenceDur?: number | null;
     readonly minWordDur?: number;
     readonly nonspeechError?: number;
+    /**
+     * Suppress the words that land inside a detected silence (default true, the
+     * stable_ts `suppress_silence` switch).
+     */
+    readonly suppressSilence?: boolean;
+    /**
+     * Suppress every word instead of only the edge words of a segment (default true,
+     * the stable_ts `suppress_word_ts` switch).
+     */
+    readonly suppressWordTimestamps?: boolean;
+    /**
+     * Let the trailing punctuation and the word position decide which edge is kept
+     * (default true, the stable_ts `use_word_position` switch).
+     */
+    readonly useWordPosition?: boolean;
+    /**
+     * Regroup the suppressed words into sentences with the stable_ts algorithm
+     * (default `da`). `false` keeps the flat segment; any other string is parsed
+     * by `regroupSegments` and unknown calls are rejected.
+     */
+    readonly regroup?: boolean | string;
     readonly wordDurFactor?: number | null;
     readonly maxWordDur?: number | null;
     /**
@@ -138,9 +190,14 @@ class WhisperAligner {
     private readonly initialDuration: number;
     private readonly tokensPerSec: number;
     private readonly languageId: number;
+    private readonly languageName: string;
     private readonly taskId: number;
     private readonly splitBySpace: boolean;
     private readonly nonspeechError: number;
+    private readonly suppressSilence: boolean;
+    private readonly suppressWordTimestamps: boolean;
+    private readonly useWordPosition: boolean;
+    private readonly regroupAlgo: false | string;
     private readonly minSilenceDur: number | null;
     private readonly onProgress:
         ((progress: AlignProgress) => void) | undefined;
@@ -172,6 +229,13 @@ class WhisperAligner {
             settings.sampleRate /
             (settings.hopLength * WHISPER_ENCODER_DOWNSAMPLE);
         this.nonspeechError = options.nonspeechError ?? DEFAULT_NONSPEECH_ERROR;
+        this.suppressSilence = options.suppressSilence ?? true;
+        this.suppressWordTimestamps = options.suppressWordTimestamps ?? true;
+        this.useWordPosition = options.useWordPosition ?? true;
+        this.regroupAlgo =
+            options.regroup === undefined || options.regroup === true
+                ? DEFAULT_REGROUP_ALGO
+                : options.regroup;
         this.minSilenceDur = options.minSilenceDur ?? null;
         this.splitBySpace = options.splitWordsBySpace ?? true;
         this.onProgress = options.onProgress;
@@ -219,6 +283,7 @@ class WhisperAligner {
             );
         }
         this.languageId = languageId;
+        this.languageName = language;
         const task = options.task ?? 'transcribe';
         const taskId = settings.taskIds[task];
         if (taskId === undefined) {
@@ -526,7 +591,9 @@ class WhisperAligner {
             this.remainingLen += entry.word.length;
         this.failureCount = 0;
         this.maxFail = this.allWordTokens.length * (this.failureThreshold ?? 1);
-        if (this.allWordTokens.length === 0) return { text, words: [] };
+        if (this.allWordTokens.length === 0) {
+            return this.composeResult([], [], { segments: [], history: '' });
+        }
 
         const result: AlignWord[] = [];
         const ranges: Array<readonly [number, number]> = [];
@@ -571,17 +638,69 @@ class WhisperAligner {
         // those words at the end of the audio (removeInstantWords = false); we
         // drop them and let the caller decide, per the alignment contract.
 
-        let words: readonly AlignWord[] = this.clampWindows(result, ranges);
-        const silences = mergeSilences(this.allSpans);
-        words = words.map((word) => {
-            const span = suppressSilence(word, silences, {
-                minWordDur: this.minWordDur,
-                nonspeechError: this.nonspeechError,
-                keepEnd: true,
-            });
-            return { ...word, start: span.start, end: span.end };
-        });
-        return { text, words };
+        const words = this.clampWindows(result, ranges);
+        // stable_ts records the non-speech sections only while suppressing
+        // (aligner.mjs:888 leaves `_nonspeech_sections` empty otherwise).
+        const silences = this.suppressSilence
+            ? mergeSilences(this.allSpans)
+            : [];
+
+        // stable_ts aligns one flat segment per run and suppresses at the segment level
+        // (aligner.mjs:1062-1075); regroup runs afterwards, on the suppressed words.
+        const built = makeSegment(words);
+        const originalSegments = (
+            this.suppressSilence
+                ? [
+                      suppressSegmentSilence(built, silences, {
+                          minWordDur: this.minWordDur,
+                          nonspeechError: this.nonspeechError,
+                          wordLevel: this.suppressWordTimestamps,
+                          useWordPosition: this.useWordPosition,
+                      }),
+                  ]
+                : [built]
+        ).filter((segment) => segment.words.length > 0);
+
+        const regrouped: RegroupResult =
+            this.regroupAlgo === false
+                ? { segments: originalSegments, history: '' }
+                : regroupSegments(originalSegments, { algo: this.regroupAlgo });
+        return this.composeResult(originalSegments, silences, regrouped);
+    }
+
+    /**
+     * Compose the `WhisperResult.to_dict()` shape: `ori_dict` is the snapshot
+     * stable_ts takes after suppression and before regrouping.
+     */
+    private composeResult(
+        originalSegments: readonly AlignmentSegment[],
+        silences: readonly SilenceSpan[],
+        regrouped: RegroupResult,
+    ): AlignmentResult {
+        const segments = regrouped.segments.filter(
+            (segment) => segment.words.length > 0,
+        );
+        const nonspeech_sections = silences.map((span) => ({
+            start: bankersRound(span.start, TIME_DIGITS),
+            end: bankersRound(span.end, TIME_DIGITS),
+        }));
+        return {
+            text: segments.map((segment) => segment.text).join(''),
+            segments,
+            language: this.languageName,
+            ori_dict: {
+                text: originalSegments
+                    .map((segment) => segment.text)
+                    .join(''),
+                segments: originalSegments,
+                language: this.languageName,
+                ori_dict: {},
+                regroup_history: '',
+                nonspeech_sections,
+            },
+            regroup_history: regrouped.history,
+            nonspeech_sections,
+        };
     }
 
     private clampWindows(

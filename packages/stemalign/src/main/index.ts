@@ -98,11 +98,34 @@ export type {
 } from './alignment/suppress-silence.js';
 export { suppressSilence } from './alignment/suppress-silence.js';
 export type {
+    AlignmentOriginal,
     AlignmentResult,
+    AlignmentSilence,
     AlignOptions,
     AlignProgress,
 } from './alignment/align.js';
 export { align } from './alignment/align.js';
+export type {
+    AlignmentSegment,
+    SegmentMeta,
+    SegmentSuppressOptions,
+} from './alignment/segment.js';
+export {
+    makeSegment,
+    splitSegmentByChars,
+    suppressSegmentSilence,
+} from './alignment/segment.js';
+export type {
+    RegroupCall,
+    RegroupOptions,
+    RegroupPunctuation,
+    RegroupResult,
+} from './alignment/regroup.js';
+export {
+    DEFAULT_REGROUP_ALGO,
+    parseRegroupAlgo,
+    regroupSegments,
+} from './alignment/regroup.js';
 export type {
     ProgressEvent,
     ProgressReporter,

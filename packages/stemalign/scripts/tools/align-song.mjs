@@ -235,11 +235,12 @@ try {
         process.stdout.write('\n');
     }
 
+    const words = result.segments.flatMap((segment) => segment.words);
     console.log(
-        `aligned ${result.words.length} words in ${secondsSince(alignmentStarted)}`,
+        `aligned ${words.length} words in ${secondsSince(alignmentStarted)}`,
     );
-    const first = result.words[0];
-    const last = result.words[result.words.length - 1];
+    const first = words[0];
+    const last = words[words.length - 1];
     if (first !== undefined && last !== undefined) {
         console.log(
             `span ${first.start.toFixed(2)}s .. ${last.end.toFixed(2)}s`,
@@ -250,19 +251,11 @@ try {
     const target =
         outPath ??
         join(resolve(here, '../../../../output', name), `${name}.json`);
-    const json = {
-        text: result.text,
-        words: result.words.map((word) => ({
-            word: word.word,
-            start: word.start,
-            end: word.end,
-            probability: word.probability,
-            tokens: word.tokens,
-        })),
-    };
     mkdirSync(dirname(target), { recursive: true });
-    await writeFile(target, `${JSON.stringify(json, null, 2)}\n`, 'utf8');
-    console.log(`wrote ${target}`);
+    await writeFile(target, `${JSON.stringify(result, null, 2)}\n`, 'utf8');
+    console.log(
+        `wrote ${target} (${result.segments.length} segment(s), ${result.regroup_history ? 'regrouped' : 'flat'})`,
+    );
     console.log(`done in ${secondsSince(started)}`);
 } finally {
     await handle.release();
