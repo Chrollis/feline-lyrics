@@ -1,0 +1,911 @@
+{
+    "producer": {
+        "stableWhisperVersion": "2.19.1",
+        "numpyVersion": "2.5.2",
+        "regroupAlgo": "da",
+        "minWordDur": 0.1,
+        "nonspeechError": 0.1,
+        "wordLevel": true,
+        "useWordPosition": true,
+        "wordsFile": "regroup-words.json"
+    },
+    "input": {
+        "language": "en",
+        "silences": [
+            [
+                1.95,
+                2.15
+            ],
+            [
+                2.85,
+                3.15
+            ],
+            [
+                3.35,
+                3.55
+            ],
+            [
+                4.55,
+                4.95
+            ],
+            [
+                10.9,
+                11.15
+            ]
+        ],
+        "segments": [
+            {
+                "seek": 0,
+                "temperature": 0,
+                "avg_logprob": -0.35,
+                "compression_ratio": 1.2,
+                "no_speech_prob": 0.02,
+                "words": [
+                    {
+                        "word": "Mr.",
+                        "start": 0,
+                        "end": 0.2,
+                        "probability": 0.88,
+                        "tokens": [
+                            1000
+                        ]
+                    },
+                    {
+                        "word": " Smith",
+                        "start": 0.2,
+                        "end": 0.5,
+                        "probability": 0.91,
+                        "tokens": [
+                            1001
+                        ]
+                    },
+                    {
+                        "word": " arrived.",
+                        "start": 0.5,
+                        "end": 0.9,
+                        "probability": 0.86,
+                        "tokens": [
+                            1002
+                        ]
+                    }
+                ]
+            },
+            {
+                "seek": 0,
+                "words": [
+                    {
+                        "word": " yes",
+                        "start": 1.4,
+                        "end": 1.8,
+                        "probability": 0.7,
+                        "tokens": [
+                            1003
+                        ]
+                    }
+                ]
+            },
+            {
+                "seek": 0,
+                "words": [
+                    {
+                        "word": " we",
+                        "start": 2,
+                        "end": 2.2,
+                        "probability": 0.9,
+                        "tokens": [
+                            1004
+                        ]
+                    },
+                    {
+                        "word": " had",
+                        "start": 2.2,
+                        "end": 2.4,
+                        "probability": 0.9,
+                        "tokens": [
+                            1005
+                        ]
+                    },
+                    {
+                        "word": " a",
+                        "start": 2.4,
+                        "end": 2.6,
+                        "probability": 0.8,
+                        "tokens": [
+                            1006
+                        ]
+                    },
+                    {
+                        "word": " long",
+                        "start": 2.6,
+                        "end": 2.8,
+                        "probability": 0.6,
+                        "tokens": [
+                            1007
+                        ]
+                    },
+                    {
+                        "word": " pause",
+                        "start": 2.8,
+                        "end": 3,
+                        "probability": 0.5,
+                        "tokens": [
+                            1008
+                        ]
+                    },
+                    {
+                        "word": " here",
+                        "start": 3,
+                        "end": 3.2,
+                        "probability": 0.7,
+                        "tokens": [
+                            1009
+                        ]
+                    },
+                    {
+                        "word": " after",
+                        "start": 4,
+                        "end": 4.2,
+                        "probability": 0.75,
+                        "tokens": [
+                            1010
+                        ]
+                    },
+                    {
+                        "word": " the",
+                        "start": 4.2,
+                        "end": 4.4,
+                        "probability": 0.8,
+                        "tokens": [
+                            1011
+                        ]
+                    },
+                    {
+                        "word": " gap.",
+                        "start": 4.4,
+                        "end": 4.8,
+                        "probability": 0.65,
+                        "tokens": [
+                            1012
+                        ]
+                    }
+                ]
+            },
+            {
+                "seek": 0,
+                "words": [
+                    {
+                        "word": " alpha",
+                        "start": 5.2,
+                        "end": 5.5,
+                        "probability": 0.9,
+                        "tokens": [
+                            1013
+                        ]
+                    },
+                    {
+                        "word": " beta",
+                        "start": 5.5,
+                        "end": 5.8,
+                        "probability": 0.9,
+                        "tokens": [
+                            1014
+                        ]
+                    },
+                    {
+                        "word": " gamma",
+                        "start": 5.8,
+                        "end": 6.1,
+                        "probability": 0.9,
+                        "tokens": [
+                            1015
+                        ]
+                    },
+                    {
+                        "word": " delta",
+                        "start": 6.1,
+                        "end": 6.4,
+                        "probability": 0.9,
+                        "tokens": [
+                            1016
+                        ]
+                    },
+                    {
+                        "word": " epsilon",
+                        "start": 6.4,
+                        "end": 6.8,
+                        "probability": 0.9,
+                        "tokens": [
+                            1017
+                        ]
+                    },
+                    {
+                        "word": " zeta",
+                        "start": 6.8,
+                        "end": 7.1,
+                        "probability": 0.9,
+                        "tokens": [
+                            1018
+                        ]
+                    },
+                    {
+                        "word": " eta",
+                        "start": 7.1,
+                        "end": 7.4,
+                        "probability": 0.9,
+                        "tokens": [
+                            1019
+                        ]
+                    },
+                    {
+                        "word": " theta",
+                        "start": 7.4,
+                        "end": 7.7,
+                        "probability": 0.9,
+                        "tokens": [
+                            1020
+                        ]
+                    },
+                    {
+                        "word": " iota",
+                        "start": 7.7,
+                        "end": 8,
+                        "probability": 0.9,
+                        "tokens": [
+                            1021
+                        ]
+                    },
+                    {
+                        "word": " kappa,",
+                        "start": 8,
+                        "end": 8.4,
+                        "probability": 0.9,
+                        "tokens": [
+                            1022
+                        ]
+                    },
+                    {
+                        "word": " lambda",
+                        "start": 8.4,
+                        "end": 8.7,
+                        "probability": 0.9,
+                        "tokens": [
+                            1023
+                        ]
+                    },
+                    {
+                        "word": " mu",
+                        "start": 8.7,
+                        "end": 9,
+                        "probability": 0.9,
+                        "tokens": [
+                            1024
+                        ]
+                    },
+                    {
+                        "word": " nu.",
+                        "start": 9,
+                        "end": 9.4,
+                        "probability": 0.9,
+                        "tokens": [
+                            1025
+                        ]
+                    }
+                ]
+            },
+            {
+                "seek": 0,
+                "words": [
+                    {
+                        "word": "你好",
+                        "start": 10.2,
+                        "end": 10.8,
+                        "probability": 0.8,
+                        "tokens": [
+                            1026,
+                            1027
+                        ]
+                    },
+                    {
+                        "word": "世界。",
+                        "start": 10.8,
+                        "end": 11.4,
+                        "probability": 0.75,
+                        "tokens": [
+                            1028,
+                            1029,
+                            1030
+                        ]
+                    },
+                    {
+                        "word": "我们",
+                        "start": 11.4,
+                        "end": 11.8,
+                        "probability": 0.8,
+                        "tokens": [
+                            1031,
+                            1032
+                        ]
+                    },
+                    {
+                        "word": "走吧，",
+                        "start": 11.8,
+                        "end": 12.4,
+                        "probability": 0.7,
+                        "tokens": [
+                            1033,
+                            1034,
+                            1035
+                        ]
+                    },
+                    {
+                        "word": "现在",
+                        "start": 12.4,
+                        "end": 12.8,
+                        "probability": 0.85,
+                        "tokens": [
+                            1036,
+                            1037
+                        ]
+                    },
+                    {
+                        "word": "很快",
+                        "start": 12.8,
+                        "end": 13.2,
+                        "probability": 0.9,
+                        "tokens": [
+                            1038,
+                            1039
+                        ]
+                    },
+                    {
+                        "word": "结束。",
+                        "start": 13.2,
+                        "end": 13.6,
+                        "probability": 0.88,
+                        "tokens": [
+                            1040,
+                            1041,
+                            1042
+                        ]
+                    }
+                ]
+            },
+            {
+                "seek": 0,
+                "words": [
+                    {
+                        "word": " stretched",
+                        "start": 14.2,
+                        "end": 15.4,
+                        "probability": 0.4,
+                        "tokens": [
+                            1043
+                        ]
+                    },
+                    {
+                        "word": " middle",
+                        "start": 15.4,
+                        "end": 15.6,
+                        "probability": 0.9,
+                        "tokens": [
+                            1044
+                        ]
+                    },
+                    {
+                        "word": " middle2",
+                        "start": 15.6,
+                        "end": 15.8,
+                        "probability": 0.9,
+                        "tokens": [
+                            1045
+                        ]
+                    },
+                    {
+                        "word": " middle3",
+                        "start": 15.8,
+                        "end": 16,
+                        "probability": 0.9,
+                        "tokens": [
+                            1046
+                        ]
+                    },
+                    {
+                        "word": " tail",
+                        "start": 16,
+                        "end": 17.2,
+                        "probability": 0.45,
+                        "tokens": [
+                            1047
+                        ]
+                    }
+                ]
+            }
+        ]
+    },
+    "suppress": [
+        {
+            "start": 0,
+            "end": 0.9,
+            "text": "Mr. Smith arrived.",
+            "seek": 0,
+            "tokens": [
+                1000,
+                1001,
+                1002
+            ],
+            "temperature": 0,
+            "avg_logprob": -0.35,
+            "compression_ratio": 1.2,
+            "no_speech_prob": 0.02,
+            "words": [
+                {
+                    "word": "Mr.",
+                    "start": 0,
+                    "end": 0.2,
+                    "probability": 0.88,
+                    "tokens": [
+                        1000
+                    ]
+                },
+                {
+                    "word": " Smith",
+                    "start": 0.2,
+                    "end": 0.5,
+                    "probability": 0.91,
+                    "tokens": [
+                        1001
+                    ]
+                },
+                {
+                    "word": " arrived.",
+                    "start": 0.5,
+                    "end": 0.9,
+                    "probability": 0.86,
+                    "tokens": [
+                        1002
+                    ]
+                }
+            ]
+        },
+        {
+            "start": 1.4,
+            "end": 1.8,
+            "text": " yes",
+            "seek": 0,
+            "tokens": [
+                1003
+            ],
+            "temperature": null,
+            "avg_logprob": null,
+            "compression_ratio": null,
+            "no_speech_prob": null,
+            "words": [
+                {
+                    "word": " yes",
+                    "start": 1.4,
+                    "end": 1.8,
+                    "probability": 0.7,
+                    "tokens": [
+                        1003
+                    ]
+                }
+            ]
+        },
+        {
+            "start": 2.1,
+            "end": 4.55,
+            "text": " we had a long pause here after the gap.",
+            "seek": 0,
+            "tokens": [
+                1004,
+                1005,
+                1006,
+                1007,
+                1008,
+                1009,
+                1010,
+                1011,
+                1012
+            ],
+            "temperature": null,
+            "avg_logprob": null,
+            "compression_ratio": null,
+            "no_speech_prob": null,
+            "words": [
+                {
+                    "word": " we",
+                    "start": 2.1,
+                    "end": 2.2,
+                    "probability": 0.9,
+                    "tokens": [
+                        1004
+                    ]
+                },
+                {
+                    "word": " had",
+                    "start": 2.2,
+                    "end": 2.4,
+                    "probability": 0.9,
+                    "tokens": [
+                        1005
+                    ]
+                },
+                {
+                    "word": " a",
+                    "start": 2.4,
+                    "end": 2.6,
+                    "probability": 0.8,
+                    "tokens": [
+                        1006
+                    ]
+                },
+                {
+                    "word": " long",
+                    "start": 2.6,
+                    "end": 2.8,
+                    "probability": 0.6,
+                    "tokens": [
+                        1007
+                    ]
+                },
+                {
+                    "word": " pause",
+                    "start": 2.8,
+                    "end": 3,
+                    "probability": 0.5,
+                    "tokens": [
+                        1008
+                    ]
+                },
+                {
+                    "word": " here",
+                    "start": 3.1,
+                    "end": 3.2,
+                    "probability": 0.7,
+                    "tokens": [
+                        1009
+                    ]
+                },
+                {
+                    "word": " after",
+                    "start": 4,
+                    "end": 4.2,
+                    "probability": 0.75,
+                    "tokens": [
+                        1010
+                    ]
+                },
+                {
+                    "word": " the",
+                    "start": 4.2,
+                    "end": 4.4,
+                    "probability": 0.8,
+                    "tokens": [
+                        1011
+                    ]
+                },
+                {
+                    "word": " gap.",
+                    "start": 4.4,
+                    "end": 4.55,
+                    "probability": 0.65,
+                    "tokens": [
+                        1012
+                    ]
+                }
+            ]
+        },
+        {
+            "start": 5.2,
+            "end": 9.4,
+            "text": " alpha beta gamma delta epsilon zeta eta theta iota kappa, lambda mu nu.",
+            "seek": 0,
+            "tokens": [
+                1013,
+                1014,
+                1015,
+                1016,
+                1017,
+                1018,
+                1019,
+                1020,
+                1021,
+                1022,
+                1023,
+                1024,
+                1025
+            ],
+            "temperature": null,
+            "avg_logprob": null,
+            "compression_ratio": null,
+            "no_speech_prob": null,
+            "words": [
+                {
+                    "word": " alpha",
+                    "start": 5.2,
+                    "end": 5.5,
+                    "probability": 0.9,
+                    "tokens": [
+                        1013
+                    ]
+                },
+                {
+                    "word": " beta",
+                    "start": 5.5,
+                    "end": 5.8,
+                    "probability": 0.9,
+                    "tokens": [
+                        1014
+                    ]
+                },
+                {
+                    "word": " gamma",
+                    "start": 5.8,
+                    "end": 6.1,
+                    "probability": 0.9,
+                    "tokens": [
+                        1015
+                    ]
+                },
+                {
+                    "word": " delta",
+                    "start": 6.1,
+                    "end": 6.4,
+                    "probability": 0.9,
+                    "tokens": [
+                        1016
+                    ]
+                },
+                {
+                    "word": " epsilon",
+                    "start": 6.4,
+                    "end": 6.8,
+                    "probability": 0.9,
+                    "tokens": [
+                        1017
+                    ]
+                },
+                {
+                    "word": " zeta",
+                    "start": 6.8,
+                    "end": 7.1,
+                    "probability": 0.9,
+                    "tokens": [
+                        1018
+                    ]
+                },
+                {
+                    "word": " eta",
+                    "start": 7.1,
+                    "end": 7.4,
+                    "probability": 0.9,
+                    "tokens": [
+                        1019
+                    ]
+                },
+                {
+                    "word": " theta",
+                    "start": 7.4,
+                    "end": 7.7,
+                    "probability": 0.9,
+                    "tokens": [
+                        1020
+                    ]
+                },
+                {
+                    "word": " iota",
+                    "start": 7.7,
+                    "end": 8,
+                    "probability": 0.9,
+                    "tokens": [
+                        1021
+                    ]
+                },
+                {
+                    "word": " kappa,",
+                    "start": 8,
+                    "end": 8.4,
+                    "probability": 0.9,
+                    "tokens": [
+                        1022
+                    ]
+                },
+                {
+                    "word": " lambda",
+                    "start": 8.4,
+                    "end": 8.7,
+                    "probability": 0.9,
+                    "tokens": [
+                        1023
+                    ]
+                },
+                {
+                    "word": " mu",
+                    "start": 8.7,
+                    "end": 9,
+                    "probability": 0.9,
+                    "tokens": [
+                        1024
+                    ]
+                },
+                {
+                    "word": " nu.",
+                    "start": 9,
+                    "end": 9.4,
+                    "probability": 0.9,
+                    "tokens": [
+                        1025
+                    ]
+                }
+            ]
+        },
+        {
+            "start": 10.2,
+            "end": 13.6,
+            "text": "你好世界。我们走吧，现在很快结束。",
+            "seek": 0,
+            "tokens": [
+                1026,
+                1027,
+                1028,
+                1029,
+                1030,
+                1031,
+                1032,
+                1033,
+                1034,
+                1035,
+                1036,
+                1037,
+                1038,
+                1039,
+                1040,
+                1041,
+                1042
+            ],
+            "temperature": null,
+            "avg_logprob": null,
+            "compression_ratio": null,
+            "no_speech_prob": null,
+            "words": [
+                {
+                    "word": "你好",
+                    "start": 10.2,
+                    "end": 10.8,
+                    "probability": 0.8,
+                    "tokens": [
+                        1026,
+                        1027
+                    ]
+                },
+                {
+                    "word": "世界。",
+                    "start": 10.8,
+                    "end": 11.4,
+                    "probability": 0.75,
+                    "tokens": [
+                        1028,
+                        1029,
+                        1030
+                    ]
+                },
+                {
+                    "word": "我们",
+                    "start": 11.4,
+                    "end": 11.8,
+                    "probability": 0.8,
+                    "tokens": [
+                        1031,
+                        1032
+                    ]
+                },
+                {
+                    "word": "走吧，",
+                    "start": 11.8,
+                    "end": 12.4,
+                    "probability": 0.7,
+                    "tokens": [
+                        1033,
+                        1034,
+                        1035
+                    ]
+                },
+                {
+                    "word": "现在",
+                    "start": 12.4,
+                    "end": 12.8,
+                    "probability": 0.85,
+                    "tokens": [
+                        1036,
+                        1037
+                    ]
+                },
+                {
+                    "word": "很快",
+                    "start": 12.8,
+                    "end": 13.2,
+                    "probability": 0.9,
+                    "tokens": [
+                        1038,
+                        1039
+                    ]
+                },
+                {
+                    "word": "结束。",
+                    "start": 13.2,
+                    "end": 13.6,
+                    "probability": 0.88,
+                    "tokens": [
+                        1040,
+                        1041,
+                        1042
+                    ]
+                }
+            ]
+        },
+        {
+            "start": 14.2,
+            "end": 17.2,
+            "text": " stretched middle middle2 middle3 tail",
+            "seek": 0,
+            "tokens": [
+                1043,
+                1044,
+                1045,
+                1046,
+                1047
+            ],
+            "temperature": null,
+            "avg_logprob": null,
+            "compression_ratio": null,
+            "no_speech_prob": null,
+            "words": [
+                {
+                    "word": " stretched",
+                    "start": 14.2,
+                    "end": 15.4,
+                    "probability": 0.4,
+                    "tokens": [
+                        1043
+                    ]
+                },
+                {
+                    "word": " middle",
+                    "start": 15.4,
+                    "end": 15.6,
+                    "probability": 0.9,
+                    "tokens": [
+                        1044
+                    ]
+                },
+                {
+                    "word": " middle2",
+                    "start": 15.6,
+                    "end": 15.8,
+                    "probability": 0.9,
+                    "tokens": [
+                        1045
+                    ]
+                },
+                {
+                    "word": " middle3",
+                    "start": 15.8,
+                    "end": 16,
+                    "probability": 0.9,
+                    "tokens": [
+                        1046
+                    ]
+                },
+                {
+                    "word": " tail",
+                    "start": 16,
+                    "end": 17.2,
+                    "probability": 0.45,
+                    "tokens": [
+                        1047
+                    ]
+                }
+            ]
+        }
+    ]
+}

@@ -1,0 +1,18 @@
+{
+    "sampleRate": 16000,
+    "melBins": 80,
+    "nFft": 400,
+    "hopLength": 160,
+    "nSamples": 16000,
+    "nbMaxFrames": 100,
+    "inputFile": "mel-golden-input.bin",
+    "inputSamples": 9600,
+    "inputSha256": "21d9a83b66d9b902887084e60e1ce182729f3897ad286a006865be3591256f3d",
+    "outputFile": "mel-golden-output.bin",
+    "outputMelBins": 80,
+    "outputFrames": 100,
+    "outputSha256": "e5b6a63f44fa69ce25fda3134db547b845646436553247855e04bb6db709d4a4",
+    "torchVersion": "2.5.1+cu121",
+    "numpyVersion": "2.5.2",
+    "seed": 12345
+}

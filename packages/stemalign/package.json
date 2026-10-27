@@ -1,0 +1,34 @@
+{
+    "name": "@felyrics/stemalign",
+    "version": "0.0.0",
+    "private": true,
+    "description": "Felyrics vocal separation and forced alignment.",
+    "license": "MPL-2.0",
+    "type": "module",
+    "main": "./out/main/index.js",
+    "types": "./out/main/index.d.ts",
+    "exports": {
+        ".": {
+            "types": "./out/main/index.d.ts",
+            "default": "./out/main/index.js"
+        },
+        "./package.json": "./package.json"
+    },
+    "files": [
+        "out/main",
+        "examples",
+        "docs"
+    ],
+    "engines": {
+        "node": ">=22.18.0"
+    },
+    "scripts": {
+        "typecheck": "tsc --noEmit -p tsconfig.json",
+        "build": "tsc -p tsconfig.json",
+        "test": "node --import ./tests/register.mjs --test --test-isolation=none \"tests/**/*.test.mjs\"",
+        "test:watch": "node --import ./tests/register.mjs --test --test-isolation=none --watch \"tests/**/*.test.mjs\""
+    },
+    "dependencies": {
+        "onnxruntime-node": "^1.30.0"
+    }
+}

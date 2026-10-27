@@ -1,0 +1,39 @@
+export type StemalignErrorCode =
+    | 'invalid-pcm'
+    | 'invalid-option'
+    | 'unsupported-layout'
+    | 'model-invalid'
+    | 'session-create-failed'
+    | 'session-released'
+    | 'log-level-too-late'
+    | 'release-failed'
+    | 'missing-setting'
+    | 'setting-mismatch'
+    | 'unknown-tensor'
+    | 'unsupported-dtype'
+    | 'cancelled';
+
+export interface StemalignErrorContext {
+    readonly modelId?: string;
+    readonly session?: string;
+    readonly tensor?: string;
+    readonly expected?: string;
+    readonly actual?: string;
+}
+
+export class StemalignError extends Error {
+    readonly code: StemalignErrorCode;
+    readonly context: StemalignErrorContext;
+
+    constructor(
+        code: StemalignErrorCode,
+        message: string,
+        context: StemalignErrorContext = {},
+        options?: ErrorOptions,
+    ) {
+        super(message, options);
+        this.name = 'StemalignError';
+        this.code = code;
+        this.context = context;
+    }
+}
