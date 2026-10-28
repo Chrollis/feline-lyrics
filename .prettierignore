@@ -5,7 +5,10 @@ reference/
 cache/
 output/
 ffmpeg/
+python/
+services/pytest-cache-files-*/
+__pycache__/
 package-lock.json
-packages/stemalign/scripts/fixtures/*-golden.json
+packages/stemalign/tests/fixtures/
 *.svg
 *.md

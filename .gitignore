@@ -5,6 +5,7 @@
 # Cache
 /cache/
 __pycache__
+pytest-cache-files-*
 
 # Output
 /output/
@@ -20,3 +21,5 @@ dist
 
 # Local notes
 /docs/.note.md
+.workbuddy
+/docs/.be/
