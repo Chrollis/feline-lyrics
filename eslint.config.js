@@ -14,6 +14,8 @@ export default defineConfig(
         'cache/**',
         'output/**',
         'python/**',
+        '**/pytest-cache-files-*/',
+        '**/__pycache__/**',
     ]),
     js.configs.recommended,
     tseslint.configs.recommended,

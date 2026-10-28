@@ -2,18 +2,19 @@
     "name": "felyrics",
     "version": "0.0.0",
     "private": true,
-    "description": "Feline-lyrics, lyrics timing and karaoke video compostion.",
+    "description": "Feline-lyrics, lyrics timing and karaoke video composition.",
     "scripts": {
         "lint": "eslint .",
-        "format": "prettier --write .",
-        "format:check": "prettier --check .",
+        "format": "prettier --write apps packages \"*.js\" \"*.json\"",
+        "format:check": "prettier --check apps packages \"*.js\" \"*.json\"",
+        "test": "npm test --workspaces --if-present",
         "typecheck": "npm run typecheck --workspaces --if-present"
     },
     "license": "MPL-2.0",
     "type": "module",
     "packageManager": "npm@12.2.0",
     "engines": {
-        "node": ">=22.12.0"
+        "node": ">=22.18.0"
     },
     "workspaces": [
         "apps/*",
