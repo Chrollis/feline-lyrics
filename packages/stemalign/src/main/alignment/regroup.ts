@@ -538,9 +538,6 @@ function splitSegments(
 
         state.segments.splice(index, 1, ...splitSegment(segment, cuts));
     }
-    state.segments = state.segments.filter(
-        (segment) => segment.words.length > 0,
-    );
 }
 
 // Port of WhisperResult._remove_special_period_indices (result.py:1428-1438): a period

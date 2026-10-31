@@ -108,6 +108,16 @@ describe('regroupSegments', () => {
         );
     });
 
+    it('leaves a segment without words in place', () => {
+        // result.py never asks for a split of a wordless segment; the port used
+        // to drop it at the end of the walk. It must survive untouched.
+        const input = [makeSegment([], carried(gapped[0])), gapped[0]];
+        const regrouped = regroupSegments(input, { algo: 'sg=.5' }).segments;
+        assert.equal(regrouped.length, 3);
+        assert.equal(regrouped[0].words.length, 0);
+        assert.deepEqual(texts(regrouped.slice(1)), [' a', ' b c']);
+    });
+
     it('splits punctuation pairs only where the two strings meet', () => {
         // A lone `.* ` is not a pair: without `/` it stays one string, like
         // Python's str_to_valid_type, so it splits nothing.

@@ -12,6 +12,11 @@ export interface ClampOptions {
     readonly clipStart?: boolean;
 }
 
+// What WhisperResult.clamp_max uses when it is called without arguments.
+export const DEFAULT_CLAMP_OPTIONS: ClampOptions = {
+    mediumFactor: DEFAULT_MEDIUM_FACTOR,
+};
+
 // Port of WhisperResult.clamp_max (reference/whisper/src/regroup.mjs:232).
 // The reference clamps one segment at a time, so a caller that runs it over a
 // whole song should hand it the words of one window.
@@ -21,7 +26,7 @@ export interface ClampOptions {
 // longer than the cap. That is the reference behavior, not an oversight.
 export function clampWords(
     words: readonly WordTiming[],
-    options: ClampOptions = {},
+    options: ClampOptions = DEFAULT_CLAMP_OPTIONS,
 ): readonly WordTiming[] {
     const mediumFactor =
         options.mediumFactor === undefined

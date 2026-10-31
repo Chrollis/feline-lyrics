@@ -97,15 +97,19 @@ const handle = await openModel({
 
 try {
     const audio = decode(audioPath);
-    const result = await align(audio, handle, {
-        text: readFileSync(lyricsPath, 'utf8'),
-        language,
-        onProgress: (progress) => {
-            process.stderr.write(
-                `${progress.seconds.toFixed(1)} / ${progress.totalSeconds.toFixed(1)} s\n`,
-            );
+    const result = await align(
+        audio,
+        readFileSync(lyricsPath, 'utf8'),
+        handle,
+        {
+            language,
+            onProgress: (progress) => {
+                process.stderr.write(
+                    `${progress.seconds.toFixed(1)} / ${progress.totalSeconds.toFixed(1)} s\n`,
+                );
+            },
         },
-    });
+    );
 
     const outPath = resolve(
         outArg ??

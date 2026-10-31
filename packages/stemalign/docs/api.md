@@ -242,7 +242,10 @@ never runs a decode loop that could produce it.
 `nonspeechError`, `suppressSilence`, `suppressWordTimestamps`,
 `useWordPosition`, `regroup` (`true`/`false`/an algorithm string, default the
 `da` chain), `wordDurFactor`, `maxWordDur`, `splitWordsBySpace`,
-`maxSegmentLength`, `fastMode`, `failureThreshold`, `onProgress`, `signal`.
+`maxSegmentLength` (window length in samples, at least one second, default the
+model window), `fastMode`, `failureThreshold` (fraction of words that may come
+back with zero duration before the run bails out; one or more disables the
+check, as does the default), `onProgress`, `signal`.
 
 `onProgress` receives `{ seconds, totalSeconds, finished }`; `finished` is false
 when the run bailed out because too many words came back with zero duration.

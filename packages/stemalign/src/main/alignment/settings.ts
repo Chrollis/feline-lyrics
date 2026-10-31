@@ -17,6 +17,8 @@ export interface WhisperSettings {
     readonly melBins: number;
     readonly nFft: number;
     readonly hopLength: number;
+    // Cross-checked below against nb_max_frames and n_samples; no later stage
+    // reads it.
     readonly chunkLength: number;
     readonly nbMaxFrames: number;
     readonly nSamples: number;
@@ -27,6 +29,12 @@ export interface WhisperSettings {
     readonly decoderStartTokenId: number;
     readonly eosTokenId: number;
     readonly noTimestampsTokenId: number;
+    /**
+     * The decoder suppression list (`begin_suppress_tokens`) and the
+     * generation one (`suppress_tokens`), parsed for reference parity; the
+     * alignment path does not apply suppression. Both are optional and both
+     * default to empty.
+     */
     readonly beginSuppressTokens: readonly number[];
     readonly suppressTokens: readonly number[];
     readonly alignmentHeads: readonly AlignmentHead[];
@@ -63,7 +71,12 @@ export function inspectWhisperSettings(
         'decoder_start_token_id',
     );
     const eosTokenId = integerSetting(config, 'eos_token_id');
-    const beginSuppressTokens = integerValues(config, 'begin_suppress_tokens');
+    // Optional, unlike the other config ids: the alignment path never applies
+    // it, so a model that ships no such list still aligns.
+    const beginSuppressTokens = optionalIntegerValues(
+        config,
+        'begin_suppress_tokens',
+    );
 
     const suppressTokens = optionalIntegerValues(generation, 'suppress_tokens');
     const noTimestampsTokenId = integerSetting(

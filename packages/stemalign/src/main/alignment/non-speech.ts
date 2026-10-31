@@ -276,6 +276,10 @@ function audio2Loudness(
     const threshold =
         k > 0 ? nthLargest(magnitudes, k) : quantile(magnitudes, 0.999);
 
+    // The reference adds the same extra unit (stable_whisper.stabilization
+    // .nonvad.audio2loudness) and its mask-to-timing helper divides by the token
+    // rate without clamping to the duration, so the last unit maps one unit past
+    // the audio end there too. Kept as is; non-speech.test.mjs pins the numbers.
     const unitCount = bankersRound(length / unitSamples, 0) + 1;
     if (unitCount <= 2) return null;
 

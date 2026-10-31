@@ -1,5 +1,8 @@
 import assert from 'node:assert/strict';
-import { clampWords } from '../../src/main/alignment/clamp.js';
+import {
+    clampWords,
+    DEFAULT_CLAMP_OPTIONS,
+} from '../../src/main/alignment/clamp.js';
 import { describe, it } from 'node:test';
 
 describe('clamp', () => {
@@ -91,6 +94,27 @@ describe('clamp', () => {
                 },
             ],
         );
+
+        // No options is the clamp_max default: 2.5 times the upper median, and
+        // only the first word (at its start) and the last word (at its end).
+        const defaults = [
+            word('a', 0, 1.2),
+            word('b', 1.3, 1.4),
+            word('c', 1.5, 1.62),
+            word('d', 1.7, 2.0),
+            word('e', 2.1, 3.2),
+        ];
+        // The durations 1.2, 0.1, 0.12, 0.3 and 1.1 sort to 0.1, 0.12, 0.3, 1.1
+        // and 1.2, so the cap is 2.5 * 0.3 = 0.75.
+        assert.deepEqual(clampWords(defaults), [
+            word('a', 0.45, 1.2),
+            word('b', 1.3, 1.4),
+            word('c', 1.5, 1.62),
+            word('d', 1.7, 2.0),
+            word('e', 2.1, 2.85),
+        ]);
+        // The aligner runs the same defaults after every window.
+        assert.deepEqual({ ...DEFAULT_CLAMP_OPTIONS }, { mediumFactor: 2.5 });
 
         // Nothing is mutated and every rejected option is rejected.
         const original = [

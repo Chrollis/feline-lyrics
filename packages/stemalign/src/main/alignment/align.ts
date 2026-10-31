@@ -6,7 +6,8 @@ import { StemalignError } from '../errors.js';
 import type { ModelHandle } from '../model/session.js';
 import { bankersRound } from '../round.js';
 import { computeAttentionWeights } from './attention.js';
-import { clampWords } from './clamp.js';
+import { clampWords, DEFAULT_CLAMP_OPTIONS } from './clamp.js';
+import type { ClampOptions } from './clamp.js';
 import { runDecoder } from './decoder.js';
 import { runEncoder } from './encoder.js';
 import { computeJumpIndices } from './jumps.js';
@@ -30,6 +31,7 @@ import type { WhisperSettings } from './settings.js';
 import { inspectWhisperTokenizer } from './tokenizer.js';
 import type { WhisperTokenizer } from './tokenizer.js';
 import { wordTimings } from './timestamps.js';
+import type { WordTiming } from './timestamps.js';
 import {
     DEFAULT_APPEND_PUNCTUATIONS,
     DEFAULT_PREPEND_PUNCTUATIONS,
@@ -112,13 +114,28 @@ export interface AlignOptions {
     readonly wordDurFactor?: number | null;
     readonly maxWordDur?: number | null;
     /**
+     * Post-alignment duration clamp applied to the words of one window, the
+     * `WhisperResult.clamp_max` step of stable_ts. Defaults to that method's
+     * defaults (2.5 times the window median, only the first word at its start
+     * and the last word at its end). `false` skips the per-window pass, but
+     * `regroup` runs its own clamp over the segments it rebuilds, so a caller
+     * that needs untouched durations must turn regrouping off as well. Note
+     * that `wordDurFactor` and `maxWordDur` are the aligner's redo heuristic,
+     * not this clamp.
+     */
+    readonly clamp?: ClampOptions | false;
+    /**
      * Split words at spaces (the reference default) instead of at every token
      * piece. Languages without spaces, such as Chinese, need `false`.
      */
     readonly splitWordsBySpace?: boolean;
-    /** Window length in samples; defaults to the model window. */
+    /** Window length in samples, at least one second; defaults to the model window. */
     readonly maxSegmentLength?: number;
     readonly fastMode?: boolean;
+    /**
+     * Fraction of words that may come back with zero duration before the run
+     * bails out. One or more disables the check, as does the default.
+     */
     readonly failureThreshold?: number | null;
     readonly onProgress?: (progress: AlignProgress) => void;
     readonly signal?: AbortSignal;
@@ -158,6 +175,7 @@ class WhisperAligner {
     private readonly tokenStep: number;
     private readonly wordDurFactor: number | null;
     private readonly maxWordDur: number | null;
+    private readonly clamp: ClampOptions | false;
     private readonly minWordDur: number;
     private nonspeechSkip: number | null;
     private fastMode: boolean;
@@ -175,8 +193,6 @@ class WhisperAligner {
     private currWords: AlignWord[] = [];
     private segWordTokens: QueuedWord[] = [];
     private allWordTokens: QueuedWord[] = [];
-    private padMask: Uint8Array | null = null;
-    private remainingLen = 0;
     private failureCount = 0;
 
     private readonly handle: ModelHandle;
@@ -243,6 +259,8 @@ class WhisperAligner {
         this.tokenStep = options.tokenStep ?? DEFAULT_TOKEN_STEP;
         this.wordDurFactor = options.wordDurFactor ?? DEFAULT_WORD_DUR_FACTOR;
         this.maxWordDur = options.maxWordDur ?? DEFAULT_MAX_WORD_DUR;
+        this.clamp =
+            options.clamp === undefined ? DEFAULT_CLAMP_OPTIONS : options.clamp;
         this.minWordDur = options.minWordDur ?? DEFAULT_MIN_WORD_DUR;
         this.nonspeechSkip = options.nonspeechSkip ?? DEFAULT_NONSPEECH_SKIP;
         this.fastMode = options.fastMode ?? false;
@@ -263,6 +281,14 @@ class WhisperAligner {
             throw new StemalignError(
                 'invalid-option',
                 'maxSegmentLength must be a positive whole number of samples',
+            );
+        }
+        // A window shorter than a second leaves the DTW with fewer frames than
+        // the window can carry tokens, so words collapse to zero duration.
+        if (maxSegmentLength < settings.sampleRate) {
+            throw new StemalignError(
+                'invalid-option',
+                `maxSegmentLength must be at least one second (${String(settings.sampleRate)} samples), got ${String(maxSegmentLength)}`,
             );
         }
         if (maxSegmentLength > settings.nSamples) {
@@ -296,53 +322,24 @@ class WhisperAligner {
 
     // -- word queue (reference: _get_curr_words) --------------------------
 
-    getCurrWords(): [QueuedWord[], number[], boolean] {
+    getCurrWords(): QueuedWord[] {
         const all = this.allWordTokens;
-        const padMask = this.padMask;
-        const padLen = padMask ? padMask.length : 0;
         let currTkCount = 0;
         const wordTokens: QueuedWord[] = [];
-        const splitIndices: number[] = [];
-
-        let isStartGap: boolean;
-        if (padMask) {
-            if (this.remainingLen === padLen) {
-                isStartGap = true;
-            } else {
-                const index = padLen - (this.remainingLen + 1);
-                isStartGap =
-                    index >= 0 && index < padLen ? padMask[index] === 1 : false;
-            }
-        } else {
-            isStartGap = true;
-        }
 
         while (all.length > 0) {
             const head = all[0];
             const tkCount = head.tokens.length;
-            let mCount = 0;
-            let padHit = false;
-            if (padMask) {
-                const index =
-                    padLen - (this.remainingLen - head.word.length + 1);
-                if (index >= 0 && index < padLen) {
-                    padHit = padMask[index] === 1;
-                    mCount = padHit ? 1 : 0;
-                }
-            }
             if (
-                currTkCount + splitIndices.length + tkCount + mCount >
-                    this.tokenStep &&
+                currTkCount + tkCount > this.tokenStep &&
                 wordTokens.length > 0
             ) {
                 break;
             }
-            if (padHit) splitIndices.push(wordTokens.length + 1);
-            this.remainingLen -= head.word.length;
             wordTokens.push(all.shift() as QueuedWord);
             currTkCount += tkCount;
         }
-        return [wordTokens, splitIndices, isStartGap];
+        return wordTokens;
     }
 
     // -- temp word repair (reference: _fix_temp_words) --------------------
@@ -490,18 +487,10 @@ class WhisperAligner {
         }
 
         if (index === null) {
-            let add = 0;
-            for (const token of this.segWordTokens) add += token.word.length;
-            this.remainingLen += add;
             this.allWordTokens = this.segWordTokens.concat(this.allWordTokens);
             this.currWords = [];
             this.tempData.word = null;
         } else if (index !== this.segWordTokens.length) {
-            let add = 0;
-            for (let k = index; k < this.segWordTokens.length; k += 1) {
-                add += this.segWordTokens[k].word.length;
-            }
-            this.remainingLen += add;
             this.allWordTokens = this.segWordTokens
                 .slice(index)
                 .concat(this.allWordTokens);
@@ -511,7 +500,6 @@ class WhisperAligner {
 
             if (this.currWords.length > 0) {
                 this.updateCurrWords();
-                this.remainingLen += this.segWordTokens[index - 1].word.length;
                 this.allWordTokens = this.segWordTokens
                     .slice(index - 1, index)
                     .concat(this.allWordTokens);
@@ -585,9 +573,6 @@ class WhisperAligner {
             word,
             tokens: [...split.tokens[index]],
         }));
-        this.remainingLen = 0;
-        for (const entry of this.allWordTokens)
-            this.remainingLen += entry.word.length;
         this.failureCount = 0;
         this.maxFail = this.allWordTokens.length * (this.failureThreshold ?? 1);
         if (this.allWordTokens.length === 0) {
@@ -608,7 +593,7 @@ class WhisperAligner {
             const segment = this.skipNonspeech(raw);
             if (segment === null) continue;
 
-            const [wordTokens] = this.getCurrWords();
+            const wordTokens = this.getCurrWords();
             this.currWords = await this.windowWords(segment, wordTokens);
             this.segWordTokens = this.currWords.map((word) => ({
                 word: word.word,
@@ -631,13 +616,20 @@ class WhisperAligner {
         }
 
         this.report(lastTs, this.failureCount <= this.maxFail);
-        if (this.tempData.word !== null) result.push(this.tempData.word);
 
         // Whatever is still queued never got a timestamp. The reference appends
         // those words at the end of the audio (removeInstantWords = false); we
         // drop them and let the caller decide, per the alignment contract.
 
-        const words = this.clampWindows(result, ranges);
+        // `tempData.word` is appended after the loop recorded the range of the
+        // window that rescued it, so it is folded into that last range here: it
+        // must go through the same per-window clamp as the words before it.
+        const words = clampWindowWords(
+            result,
+            ranges,
+            this.tempData.word,
+            this.clamp,
+        );
         // stable_ts records the non-speech sections only while suppressing
         // (aligner.mjs:888 leaves `_nonspeech_sections` empty otherwise).
         const silences = this.suppressSilence
@@ -698,24 +690,6 @@ class WhisperAligner {
             regroup_history: regrouped.history,
             nonspeech_sections,
         };
-    }
-
-    private clampWindows(
-        result: readonly AlignWord[],
-        ranges: readonly (readonly [number, number])[],
-    ): readonly AlignWord[] {
-        let words: readonly AlignWord[] = result;
-        for (let index = 0; index < ranges.length; index += 1) {
-            const [first, last] = ranges[index];
-            const clamped = clampWords(words.slice(first, last)).map(
-                (word) => ({
-                    ...word,
-                    tokens: [...word.tokens],
-                }),
-            );
-            words = words.slice(0, first).concat(clamped, words.slice(last));
-        }
-        return words;
     }
 
     private async windowWords(
@@ -992,6 +966,52 @@ function median(values: Float64Array): number {
     if (count % 2 === 1) return sorted[(count - 1) >> 1];
     const middle = count >> 1;
     return 0.5 * (sorted[middle - 1] + sorted[middle]);
+}
+
+/**
+ * Apply the per-window clamp to the words the window loop collected, after
+ * folding in the trailing word the last window rescued (`tempData.word`). That
+ * word is appended once the loop has recorded the range of the window that
+ * produced it, so it joins that last range here: otherwise it would sit outside
+ * every range and keep a duration the rest of the window never gets to keep.
+ *
+ * Exported for the align tests: `index.ts` does not re-export it, so the
+ * package API is unchanged.
+ */
+export function clampWindowWords(
+    words: readonly WordTiming[],
+    ranges: readonly (readonly [number, number])[],
+    trailing: WordTiming | null,
+    options: ClampOptions | false,
+): readonly WordTiming[] {
+    const all = trailing === null ? words : [...words, trailing];
+    if (options === false) return all;
+    let clamped: readonly WordTiming[] = all;
+    const windows =
+        trailing === null ? ranges : widenLastRange(ranges, all.length);
+    for (const [first, last] of windows) {
+        const window = clampWords(clamped.slice(first, last), options).map(
+            (word) => ({ ...word, tokens: [...word.tokens] }),
+        );
+        clamped = clamped.slice(0, first).concat(window, clamped.slice(last));
+    }
+    return clamped;
+}
+
+// The trailing word belongs to the window that produced the last range, so that
+// range grows to include it. A run that recorded no range at all still clamps
+// the trailing word, in a range of its own.
+function widenLastRange(
+    ranges: readonly (readonly [number, number])[],
+    end: number,
+): readonly (readonly [number, number])[] {
+    const last = ranges[ranges.length - 1];
+    const widened: readonly [number, number] = [
+        last === undefined ? end - 1 : last[0],
+        end,
+    ];
+    if (last === undefined) return [widened];
+    return [...ranges.slice(0, -1), widened];
 }
 
 export async function align(

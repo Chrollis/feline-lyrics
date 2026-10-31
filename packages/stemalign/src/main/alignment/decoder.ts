@@ -60,23 +60,43 @@ export async function runDecoder(
         buildFeeds(layout, request, frames, modelSize),
         buildFetches(layout, settings),
     );
-    // A logits tensor is [1, tokens, vocabSize] float32, which is about 93 MB
-    // for a 400 token window, and nothing downstream wants more than one
-    // probability per text token, so read those out and release the tensor
-    // instead of keeping it alive for the lifetime of the pass.
-    const probabilities = readProbabilities(
-        output,
-        layout,
-        settings,
-        tokens,
-        request.tokenIds,
-    );
-    return {
-        tokens,
-        frames,
-        probabilities,
-        attentions: readAttentions(output, layout, settings, tokens, frames),
-    };
+    try {
+        // A logits tensor is [1, tokens, vocabSize] float32, which is about 93 MB
+        // for a 400 token window, and nothing downstream wants more than one
+        // probability per text token, so read those out and release the tensor
+        // instead of keeping it alive for the lifetime of the pass.
+        const probabilities = readProbabilities(
+            output,
+            layout,
+            settings,
+            tokens,
+            request.tokenIds,
+        );
+        return {
+            tokens,
+            frames,
+            probabilities,
+            attentions: readAttentions(
+                output,
+                layout,
+                settings,
+                tokens,
+                frames,
+            ),
+        };
+    } finally {
+        // Each reader releases the tensors it read as soon as it is done with
+        // them, so a tensor only reaches this sweep when a reader threw before
+        // it got there: without it a failed logits read would leave the cross
+        // attention tensors (and a failed attention read would leave the rest)
+        // to the garbage collector. The sweep therefore disposes tensors that
+        // may already be released; that is fine because Tensor.dispose is
+        // idempotent -- it clears its disposer after calling it once and then
+        // finds nothing left to release.
+        for (const value of Object.values(output)) {
+            if (value instanceof Tensor) value.dispose();
+        }
+    }
 }
 
 /**
