@@ -5,7 +5,8 @@ import { rebuild, textToLyricsLine, type LyricsLine } from '../lyrics/line.js';
 import { emptyMeta } from '../lyrics/meta.js';
 import { lyricsOf, type Lyrics } from '../lyrics/lyrics.js';
 import type { SegRun } from '../lyrics/seg-run.js';
-import { newLosses, type Loss, type LossCollector } from './loss.js';
+import { newLosses, type LossCollector } from './loss.js';
+import type { Exported, Imported } from './plain.js';
 import { formatHeaders, parseHeader, withHeader } from './headers.js';
 import {
     applyRuby,
@@ -26,15 +27,7 @@ export const DEFAULT_GROUP = 'default';
 /** The group `@Ruby` lines fill. */
 export const RUBY_GROUP = 'ruby';
 
-export interface Imported {
-    readonly lyrics: Lyrics;
-    readonly losses: readonly Loss[];
-}
-
-export interface Exported {
-    readonly text: string;
-    readonly losses: readonly Loss[];
-}
+export type { Exported, Imported };
 
 export interface TagImportOptions {
     /** Group that receives one run per tagged chunk. */
@@ -416,7 +409,7 @@ export function importTagText(
     const blanks: number[] = [];
     let firstLyric = -1;
     let lastLyric = -1;
-    const rubies: { at: string; entry: RubyEntry }[] = [];
+    const rubies: { source: string; entry: RubyEntry }[] = [];
     let meta = emptyMeta();
     for (const [index, raw] of splitLines(
         ensureTrailingBreak(text, 'file', losses),
@@ -432,21 +425,21 @@ export function importTagText(
         }
         const ruby = parseRubyLine(content);
         if (ruby !== null) {
-            rubies.push({ at: `lines[${index}]`, entry: ruby });
+            rubies.push({ source: `source[${index}]`, entry: ruby });
             continue;
         }
         if (/^@?ruby\d*\s*=/i.test(content.trim())) {
             // Kept below as metadata rather than deleted: the line carries no
             // reading, but its bytes still round trip through `extra`.
             losses.add(
-                `lines[${index}]`,
+                `source[${index}]`,
                 'unsupported-construct',
                 `"${content.trim()}" has no "TT,RR" payload, so no reading was attached; the line was kept as metadata`,
             );
         }
         const header = parseHeader(content);
         if (header !== null) {
-            meta = withHeader(meta, header, `lines[${index}]`, losses);
+            meta = withHeader(meta, header, `source[${index}]`, losses);
             continue;
         }
         lastLyric = index;
@@ -457,7 +450,7 @@ export function importTagText(
             lineFromChunks(
                 content,
                 raw.break,
-                `lines[${index}]`,
+                `source[${index}]`,
                 group,
                 losses,
             ),
@@ -516,7 +509,8 @@ export function importTagText(
             lyrics,
             rubies.map((ruby) => ruby.entry),
             RUBY_GROUP,
-            'ruby',
+            (entry, index) =>
+                rubyLossAt(lyrics, entry, rubies[index]?.source ?? 'ruby'),
             losses,
         );
     } // Readings carry their own checks now, so the annotated cells get their
@@ -556,6 +550,32 @@ export function importTagText(
 }
 
 /**
+ * Where an `@Ruby` entry was supposed to land, for the loss that says it did
+ * not. The model coordinate is the row whose cells hold the parent text; a
+ * parent that appears in no row has no model home, so only the source line it
+ * came from can name it.
+ */
+function rubyLossAt(lyrics: Lyrics, entry: RubyEntry, source: string): string {
+    const width = textToStream(entry.parent).cells.length;
+    if (width === 0) {
+        return `${source}.ruby`;
+    }
+    for (const [index, line] of lyrics.lines.entries()) {
+        const cells = line.baseStream.cells;
+        for (let from = 0; from + width <= cells.length; from += 1) {
+            const text = cells
+                .slice(from, from + width)
+                .map((cell) => cell.text)
+                .join('');
+            if (text === entry.parent) {
+                return `lines[${index}].ruby`;
+            }
+        }
+    }
+    return `${source}.ruby`;
+}
+
+/**
  * The cells a `@Ruby` parent covers. A comma there would have to be dropped
  * from the parent field, so the body has to drop it too or the two stop
  * matching. A comma anywhere else is harmless and stays.
@@ -575,6 +595,21 @@ function separatorsUnderRuby(line: LyricsLine): ReadonlySet<number> {
         }
     }
     return covered;
+}
+
+/**
+ * Writes body text so the scanner reads it back as text. A `[` starts a tag, a
+ * `$` starts an escape and a `{` starts inline ruby, and none has a quoting
+ * rule, so all three are written as the escape the scanner already understands.
+ * `$` goes first: escaping the others first would make the `$` they introduce
+ * start an escape of its own. U+001A is left alone: the reader refuses that
+ * escape and reports the placeholder it drops on the next read.
+ */
+function escapeBody(text: string): string {
+    return text
+        .replace(/\$/g, '$0024')
+        .replace(/\[/g, '$005B')
+        .replace(/\{/g, '$007B');
 }
 
 /** Writes one line back out, tagging the start of every run of the group. */
@@ -650,7 +685,7 @@ function lineToText(
             );
             continue;
         }
-        out += text;
+        out += escapeBody(text);
     }
     const end = (runs ?? []).at(-1);
     const endCheck = end?.pieces[0]?.check ?? null;

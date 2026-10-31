@@ -27,6 +27,15 @@ describe('nothing is lost silently', () => {
         assert.equal(result.losses.length, 1);
         assert.match(result.losses[0]?.detail ?? '', /has no "TT,RR" payload/);
         assert.equal(result.lyrics.meta.extra.Ruby1, '');
+        // A source row, not a model row: the line never became a model line.
+        assert.equal(result.losses[0]?.at, 'source[1]');
+    });
+
+    it('names the source row a metadata loss came from', () => {
+        const result = importTagText('[00:01:00]a\n@Offset=nope\n');
+        assert.equal(result.losses.length, 1);
+        assert.equal(result.losses[0]?.code, 'meta-unsupported');
+        assert.equal(result.losses[0]?.at, 'source[1]');
     });
 
     it('reports dropped stanza breaks instead of hiding them', () => {
@@ -66,5 +75,6 @@ describe('nothing is lost silently', () => {
         assert.equal(result.lyrics.lines[0].groups.ruby, undefined);
         assert.equal(result.losses.length, 1);
         assert.match(result.losses[0]?.detail ?? '', /contain another "\{"/);
+        assert.equal(result.losses[0]?.at, 'source[0]');
     });
 });

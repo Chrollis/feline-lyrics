@@ -130,13 +130,23 @@ function decodeOrder(bytes: Uint8Array): readonly LyricEncoding[] {
 /**
  * Turns raw bytes into text: a BOM wins, then every code page that decodes
  * cleanly is scored for plausibility and the best one is taken. Ties go to the
- * earlier candidate, so ASCII stays UTF-8.
+ * earlier candidate, so ASCII stays UTF-8. A BOM that does not decode cleanly
+ * still wins (its encoding labels the text), but the lossy read is reported.
  */
 export function decodeText(bytes: Uint8Array): DecodedText {
     const losses = newLosses();
     for (const [prefix, encoding] of BOMS) {
         if (startsWith(bytes, prefix)) {
             const body = bytes.subarray(prefix.length);
+            const text = decodeStrict(body, encoding);
+            if (text !== null) {
+                return { text, encoding, losses: losses.losses };
+            }
+            losses.add(
+                'file',
+                'source-ignored',
+                `the BOM says ${encoding}, but the bytes do not decode cleanly`,
+            );
             return {
                 text: new TextDecoder(encoding).decode(body),
                 encoding,

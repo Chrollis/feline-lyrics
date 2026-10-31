@@ -23,6 +23,23 @@ describe('text', () => {
         assert.equal(decoded.encoding, 'utf-16le');
     });
 
+    it('reports a BOM that does not decode cleanly', () => {
+        // A UTF-8 BOM in front of bytes that are not UTF-8.
+        const wrong = decodeText(Uint8Array.of(0xef, 0xbb, 0xbf, 0xff, 0x81));
+        assert.equal(wrong.encoding, 'utf-8');
+        assert.equal(wrong.text, '\ufffd\ufffd');
+        assert.equal(wrong.losses.length, 1);
+        assert.equal(wrong.losses[0].code, 'source-ignored');
+
+        // A UTF-16LE BOM followed by half a code unit: the decoder reports one
+        // replacement for the incomplete unit.
+        const truncated = decodeText(Uint8Array.of(0xff, 0xfe, 0x61));
+        assert.equal(truncated.encoding, 'utf-16le');
+        assert.equal(truncated.text, '\ufffd');
+        assert.equal(truncated.losses.length, 1);
+        assert.equal(truncated.losses[0].code, 'source-ignored');
+    });
+
     it('keeps plain ASCII as UTF-8', () => {
         const decoded = decodeText(
             new TextEncoder().encode('[00:01:00]la la\n'),

@@ -85,4 +85,46 @@ describe('time-tagged export', () => {
             exported.losses.some((loss) => loss.code === 'dropped-check-kind'),
         );
     });
+
+    it('escapes a bracket and a dollar so they read back as text', () => {
+        const source = '[00:01:00]$005B0:30$005D$0024\n';
+        const { lyrics, losses } = importTagText(source);
+        assert.deepEqual(losses, []);
+
+        const exported = exportTagText(lyrics);
+        // `[` and `$` become escapes; `]` is inert without an opener and stays.
+        assert.ok(exported.text.includes('$005B0:30]$0024'));
+        assert.equal(exported.text.includes('[0:30]'), false);
+        assert.deepEqual(exported.losses, []);
+
+        const again = importTagText(exported.text);
+        assert.deepEqual(again.losses, []);
+        const cells = (result) =>
+            result.lyrics.lines[0].baseStream.cells.map((cell) => [
+                cell.text,
+                cell.span,
+            ]);
+        assert.deepEqual(cells(again), cells({ lyrics }));
+    });
+
+    it('escapes a brace so it reads back as text', () => {
+        const source = '[00:01:00]$007Bx|y$007D\n';
+        const { lyrics, losses } = importTagText(source);
+        assert.deepEqual(losses, []);
+
+        const exported = exportTagText(lyrics);
+        // `{` would start inline ruby; `}` alone is inert and stays as itself.
+        assert.equal(exported.text.includes('{x|y'), false);
+        assert.ok(exported.text.includes('$007Bx|y}'));
+        assert.deepEqual(exported.losses, []);
+
+        // The check is that a second import sees the same cells again.
+        const again = importTagText(exported.text);
+        const cells = (result) =>
+            result.lyrics.lines[0].baseStream.cells.map((cell) => [
+                cell.text,
+                cell.span,
+            ]);
+        assert.deepEqual(cells(again), cells({ lyrics }));
+    });
 });

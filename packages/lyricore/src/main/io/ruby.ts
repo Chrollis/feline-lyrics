@@ -81,11 +81,15 @@ export function splitReading(reading: string): ReadingChunk[] {
 }
 
 /** Joins chunks back into a reading, writing offsets only where they start. */
-export function joinReading(chunks: readonly ReadingChunk[]): string {
+export function joinReading(
+    chunks: readonly ReadingChunk[],
+    losses: LossCollector | null = null,
+    at = '@Ruby',
+): string {
     let out = '';
     for (const chunk of chunks) {
         if (chunk.offset !== null) {
-            out += formatOffset(chunk.offset);
+            out += formatOffset(chunk.offset, losses, at);
         }
         out += chunk.text;
     }
@@ -99,12 +103,29 @@ function tagMilliseconds(match: RegExpExecArray): number {
     return minutes * 60_000 + seconds * 1_000 + fraction * 10;
 }
 
-/** `[mm:ss:cc]` for a millisecond value; centiseconds are truncated and the sign has no grammar. */
-export function formatOffset(ms: number): string {
-    const at = Math.max(0, ms);
-    const minutes = Math.floor(at / 60_000);
-    const seconds = Math.floor((at % 60_000) / 1_000);
-    const fraction = Math.floor((at % 1_000) / 10);
+/**
+ * `[mm:ss:cc]` for a millisecond value; centiseconds are truncated and the sign
+ * has no grammar. A value off the centisecond grid is a `time-truncated` loss:
+ * the format cannot say it, and dropping it in silence is what a reader of the
+ * exported file would never learn.
+ */
+export function formatOffset(
+    ms: number,
+    losses: LossCollector | null = null,
+    at = '@Ruby',
+): string {
+    const value = Math.max(0, ms);
+    const rest = value % 1_000;
+    if (rest % 10 !== 0) {
+        losses?.add(
+            at,
+            'time-truncated',
+            `${value} ms written as ${Math.floor(value / 10) * 10} ms: the format counts whole centiseconds, so ${rest % 10} ms was lost`,
+        );
+    }
+    const minutes = Math.floor(value / 60_000);
+    const seconds = Math.floor((value % 60_000) / 1_000);
+    const fraction = Math.floor(rest / 10);
     return `[${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}:${String(fraction).padStart(2, '0')}]`;
 }
 
@@ -230,12 +251,16 @@ function runFromEntry(
  * the first unclaimed occurrence of its parent text that its window accepts,
  * and an entry whose window has a lower bound is tried against timed cells
  * first, so a re-imported assertion lands back where it was exported from.
+ *
+ * `at` is where a loss is reported. A string names the same place for every
+ * entry; a function can name the row the entry was supposed to land on, which
+ * is the only coordinate the model has for an entry that did not land.
  */
 export function applyRuby(
     lyrics: Lyrics,
     entries: readonly RubyEntry[],
     group: string,
-    at: string,
+    at: string | ((entry: RubyEntry, index: number) => string),
     losses: LossCollector,
 ): Lyrics {
     if (entries.length === 0) {
@@ -260,10 +285,11 @@ export function applyRuby(
         return used;
     });
     const added: SegRun[][] = lyrics.lines.map(() => []);
-    for (const entry of entries) {
+    for (const [position, entry] of entries.entries()) {
+        const where = typeof at === 'function' ? at(entry, position) : at;
         if (entry.parent === '') {
             losses.add(
-                at,
+                where,
                 'unsupported-construct',
                 'a @Ruby line has no parent text',
             );
@@ -356,7 +382,7 @@ export function applyRuby(
         }
         if (!placed) {
             losses.add(
-                at,
+                where,
                 'unsupported-construct',
                 `@Ruby "${entry.parent}" has no unclaimed occurrence that its window accepts`,
             );
@@ -428,13 +454,16 @@ export function formatRuby(
                         ? null
                         : piece.check.time - first,
             })),
+            losses,
+            at,
         ),
         'ルビ',
         losses,
         at,
     );
-    const from = first === null ? '' : formatOffset(first);
-    const to = end === null || !isTime(end) ? '' : formatOffset(end);
+    const from = first === null ? '' : formatOffset(first, losses, at);
+    const to =
+        end === null || !isTime(end) ? '' : formatOffset(end, losses, at);
     return `${parent},${reading},${from},${to}`;
 }
 

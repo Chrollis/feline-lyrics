@@ -40,8 +40,16 @@ describe('reference samples', () => {
 
             const exported = exportTagText(first.lyrics);
             // A comma only has to go where an @Ruby parent covers it, and none
-            // of these samples carries ruby, so nothing is dropped.
-            assert.deepEqual(exported.losses, []);
+            // of these samples carries ruby, so nothing is dropped there. A
+            // window start the model interpolated between two centiseconds
+            // cannot be written exactly, so its truncation is expected;
+            // everything else must still come out clean.
+            assert.deepEqual(
+                exported.losses.filter(
+                    (loss) => loss.code !== 'time-truncated',
+                ),
+                [],
+            );
             const second = importTagText(exported.text);
             assert.deepEqual(second.losses.filter(expected), []);
 

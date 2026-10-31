@@ -103,6 +103,9 @@ export function withHeader(
         };
     }
     if (field === 'offset') {
+        // Carried verbatim: nothing in lyricore applies an offset to a time and
+        // the format never defined its sign, so a consumer that cares must read
+        // `meta.offset` and decide. Writing it back keeps the file stable.
         const value = Number(header.value.trim());
         if (!Number.isInteger(value) || !isTime(value)) {
             losses.add(

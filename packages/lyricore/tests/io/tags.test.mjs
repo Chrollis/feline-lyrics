@@ -129,3 +129,21 @@ describe('what scanning has to refuse', () => {
         );
     });
 });
+
+describe('Enhanced LRC word timing', () => {
+    it('reports it once and keeps the spelling as text', () => {
+        const scanned = scanTags('[00:01:00]<00:01:50>He<00:01:90>llo', 'line');
+        assert.equal(scanned.chunks[0]?.text, '<00:01:50>He<00:01:90>llo');
+        assert.deepEqual(
+            scanned.losses.map((loss) => loss.code),
+            ['unsupported-construct'],
+        );
+        assert.equal(scanned.losses[0]?.at, 'line');
+    });
+
+    it('leaves angle brackets that are not word times alone', () => {
+        const scanned = scanTags('a<b>c <3>', 'line');
+        assert.deepEqual(scanned.losses, []);
+        assert.equal(scanned.chunks[0]?.text, 'a<b>c <3>');
+    });
+});

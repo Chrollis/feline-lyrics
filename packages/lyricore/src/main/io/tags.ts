@@ -19,6 +19,8 @@ export interface ScannedLine {
 
 const TIME_TAG = /^(\d+):(\d{1,2})(?:[.,:](\d{1,3}))?$/;
 const COUNT_TAG = /^\d{1,3}$/;
+/** The inside of an Enhanced LRC word tag, `<mm:ss.cc>`. */
+const WORD_TAG = /^\d{1,3}:\d{2}(?:[.,:]\d{1,3})?$/;
 
 /**
  * A tag's fraction width decides its unit: one digit is tenths, two are
@@ -117,6 +119,7 @@ export function scanTags(content: string, at: string): ScannedLine {
     let checks = 0;
     let text = '';
     let index = 0;
+    let notedWordTiming = false;
 
     const flush = (): void => {
         if (time !== null || checks !== 0 || text !== '') {
@@ -146,6 +149,23 @@ export function scanTags(content: string, at: string): ScannedLine {
                         at,
                         'tag-unrecognized',
                         `kept "${inside}" as text: not a tag`,
+                    );
+                }
+            }
+        }
+        if (value === '<') {
+            const close = content.indexOf('>', index + 1);
+            if (close !== -1 && close - index <= 12) {
+                const inside = content.slice(index + 1, close);
+                if (!notedWordTiming && WORD_TAG.test(inside)) {
+                    // Enhanced LRC puts a word's start in angle brackets. The
+                    // model times cells, not words, so the spelling stays as
+                    // text; report the unsupported construct once per line.
+                    notedWordTiming = true;
+                    losses.add(
+                        at,
+                        'unsupported-construct',
+                        `kept "<${inside}>" as text: per-word A2 timing has no cell model`,
                     );
                 }
             }

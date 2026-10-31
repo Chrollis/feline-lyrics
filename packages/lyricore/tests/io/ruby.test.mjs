@@ -8,6 +8,9 @@ import {
     parseRubyLine,
     splitReading,
 } from '../../src/main/index.js';
+import { textToStream } from '../../src/main/lyrics/char.js';
+import { textToLyricsLine } from '../../src/main/lyrics/line.js';
+import { emptyMeta } from '../../src/main/lyrics/meta.js';
 
 describe('@Ruby lines', () => {
     it('reads the four field shapes', () => {
@@ -117,6 +120,9 @@ describe('@Ruby into the model', () => {
         assert.equal(lyrics.lines[0]?.groups.ruby, undefined);
         assert.equal(losses.length, 1);
         assert.equal(losses[0]?.code, 'unsupported-construct');
+        // The parent text is in no model line, so only the source can say
+        // which @Ruby line this was.
+        assert.equal(losses[0]?.at, 'source[1].ruby');
     });
 });
 
@@ -183,6 +189,9 @@ describe('@Ruby windows and cancellation', () => {
         assert.equal(Object.hasOwn(lyrics.lines[0].groups, 'ruby'), false);
         assert.equal(losses.length, 1);
         assert.match(losses[0].detail, /no unclaimed occurrence/);
+        // The parent text does live in a model line, so the row is the
+        // coordinate: the reading failed to attach to line 0.
+        assert.equal(losses[0]?.at, 'lines[0].ruby');
     });
 
     it('removes a comma a field cannot carry and says so', () => {
@@ -250,5 +259,47 @@ describe('a @Ruby window with no lower bound', () => {
         assert.equal(second.text, first.text);
         const run = importTagText(first.text).lyrics.lines[0]?.groups.ruby?.[0];
         assert.equal(run?.offset, 0);
+    });
+});
+
+describe('a @Ruby offset finer than a centisecond', () => {
+    // `[mm:ss:cc]` counts whole centiseconds, so a millisecond that does not
+    // sit on the grid cannot be written. It used to vanish without a word.
+    function exported(from) {
+        const line = {
+            ...textToLyricsLine('明い\n'),
+            baseStream: {
+                cells: [
+                    { text: '明', span: { start: from, duration: 100 } },
+                    { text: 'い', span: null },
+                    { text: '\n', span: null },
+                ],
+            },
+            groups: {
+                ruby: [
+                    {
+                        offset: 0,
+                        length: 2,
+                        pieces: [{ check: null, text: textToStream('あい') }],
+                    },
+                ],
+            },
+        };
+        return exportTagText({ meta: emptyMeta(), lines: [line] });
+    }
+
+    it('writes the truncated window and reports the lost milliseconds', () => {
+        const { text, losses } = exported(1_234);
+        assert.equal(text.includes('@Ruby1=明い,あい,[00:01:23]'), true);
+        assert.equal(losses.length, 1);
+        assert.equal(losses[0]?.code, 'time-truncated');
+        assert.equal(losses[0]?.at, '@Ruby1');
+        assert.match(losses[0]?.detail ?? '', /1234 ms written as 1230 ms/);
+    });
+
+    it('says nothing when the offset already sits on the grid', () => {
+        const { text, losses } = exported(1_200);
+        assert.equal(text.includes('@Ruby1=明い,あい,[00:01:20]'), true);
+        assert.deepEqual(losses, []);
     });
 });

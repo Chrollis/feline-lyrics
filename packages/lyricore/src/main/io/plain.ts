@@ -3,7 +3,7 @@ import { lyricsOf, type Lyrics } from '../lyrics/lyrics.js';
 import { emptyMeta, isSameMeta } from '../lyrics/meta.js';
 import type { LyricsMeta } from '../lyrics/meta.js';
 import { newLosses, type Loss } from './loss.js';
-import { splitLines, type TextLine } from './text.js';
+import { ensureTrailingBreak, splitLines } from './text.js';
 
 export interface Imported {
     readonly lyrics: Lyrics;
@@ -15,25 +15,6 @@ export interface Exported {
     readonly losses: readonly Loss[];
 }
 
-/** Every line a document ends with a break, so the exported text does too. */
-function asLines(
-    text: string,
-    at: string,
-    losses: ReturnType<typeof newLosses>,
-): TextLine[] {
-    const lines = splitLines(text);
-    const last = lines.at(-1);
-    if (last !== undefined && last.break === '') {
-        losses.add(
-            at,
-            'source-ignored',
-            'the last line had no line break; one was added',
-        );
-        lines[lines.length - 1] = { content: last.content, break: '\n' };
-    }
-    return lines;
-}
-
 /**
  * Plain text is lyric content with no timing and no annotation. Each line
  * becomes one `LyricsLine` with every span unset.
@@ -43,8 +24,8 @@ export function importPlainText(
     meta: LyricsMeta = emptyMeta(),
 ): Imported {
     const losses = newLosses();
-    const lines = asLines(text, 'file', losses).map((line) =>
-        textToLyricsLine(line.content + line.break),
+    const lines = splitLines(ensureTrailingBreak(text, 'file', losses)).map(
+        (line) => textToLyricsLine(line.content + line.break),
     );
     return { lyrics: lyricsOf(meta, lines), losses: losses.losses };
 }

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
-import { exportLrc, importLrc } from '../../src/main/index.js';
+import { exportLrc, importLrc, importTagText } from '../../src/main/index.js';
 
 const SOURCE = [
     '[ti:歌]',
@@ -75,6 +75,15 @@ describe('LRC out', () => {
         assert.equal(second.lyrics.meta.title, '歌');
     });
 
+    it('reports text that would read back as a tag or an escape', () => {
+        const escaped = importLrc('[00:01:00]a$005B0:05$005Db\n').lyrics;
+        const codes = exportLrc(escaped).losses.map((loss) => loss.code);
+        assert.equal(codes.includes('unsupported-construct'), true);
+
+        const plain = importLrc('[00:01:00]a[b]c\n').lyrics;
+        assert.deepEqual(exportLrc(plain).losses, []);
+    });
+
     it('writes a recorded end on the last line and leaves a made-up one out', () => {
         // A bare tag is how a line end is spelled, so an end the document
         // really holds has to be written; the end the reader invents for a
@@ -107,5 +116,26 @@ describe('LRC out', () => {
         const back = importLrc(written).lyrics;
         assert.equal(back.lines[0]?.baseStream.cells.at(-1)?.span?.start, 7000);
         assert.equal(exportLrc(back).text, written);
+    });
+});
+
+describe('LRC text the reader would eat', () => {
+    it('reports a line whose whole text is a count tag', () => {
+        // `[3]` is a count tag to the scanner, so it leaves no chunk behind and
+        // a test that looks at the shape of the split calls the body plain. It
+        // reads back as no text at all, so the export has to say so.
+        const { lyrics } = importTagText('[00:01:00]$005B3]\n');
+        const exported = exportLrc(lyrics);
+        assert.deepEqual(
+            exported.losses.map((loss) => loss.code),
+            ['unsupported-construct'],
+        );
+        // The text is still written; the loss is the warning that it will not
+        // survive the next read.
+        assert.ok(exported.text.includes('[3]'));
+        assert.equal(
+            importLrc(exported.text).lyrics.lines[0]?.baseStream.cells.length,
+            1,
+        );
     });
 });

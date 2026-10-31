@@ -10,7 +10,7 @@ import {
     type Exported,
     type Imported,
 } from './tagtext.js';
-import { formatTag } from './tags.js';
+import { formatTag, scanTags } from './tags.js';
 
 /**
  * LRC is the same grammar as the time-tag format with one tag per line, so
@@ -89,6 +89,30 @@ export function exportLrc(lyrics: Lyrics): Exported {
         const start = first.span!.start;
         lineLosses(line, start, at, losses);
         const text = body.map((cell) => cell.text).join('');
+        // LRC has no quoting: a `[...]` the reader parses as a tag, or a `$XXXX`
+        // it decodes, would come back as something other than this text. The
+        // format cannot hold it, so say so instead of writing a file that lies.
+        if (text !== '') {
+            const scanned = scanTags(text, at);
+            // The scan splits the text into chunks plus a trailing tag. Judging
+            // "plain" from the shape of that split misses text the scan consumed
+            // whole: `[3]` is a count tag, so it leaves no chunk at all and the
+            // old test called an empty body plain. Put the pieces back together
+            // instead - a line only stays as it is when nothing was taken out.
+            const plain =
+                scanned.end === null &&
+                scanned.chunks.every(
+                    (chunk) => chunk.time === null && chunk.checks === 0,
+                ) &&
+                scanned.chunks.map((chunk) => chunk.text).join('') === text;
+            if (!plain) {
+                losses.add(
+                    at,
+                    'unsupported-construct',
+                    'the line text would read back as a tag or an escape: LRC has no way to quote it',
+                );
+            }
+        }
         // A bare tag ends the line. It is only worth writing when the end the
         // document holds differs from the next line's start and is later than
         // the line's own start; otherwise the next tag already says the same
