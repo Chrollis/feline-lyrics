@@ -107,7 +107,10 @@ export function resolveStyle(book: StyleBook, id: string): StyleContent | null {
     for (const ancestor of styleChain(book, id)) {
         content = mergeContent(content, book.defs[ancestor].content);
     }
-    return Object.freeze(content);
+    // A shallow freeze would leave every object inside the content shared with
+    // the definition, so a caller could paint one word by mutating what it was
+    // handed. The deep copy also severs that link.
+    return freezeContent(content) as StyleContent;
 }
 
 /**
@@ -286,7 +289,7 @@ export function assertStyleBook(book: StyleBook): StyleBook {
     const problem = styleBookProblem(book);
     if (problem !== null) {
         throw new LyricoreError('invalid-style-book', problem, {
-            expected: 'a style book whose ids, parents and fields resolve',
+            expected: 'a style book whose ids, parents and content resolve',
             actual: problem,
         });
     }

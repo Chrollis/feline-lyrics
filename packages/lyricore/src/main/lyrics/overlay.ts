@@ -684,14 +684,24 @@ export function splitOverlay(
         }
         rightBlocks.push(entry);
     }
-    const holder = starts[starts.length - 1];
+    let holder: { from: string | null; offset: number } | undefined;
+    for (const key of starts) {
+        // The block the cut lands in is the one whose start is the last one at
+        // or before it, not the last break on the line: a cut inside the second
+        // of three blocks has to copy the second block's style.
+        if (key.offset <= at) {
+            holder = key;
+        }
+    }
     const inside =
         holder !== undefined &&
         holder.offset < at &&
         !starts.some((key) => key.offset === at);
-    const styled = inside
-        ? overlay.blocks.find((entry) => entry.from === holder.from)
-        : undefined;
+    const holderBlock = holder;
+    const styled =
+        inside && holderBlock !== undefined
+            ? overlay.blocks.find((entry) => entry.from === holderBlock.from)
+            : undefined;
     if (styled !== undefined) {
         rightBlocks.unshift({ from: null, styleId: styled.styleId });
     }
@@ -777,11 +787,53 @@ export function joinOverlay(
             runOffset: entry.runOffset + junction,
         })),
     ];
-    const tailBlocks = tail.blocks.filter(
-        (entry, index) => index > 0 || head.blocks.length === 0,
-    );
+    // Only the tail's FIRST block can merge into the head's last one, and that
+    // entry is the one keyed `null`. Filtering by position would drop a style
+    // keyed on a real break that happens to be first in the tail's list.
+    const tailBlocks =
+        head.blocks.length === 0
+            ? tail.blocks
+            : tail.blocks.filter((entry) => entry.from !== null);
     const blocks = [...head.blocks, ...tailBlocks];
     return { styles, inserted, blocks, runStyles, annotations };
+}
+
+/**
+ * The overlay with every entry whose run the groups no longer have.
+ *
+ * A group editor can move a run's start, shorten it or remove the group
+ * outright. An entry left behind after that would be rejected by the next
+ * assertion, and the edit that would notice it is the one that runs after the
+ * paint is already gone, so the line has to be repaired here instead.
+ */
+export function retainOverlay(
+    overlay: LineOverlay,
+    groups: GroupMap,
+): LineOverlay {
+    const runStyles = overlay.runStyles.filter((entry) => {
+        const runs = groupAt(groups, entry.group);
+        return runs !== null && runs.some((run) => run.offset === entry.offset);
+    });
+    const annotations = overlay.annotations.filter((entry) => {
+        const runs = groupAt(groups, entry.group);
+        if (runs === null) {
+            return false;
+        }
+        const run = runs.find(
+            (candidate) => candidate.offset === entry.runOffset,
+        );
+        return (
+            run !== undefined &&
+            entry.offset + entry.length <= runTextCells(run)
+        );
+    });
+    if (
+        runStyles.length === overlay.runStyles.length &&
+        annotations.length === overlay.annotations.length
+    ) {
+        return overlay;
+    }
+    return { ...overlay, runStyles, annotations };
 }
 
 // ---------------------------------------------------------------------------
@@ -789,7 +841,7 @@ export function joinOverlay(
 // ---------------------------------------------------------------------------
 
 export type OverlayProblemCode =
-    | 'invalid-style-run'
+    | 'invalid-cell-style'
     | 'invalid-inserted-object'
     | 'invalid-block-style'
     | 'invalid-run-style'
@@ -1047,7 +1099,7 @@ export function overlayProblem(
     // rather than a bad document.
     if (!Array.isArray(overlay.styles)) {
         return {
-            code: 'invalid-style-run',
+            code: 'invalid-cell-style',
             message: 'overlay.styles: is not an array',
         };
     }
@@ -1064,20 +1116,20 @@ export function overlayProblem(
         const path = `overlay.styles[${index}]`;
         if (run === undefined) {
             return {
-                code: 'invalid-style-run',
+                code: 'invalid-cell-style',
                 message: `${path}: is missing`,
             };
         }
         const defect = styleRunProblem(run, ctx.body);
         if (defect !== null) {
             return {
-                code: 'invalid-style-run',
+                code: 'invalid-cell-style',
                 message: describe(path, defect),
             };
         }
         if (run.offset < previousEnd) {
             return {
-                code: 'invalid-style-run',
+                code: 'invalid-cell-style',
                 message: `${path}.offset: overlaps the run before it`,
             };
         }

@@ -341,7 +341,7 @@ function readStyleBook(value: unknown): StyleBook {
         const def = recordAt(defValue, path);
         closedKeys(def, STYLE_DEF_KEYS, path);
         const basedOn =
-            def.basedOn === undefined
+            def.basedOn === undefined || def.basedOn === null
                 ? null
                 : stringAt(def.basedOn, `${path}.basedOn`);
         const space =
@@ -496,6 +496,9 @@ function readBlockStyleFile(value: unknown, path: string): BlockStyleRun {
     closedKeys(entry, BLOCK_STYLE_KEYS, path);
     // `from` is the entry's identity, so an absent one is a rejection even
     // though `null` is a legal value: the two would otherwise mean one thing.
+    if (entry.from === undefined) {
+        fail(`${path}.from`, 'is missing');
+    }
     const from =
         entry.from === null ? null : stringAt(entry.from, `${path}.from`);
     return { from, styleId: filledStringAt(entry.styleId, `${path}.styleId`) };
@@ -713,6 +716,19 @@ export function projectToLyrics(value: unknown): ProjectRead {
         for (const run of overlay.styles) {
             reportStyle(run.styleId);
         }
+        // Every layer that names an id is asked, not only the cell runs: a
+        // block, a run point or an annotation whose id no def answers is the
+        // same orphan, and a reader that reported three of the four would make
+        // the fourth look valid.
+        for (const block of overlay.blocks) {
+            reportStyle(block.styleId);
+        }
+        for (const runStyle of overlay.runStyles) {
+            reportStyle(runStyle.styleId);
+        }
+        for (const annotation of overlay.annotations) {
+            reportStyle(annotation.styleId);
+        }
         for (const object of overlay.inserted) {
             const content = object.content;
             if (content === null || content.type !== 'text') {
@@ -771,7 +787,22 @@ function canonicalValue(value: unknown): unknown {
     if (typeof value === 'object' && value !== null) {
         const out: Record<string, unknown> = {};
         for (const key of Object.keys(value).sort()) {
-            out[key] = canonicalValue((value as Record<string, unknown>)[key]);
+            const entry = (value as Record<string, unknown>)[key];
+            // A key whose value is `undefined` survives here but not
+            // `JSON.stringify`, so writing it would make the second write of a
+            // document differ from the first. The writer emits what JSON can.
+            if (entry === undefined) {
+                continue;
+            }
+            // A key spelled `__proto__` would set the prototype of `out` and be
+            // dropped from the file; the closed-key check rejects it today, but
+            // the write itself has to stay safe.
+            Object.defineProperty(out, key, {
+                value: canonicalValue(entry),
+                enumerable: true,
+                writable: true,
+                configurable: true,
+            });
         }
         return out;
     }

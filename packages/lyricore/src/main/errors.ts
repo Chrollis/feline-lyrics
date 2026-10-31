@@ -12,7 +12,7 @@ export type LyricoreErrorCode =
     | 'invalid-line-index'
     | 'invalid-cell-index'
     | 'invalid-lyrics-file'
-    | 'invalid-style-run'
+    | 'invalid-cell-style'
     | 'invalid-inserted-object'
     | 'invalid-block-style'
     | 'invalid-run-style'

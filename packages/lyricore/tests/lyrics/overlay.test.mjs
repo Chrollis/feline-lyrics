@@ -296,7 +296,7 @@ describe('overlay validation', () => {
             { ...NO_OVERLAY, styles: [style(4, 2)] },
             BODY,
         );
-        assert.equal(problem.code, 'invalid-style-run');
+        assert.equal(problem.code, 'invalid-cell-style');
         assert.match(problem.message, /line break/);
     });
 
@@ -305,7 +305,7 @@ describe('overlay validation', () => {
             { ...NO_OVERLAY, styles: [style(0, 3), style(2, 1)] },
             BODY,
         );
-        assert.equal(problem.code, 'invalid-style-run');
+        assert.equal(problem.code, 'invalid-cell-style');
         assert.match(problem.message, /overlaps/);
     });
 
@@ -515,7 +515,7 @@ describe('overlay validation', () => {
             () => assertOverlay({ ...NO_OVERLAY, styles: [style(4, 2)] }, BODY),
             (error) =>
                 error instanceof LyricoreError &&
-                error.code === 'invalid-style-run',
+                error.code === 'invalid-cell-style',
         );
         assert.throws(
             () =>

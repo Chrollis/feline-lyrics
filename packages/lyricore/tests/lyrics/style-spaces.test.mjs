@@ -221,7 +221,7 @@ describe('a style used on the wrong layer', () => {
             styleBook: book,
         };
         const problem = styleUseProblem(book, line);
-        assert.equal(problem.code, 'invalid-style-run');
+        assert.equal(problem.code, 'invalid-cell-style');
         assert.match(
             problem.message,
             /run style "layout" on the character layer/,

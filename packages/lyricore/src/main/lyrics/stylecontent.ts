@@ -10,8 +10,7 @@
  * Three levels decide what a field means:
  *
  * 1. absent - inherit;
- * 2. `null` - explicitly nothing, allowed only where "nothing" is a real
- *    visual state (`outline`, `shadow`);
+ * 2. explicitly nothing - `shadow: null`, and `outlines: []` for a list;
  * 3. inside an object - every field is required, no null, no partial object.
  *
  * The character space is the karaoke one: `fill.active` is the fill a cell
@@ -139,8 +138,15 @@ export interface CharacterContent {
     readonly baselineShiftPx?: number;
     readonly fill?: DualFill;
     readonly wipe?: Wipe;
-    /** `null` removes an inherited outline; absent inherits one. */
-    readonly outline?: Outline | null;
+    /**
+     * The outline layers around the glyph, painted in array order and then
+     * covered by the fill, so the first entry is the outermost one.
+     *
+     * A list, not one outline: a wipe can point each layer at its own progress,
+     * which is what makes a two-layer outline travel at two speeds. An empty
+     * list removes an inherited outline; an absent key inherits one.
+     */
+    readonly outlines?: readonly Outline[];
     /** `null` removes an inherited shadow; absent inherits one. */
     readonly shadow?: Shadow | null;
 }
@@ -175,7 +181,7 @@ export const CONTENT_KEYS: Readonly<Record<StyleSpace, readonly string[]>> = {
         'font',
         'italic',
         'letterSpacingPx',
-        'outline',
+        'outlines',
         'shadow',
         'sizePx',
         'weight',
@@ -220,7 +226,7 @@ const DEFAULT_CHARACTER: CharacterContent = Object.freeze({
         transition: 'linear',
         featherPx: 0,
     }),
-    outline: null,
+    outlines: Object.freeze([]),
     shadow: null,
 }) satisfies CharacterContent;
 
@@ -266,7 +272,16 @@ export function mergeContent(
     for (const key of Object.keys(overlay)) {
         const value = (overlay as Readonly<Record<string, unknown>>)[key];
         if (value !== undefined) {
-            merged[key] = value;
+            // A key spelled `__proto__` would set the prototype of `merged` and
+            // vanish from the result; the closed-key check that rejects it lives
+            // in `contentProblem`, and this function is also called on a book
+            // built by hand, so the write itself has to be safe.
+            Object.defineProperty(merged, key, {
+                value,
+                enumerable: true,
+                writable: true,
+                configurable: true,
+            });
         }
     }
     return merged as StyleContent;
@@ -285,6 +300,9 @@ export function contentProblem(
     const record = asRecord(value);
     if (record === null) {
         return 'is not an object';
+    }
+    if (!isStyleSpace(space)) {
+        return `space: is not 'character', 'run' or 'paragraph'`;
     }
     const allowed = CONTENT_KEYS[space];
     for (const key of Object.keys(record)) {
@@ -382,14 +400,23 @@ function characterProblem(
             return problem;
         }
     }
-    if (record.outline !== undefined && record.outline !== null) {
-        const problem = decorationProblem(record.outline, 'outline', true);
-        if (problem !== null) {
-            return problem;
+    if (record.outlines !== undefined) {
+        if (!Array.isArray(record.outlines)) {
+            return 'outlines: is not an array';
+        }
+        for (const [index, entry] of record.outlines.entries()) {
+            const problem = decorationProblem(
+                entry,
+                `outlines[${index}]`,
+                'outline',
+            );
+            if (problem !== null) {
+                return problem;
+            }
         }
     }
     if (record.shadow !== undefined && record.shadow !== null) {
-        const problem = decorationProblem(record.shadow, 'shadow', false);
+        const problem = decorationProblem(record.shadow, 'shadow', 'shadow');
         if (problem !== null) {
             return problem;
         }
@@ -464,42 +491,55 @@ function paragraphProblem(
 
 function decorationProblem(
     value: unknown,
-    name: 'outline' | 'shadow',
-    isOutline: boolean,
+    path: string,
+    kind: 'outline' | 'shadow',
 ): string | null {
+    const isOutline = kind === 'outline';
     const record = asRecord(value);
     if (record === null) {
-        return `${name}: is not an object or null`;
+        return `${path}: is not an object`;
     }
     const allowed = isOutline
         ? ['fill', 'widthPx', 'blurPx']
         : ['fill', 'offsetXPx', 'offsetYPx', 'blurPx'];
     for (const key of Object.keys(record)) {
         if (!allowed.includes(key)) {
-            return `${name}.${key}: is not a field of a ${name}`;
+            return `${path}.${key}: is not a field of this ${kind}`;
         }
     }
     if (record.fill === undefined) {
-        return `${name}.fill: is missing`;
+        return `${path}.fill: is missing`;
     }
-    const fillProblem = dualFillProblem(record.fill, `${name}.fill`);
+    const fillProblem = dualFillProblem(record.fill, `${path}.fill`);
     if (fillProblem !== null) {
         return fillProblem;
     }
     if (isOutline) {
+        if (record.widthPx === undefined) {
+            return `${path}.widthPx: is missing`;
+        }
         if (!isPositive(record.widthPx)) {
-            return `${name}.widthPx: is not a positive number`;
+            return `${path}.widthPx: is not a positive number`;
         }
     } else {
+        if (record.offsetXPx === undefined) {
+            return `${path}.offsetXPx: is missing`;
+        }
         if (!isFiniteNumber(record.offsetXPx)) {
-            return `${name}.offsetXPx: is not a number`;
+            return `${path}.offsetXPx: is not a number`;
+        }
+        if (record.offsetYPx === undefined) {
+            return `${path}.offsetYPx: is missing`;
         }
         if (!isFiniteNumber(record.offsetYPx)) {
-            return `${name}.offsetYPx: is not a number`;
+            return `${path}.offsetYPx: is not a number`;
         }
     }
+    if (record.blurPx === undefined) {
+        return `${path}.blurPx: is missing`;
+    }
     if (!isNonNegative(record.blurPx)) {
-        return `${name}.blurPx: is not a number of 0 or more`;
+        return `${path}.blurPx: is not a number of 0 or more`;
     }
     return null;
 }
@@ -545,6 +585,9 @@ function fillProblem(value: unknown, path: string): string | null {
                 return `${path}.${key}: is not a field of a solid fill`;
             }
         }
+        if (record.color === undefined) {
+            return `${path}.color: is missing`;
+        }
         if (!isColor(record.color)) {
             return `${path}.color: is not a colour`;
         }
@@ -561,11 +604,20 @@ function fillProblem(value: unknown, path: string): string | null {
                 return `${path}.${key}: is not a field of a gradient fill`;
             }
         }
+        if (record.angleDeg === undefined) {
+            return `${path}.angleDeg: is missing`;
+        }
         if (!isFiniteNumber(record.angleDeg)) {
             return `${path}.angleDeg: is not a number`;
         }
+        if (record.smooth === undefined) {
+            return `${path}.smooth: is missing`;
+        }
         if (typeof record.smooth !== 'boolean') {
             return `${path}.smooth: is not true or false`;
+        }
+        if (record.stops === undefined) {
+            return `${path}.stops: is missing`;
         }
         if (!Array.isArray(record.stops) || record.stops.length < 2) {
             return `${path}.stops: is not an array of two stops or more`;
@@ -583,6 +635,9 @@ function fillProblem(value: unknown, path: string): string | null {
                 }
             }
             const position = stopRecord.position;
+            if (position === undefined) {
+                return `${at}.position: is missing`;
+            }
             if (
                 typeof position !== 'number' ||
                 !Number.isFinite(position) ||
@@ -595,6 +650,9 @@ function fillProblem(value: unknown, path: string): string | null {
                 return `${at}.position: is not past the stop before it`;
             }
             previous = position;
+            if (stopRecord.color === undefined) {
+                return `${at}.color: is missing`;
+            }
             if (!isColor(stopRecord.color)) {
                 return `${at}.color: is not a colour`;
             }
@@ -619,6 +677,9 @@ function wipeProblem(value: unknown): string | null {
         }
     }
     const direction = record.direction;
+    if (direction === undefined) {
+        return 'wipe.direction: is missing';
+    }
     if (
         direction !== 'ltr' &&
         direction !== 'rtl' &&
@@ -628,8 +689,14 @@ function wipeProblem(value: unknown): string | null {
     ) {
         return "wipe.direction: is not 'ltr', 'rtl', 'ttb', 'btt' or 'none'";
     }
+    if (record.transition === undefined) {
+        return 'wipe.transition: is missing';
+    }
     if (record.transition !== 'linear' && record.transition !== 'smooth') {
         return "wipe.transition: is not 'linear' or 'smooth'";
+    }
+    if (record.featherPx === undefined) {
+        return 'wipe.featherPx: is missing';
     }
     if (!isNonNegative(record.featherPx)) {
         return 'wipe.featherPx: is not a number of 0 or more';
@@ -639,6 +706,14 @@ function wipeProblem(value: unknown): string | null {
 
 function asRecord(value: unknown): Readonly<Record<string, unknown>> | null {
     if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+        return null;
+    }
+    // Only a plain object reads as content. A Date, a Map or an instance of a
+    // class would otherwise pass as "an object with no own keys" and then read
+    // inherited properties below, so the key scan and the field reads would
+    // disagree about what the object holds.
+    const prototype = Object.getPrototypeOf(value);
+    if (prototype !== Object.prototype && prototype !== null) {
         return null;
     }
     return value as Readonly<Record<string, unknown>>;

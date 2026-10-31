@@ -20,6 +20,7 @@ import {
     NO_OVERLAY,
     assertOverlay,
     retainAnnotationsFor,
+    retainOverlay,
     runTextCells,
     spliceOverlay,
     spliceSpan,
@@ -396,7 +397,12 @@ function withRuns(
     } else {
         putGroup(groups, group, runs);
     }
-    return rebuild(line, { groups });
+    // Replacing a group can move a run's start, shorten it or remove it, and
+    // every overlay entry has to keep naming a run this line still has.
+    return rebuild(line, {
+        groups,
+        overlay: retainOverlay(overlayOf(line), groups),
+    });
 }
 
 function assertAnnotationLine(line: LyricsLine): LyricsLine {
@@ -535,7 +541,10 @@ export function withGroup(
         }
         const groups: Record<string, readonly SegRun[]> = { ...line.groups };
         delete groups[name];
-        return rebuild(line, { groups });
+        return rebuild(line, {
+            groups,
+            overlay: retainOverlay(overlayOf(line), groups),
+        });
     }
     if (!runs.every((run) => isValidSegRun(run))) {
         throw new LyricoreError('invalid-seg-run', 'not an annotation run', {

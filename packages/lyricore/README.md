@@ -26,7 +26,7 @@ SegRun         { offset, length, pieces[] }
 SegPiece       { check, text }           check = { time, type } | null
 StyleRun       { offset, length, styleId }
 InsertedObject { id, kind, anchor, content, time? }
-LineOverlay    { styles[], inserted[] }
+LineOverlay    { styles[], inserted[], blocks[], runStyles[], annotations[] }
 ```
 
 - `baseStream` always ends with exactly one line break cell.
@@ -101,8 +101,9 @@ import { splitLine, mergeLines, withPieceText, withGroup, editLineText } from '@
 - `spliceLine` / `editLineText` insert or remove characters, and keep every run
   and piece anchored to the cells that survive.
 - `splitLine` / `mergeLines` / `insertLine` / `removeLine` change the line list.
-- `withPiece`, `withPieceText`, `withRun`, `withGroup` change annotation
-  structure; `withMeta` changes metadata (an `undefined` field is left alone).
+- `withPiece`, `withPieceText`, `withRun`, `withGroup`, `spliceGroups` change
+  annotation structure; `withMeta` changes metadata (an `undefined` field is left
+  alone).
 
 Every one of them validates what it touched and throws a `LyricoreError` with a
 code instead of writing a shape the invariants reject.
@@ -120,6 +121,11 @@ const painted = withOverlay(line, {
     annotations: [],
 });
 ```
+
+`withOverlay` takes the whole overlay, so all five arrays are named. Each space
+also has a setter that takes only its own array - `withStyles`, `withInserted`,
+`withBlocks`, `withRunStyles`, `withAnnotations` - and the two forms are the
+same call; the array a setter does not name is kept as it was.
 
 - `StyleRun` paints a span of the body with a style id. Runs are sorted and never
   overlap; the writer merges two adjacent runs that name the same id into one.
@@ -154,22 +160,26 @@ const painted = withOverlay(line, {
   a run's reading), `run` (one run's layout) or `paragraph` (one display block's
   layout). A `basedOn` whose parent sits in another space is refused, because the
   two resolve through different coordinate systems; `styleSpace` reads the field
-  and an absent one means `character`. Using a style on the wrong layer is an
-  error too: `styleUseProblem` reports it as `invalid-run-style`,
-  `invalid-annotation-style` or `invalid-block-style`, and `assertLyrics` throws
-  it. A missing definition stays a dangling reference, not an error.
+  and an absent one means `character`. Each overlay array has one error code -
+  `invalid-cell-style`, `invalid-run-style`, `invalid-annotation-style`,
+  `invalid-block-style` - and the code names the LAYER, so it covers both a
+  malformed record in that array and a style used there whose definition belongs
+  to another space; `styleUseProblem` reports the second case and `assertLyrics`
+  throws it. A missing definition stays a dangling reference, not an error.
 - A definition's `content` is typed by its space and closed: the keys are the
   ones the space has (`CONTENT_KEYS`), a key from another space is refused, and a
   value of the wrong shape stops the load with the leaf path. An absent field is
   inherited from `basedOn`; a present one replaces the inherited value WHOLE, so
   an object inside a content is a complete statement, never merged field by
-  field. `null` means "explicitly nothing" and only `outline` and `shadow` take
-  it - `fill` is never null (use a transparent colour) and nothing inside an
-  object is optional. `resolveStyle` resolves from the complete built-in default
-  (`defaultContent`): 48 px, weight 400, white, no outline, no shadow, and a
-  `fill.active` without a `wipe` switches hard rather than sweeping. A colour is
-  `#rrggbb` or `#rrggbbaa`; an `image` fill is refused, because the resource
-  system does not exist yet.
+  field. A field is "explicitly nothing" in one of two ways: `shadow: null`, or
+  `outlines: []` for a list - `fill` is never null (use a transparent colour) and
+  nothing inside an object is optional. `outlines` is a LIST of layers painted in
+  array order, first entry outermost and the fill on top, because a wipe can point
+  each layer at its own progress. `resolveStyle` resolves from the complete
+  built-in default (`defaultContent`): 48 px, weight 400, white, no outlines, no
+  shadow, and a `fill.active` without a wipe switches hard rather than sweeping. A
+  colour is `#rrggbb` or `#rrggbbaa`; an `image` fill is refused, because the
+  resource system does not exist yet.
 - An `InsertedObject` anchors to a span of the body. A zero-width anchor is a
   point: a soft break that splits the line into display blocks without splitting
   the lyric. A width-bearing anchor binds the cells it covers and survives an
@@ -188,6 +198,13 @@ const painted = withOverlay(line, {
 - The overlay is **not** in the lyrics export: `lyricsToExport` writes the lyric
   only, and the round trip through it comes back with an empty overlay. Paint and
   inserted objects belong to the project file.
+- The validators and the empty values are exported as well: `overlayOf(line)`
+  reads the overlay back, `NO_OVERLAY` is the empty one, and
+  `overlayProblem(overlay, context)` / `assertOverlay` answer "is this overlay
+  still on its line". The content surface is `CONTENT_KEYS` / `contentKeys(space)`,
+  `defaultContent(space)`, `mergeContent`, `contentProblem` / `isValidContent` /
+  `assertContent`, `styleSpace` / `STYLE_SPACES` / `isStyleSpace`, and the types
+  `Color`, `Fill`, `DualFill`, `Wipe`, `Outline`, `Shadow`, `FontFamilies`.
 
 ## Import and export
 
@@ -274,7 +291,7 @@ An entry writes the five arrays in the order `styles`, `inserted`, `blocks`,
 ```json
 {
     "styles": [{ "offset": 0, "length": 3, "styleId": "chorus" }],
-    "inserted": [{ "id": "m1", "kind": "soft-break", "anchor": [3, 0], "content": null }],
+    "inserted": [{ "id": "m1", "kind": "soft-break", "anchor": [3, 0] }],
     "blocks": [{ "from": null, "styleId": "verse" }, { "from": "m1", "styleId": "chorus" }],
     "runStyles": [{ "group": "ruby", "offset": 0, "styleId": "reading" }],
     "annotations": [{ "group": "ruby", "runOffset": 0, "offset": 0, "length": 3, "styleId": "soft" }]
@@ -288,12 +305,11 @@ An entry writes the five arrays in the order `styles`, `inserted`, `blocks`,
   the array index is the line index.
 - A SECTION is omitted when it is empty: `overlay` when there are no lines,
   `styleBook` when there are no definitions, `animations` when the list is empty.
-  Inside a section, a value that is empty is omitted too - a definition with no
-  parent writes no `basedOn`, a definition in the default `character` space writes
-  no `space`, a definition with no content writes no `content`, an entry with no
-  paint writes no `styles`, an object
-  with no content writes no `content`, and a marker without a pinned span writes
-  no `time`.
+  Inside a section, an empty value is omitted too: a definition with no parent
+  writes no `basedOn`, one in the default `character` space writes no `space`,
+  one with no content writes no `content`, an entry with no paint writes no
+  `styles`, a marker with no content writes no `content`, and one without a
+  pinned span writes no `time`.
 - Reading is strict about keys. An unknown key in the lyrics block, in the style
   book or in an overlay entry is an error with a path, not a value silently
   dropped on the next save. A block entry must carry `from` (written as `null`

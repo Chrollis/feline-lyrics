@@ -97,7 +97,7 @@ describe('inserted object ids are unique per document', () => {
             () => assertLyrics(lyrics),
             (error) => {
                 return (
-                    error.code === 'invalid-style-run' &&
+                    error.code === 'invalid-cell-style' &&
                     error.message.includes('line 0')
                 );
             },
@@ -110,7 +110,7 @@ describe('every cell mutation validates the overlay it produces', () => {
         const bad = unsound('abcd\n', OUT_OF_BODY);
         assert.throws(
             () => spliceLine(bad, [1, 1], [{ text: 'z', span: null }]),
-            (error) => error.code === 'invalid-style-run',
+            (error) => error.code === 'invalid-cell-style',
         );
     });
 
@@ -118,7 +118,7 @@ describe('every cell mutation validates the overlay it produces', () => {
         const bad = unsound('abcd\n', OUT_OF_BODY);
         assert.throws(
             () => splitLine(bad, 2),
-            (error) => error.code === 'invalid-style-run',
+            (error) => error.code === 'invalid-cell-style',
         );
     });
 
@@ -127,7 +127,7 @@ describe('every cell mutation validates the overlay it produces', () => {
         const bad = unsound('cd\n', OUT_OF_BODY);
         assert.throws(
             () => mergeLines(good, bad),
-            (error) => error.code === 'invalid-style-run',
+            (error) => error.code === 'invalid-cell-style',
         );
     });
 
@@ -135,7 +135,7 @@ describe('every cell mutation validates the overlay it produces', () => {
         const lyrics = documentOf(unsound('abcd\n', OUT_OF_BODY));
         assert.throws(
             () => editLineText(lyrics, 0, [1, 1], 'z', null),
-            (error) => error.code === 'invalid-style-run',
+            (error) => error.code === 'invalid-cell-style',
         );
     });
 });

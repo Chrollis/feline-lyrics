@@ -70,11 +70,11 @@ describe('the overlay carrier', () => {
         const line = textToLyricsLine('あい\n');
         assert.throws(
             () => withOverlay(line, { styles: [style(2, 1)], inserted: [] }),
-            (error) => error.code === 'invalid-style-run',
+            (error) => error.code === 'invalid-cell-style',
         );
         assert.throws(
             () => withOverlay(line, { styles: [style(0, 3)], inserted: [] }),
-            (error) => error.code === 'invalid-style-run',
+            (error) => error.code === 'invalid-cell-style',
         );
     });
 

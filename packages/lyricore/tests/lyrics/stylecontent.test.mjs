@@ -33,7 +33,7 @@ const character = () => ({
     baselineShiftPx: -2,
     fill: { normal: solid('#222222'), active: solid('#ffcc00') },
     wipe: { direction: 'ltr', transition: 'smooth', featherPx: 2 },
-    outline: { fill: { normal: solid('#000000') }, widthPx: 3, blurPx: 0 },
+    outlines: [{ fill: { normal: solid('#000000') }, widthPx: 3, blurPx: 0 }],
     shadow: null,
 });
 
@@ -51,7 +51,7 @@ describe('a style content', () => {
         const content = defaultContent('character');
         assert.equal(content.fill.active, undefined);
         assert.equal(content.wipe.direction, 'none');
-        assert.equal(content.outline, null);
+        assert.deepEqual(content.outlines, []);
         assert.equal(content.shadow, null);
     });
 
@@ -131,7 +131,7 @@ describe('a style content', () => {
         };
         assert.equal(
             contentProblem('character', noSmooth),
-            'fill.normal.smooth: is not true or false',
+            'fill.normal.smooth: is missing',
         );
         assert.equal(
             contentProblem('character', { fill: { normal: gradient() } }),
@@ -150,11 +150,15 @@ describe('a style content', () => {
         );
     });
 
-    it('takes null for a decoration but not an empty object', () => {
-        assert.equal(contentProblem('character', { outline: null }), null);
+    it('takes an empty list of outlines but not an empty layer', () => {
+        assert.equal(contentProblem('character', { outlines: [] }), null);
         assert.equal(
-            contentProblem('character', { outline: {} }),
-            'outline.fill: is missing',
+            contentProblem('character', { outlines: 'none' }),
+            'outlines: is not an array',
+        );
+        assert.equal(
+            contentProblem('character', { outlines: [{}] }),
+            'outlines[0].fill: is missing',
         );
         assert.equal(
             contentProblem('character', {
@@ -175,7 +179,51 @@ describe('a style content', () => {
                     blurPx: 0,
                 },
             }),
-            'shadow.offsetYPx: is not a number',
+            'shadow.offsetYPx: is missing',
+        );
+    });
+
+    it('keeps the layers of an outline list in order', () => {
+        const content = {
+            outlines: [
+                { fill: { normal: solid('#000000') }, widthPx: 6, blurPx: 0 },
+                {
+                    fill: {
+                        normal: solid('#ff0000'),
+                        active: solid('#ffffff'),
+                    },
+                    widthPx: 2,
+                    blurPx: 1,
+                },
+            ],
+        };
+        assert.equal(contentProblem('character', content), null);
+        assert.equal(content.outlines.length, 2);
+        assert.deepEqual(
+            content.outlines.map((layer) => layer.widthPx),
+            [6, 2],
+        );
+    });
+
+    it('checks every outline layer, not only the first', () => {
+        const content = {
+            outlines: [
+                { fill: { normal: solid('#000000') }, widthPx: 6, blurPx: 0 },
+                { fill: { normal: solid('#ff0000') }, widthPx: 0, blurPx: 0 },
+            ],
+        };
+        assert.equal(
+            contentProblem('character', content),
+            'outlines[1].widthPx: is not a positive number',
+        );
+    });
+
+    it('refuses the singular key it used to take', () => {
+        assert.equal(
+            contentProblem('character', {
+                outline: { fill: { normal: solid('#000000') } },
+            }),
+            'outline: is not a field of a character style',
         );
     });
 

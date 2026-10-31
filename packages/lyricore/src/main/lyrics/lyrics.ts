@@ -197,7 +197,7 @@ export function styleUseProblem(
     line: LyricsLine,
 ): {
     code:
-        | 'invalid-style-run'
+        | 'invalid-cell-style'
         | 'invalid-block-style'
         | 'invalid-run-style'
         | 'invalid-annotation-style';
@@ -206,7 +206,7 @@ export function styleUseProblem(
     const overlay = overlayOf(line);
     type Use = [
         code:
-            | 'invalid-style-run'
+            | 'invalid-cell-style'
             | 'invalid-block-style'
             | 'invalid-run-style'
             | 'invalid-annotation-style',
@@ -216,7 +216,7 @@ export function styleUseProblem(
     ];
     const uses: Use[] = [
         ...overlay.styles.map((run): Use => [
-            'invalid-style-run',
+            'invalid-cell-style',
             'character',
             run.styleId,
             `styles[${run.offset}]`,
