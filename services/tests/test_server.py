@@ -14,6 +14,7 @@ import asyncio
 import io
 import json
 import threading
+import time
 from pathlib import Path
 
 import av
@@ -494,12 +495,15 @@ def test_video_kind_on_audio_only_source(ws) -> None:
 
 def test_shutdown_stops_the_service() -> None:
     thread = ServerThread()
+    started = time.monotonic()
     with connect(thread.url(), proxy=None) as socket:
         hello(socket)
         reply = request(socket, "1", "shutdown")
         assert reply["ok"] is True
     thread.thread.join(10)
     assert not thread.thread.is_alive()
+    # api.md 4.1: a graceful shutdown finishes within 5 s.
+    assert time.monotonic() - started < 5.0
 
 
 # -- annotate ---------------------------------------------------------------
@@ -573,8 +577,10 @@ def test_annotate_ko_hangul(ws) -> None:
 def test_annotate_western_latin(ws) -> None:
     hello(ws)
     result = annotate(ws, "a1", "Grüße", "de", "latin")
+    # latin keeps the written word; romanizing it again would drop the
+    # diacritics the user typed (api.md 10.1).
     assert result["units"] == [
-        {"text": "Grüße", "category": "latin", "offset": 0, "syllables": ["Grusse"]}
+        {"text": "Grüße", "category": "latin", "offset": 0, "syllables": ["Grüße"]}
     ]
 
 
@@ -607,3 +613,39 @@ def test_ipa_split_matches_spike_samples() -> None:
     for (ipa, language), expected in cases.items():
         assert espeak.split_ipa(ipa, language) == expected
 
+
+
+def test_close_source_unknown_is_source_not_found(ws) -> None:
+    hello(ws)
+    reply = request(ws, "cs1", "close_source", {"source_id": "nope"})
+    assert reply["ok"] is False, reply
+    assert reply["error"]["code"] == "source-not-found", reply
+
+
+def test_annotate_ko_keeps_the_morpheme(ws) -> None:
+    hello(ws)
+    result = annotate(ws, "km", "\ud55c\uae00\uc740", "ko", "hangul")
+    tags = [unit.get("morpheme", {}).get("tag") for unit in result["units"]]
+    assert all(tags), result["units"]
+
+
+def test_video_range_over_the_cap_is_rejected(ws) -> None:
+    hello(ws)
+    video = ensure_video()
+    reply = request(ws, "v1", "open_source", {"path": str(video)})
+    assert reply["ok"] is True, reply
+    source_id = reply["result"]["source_id"]
+    reply = request(
+        ws,
+        "v2",
+        "request_range",
+        {
+            "source_id": source_id,
+            "kind": "video",
+            "stream": 1,
+            "start_sec": 0,
+            "duration_sec": 11,
+        },
+    )
+    assert reply["ok"] is False, reply
+    assert reply["error"]["code"] == "range-too-large", reply

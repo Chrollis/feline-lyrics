@@ -11,8 +11,11 @@ the espeak-ng subprocess (``ipa``).
 
 from __future__ import annotations
 
+import logging
 import unicodedata
 from typing import Any
+
+_log = logging.getLogger("felyrics.annotate")
 
 KANJI_RANGES = ((0x4E00, 0x9FFF), (0x3400, 0x4DBF), (0xF900, 0xFAFF))
 KANJI_EXTRA = {0x3005, 0x3007, 0x30F5, 0x30F6}  # 々 〇 ヵ ヶ
@@ -395,13 +398,14 @@ def _ko_units(text: str, target: str) -> list[dict[str, Any]]:
     units: list[dict[str, Any]] = []
     for token in _kiwi().tokenize(text):
         form = token.form
+        start_index = len(units)
         index = 0
         while index < len(form):
             ch = form[index]
             offset = token.start + index
             if is_hangul_syllable(ch):
                 syllables = (
-                    [ch] if target == "hangul" else [romanizer.romanize(ch, "ko")]
+                    [ch] if target == "hangul" else [_romanize_ko(romanizer, ch)]
                 )
                 units.append(
                     {"text": ch, "category": "hangul", "offset": offset, "syllables": syllables}
@@ -415,7 +419,9 @@ def _ko_units(text: str, target: str) -> list[dict[str, Any]]:
             elif is_kanji(ch):
                 hangul = hanja.translate(ch, "substitution")
                 syllables = (
-                    [hangul] if target == "hangul" else [romanizer.romanize(hangul, "ko")]
+                    [hangul]
+                    if target == "hangul"
+                    else [_romanize_ko(romanizer, hangul)]
                 )
                 units.append(
                     {"text": ch, "category": "hanja", "offset": offset, "syllables": syllables}
@@ -444,6 +450,13 @@ def _ko_units(text: str, target: str) -> list[dict[str, Any]]:
                     {"text": ch, "category": "symbol", "offset": offset, "syllables": [ch]}
                 )
                 index += 1
+        tag = getattr(token, "tag", None)
+        if tag:
+            # Keep the Kiwi morpheme so the editor can trace a unit back to
+            # its token (api.md 9.6 morpheme field).
+            morpheme = {"tag": str(tag), "lemma": getattr(token, "lemma", None) or form}
+            for unit in units[start_index:]:
+                unit["morpheme"] = morpheme
     return units
 
 
@@ -461,6 +474,15 @@ def _romanizer() -> Any:
     return _WESTERN
 
 
+def _romanize_ko(romanizer: Any, text: str) -> str:
+    output = romanizer.romanize(text, "ko")
+    if output == text and any(ord(ch) > 127 for ch in text):
+        # romanizer has a single fallback policy: keep the surface and report
+        # nothing. Log it so a silently untransliterated unit is traceable.
+        _log.warning("romanizer kept the surface spelling of %r (ko)", text)
+    return output
+
+
 def _west_units(text: str, language: str, target: str) -> list[dict[str, Any]]:
     if target not in ("latin", "ipa"):
         raise AnnotationError(
@@ -475,7 +497,7 @@ def _west_units(text: str, language: str, target: str) -> list[dict[str, Any]]:
             {"language": language, "reason": "no-syllable-table"},
         )
     romanizer = _romanizer()
-    units: list[dict[str, Any]] = []
+    words: list[tuple[int, int]] = []
     index = 0
     while index < len(text):
         ch = text[index]
@@ -486,24 +508,58 @@ def _west_units(text: str, language: str, target: str) -> list[dict[str, Any]]:
             end = index
             while end < len(text) and (is_letter(text[end]) or text[end] in "'\u2019"):
                 end += 1
-            word = text[index:end]
-            if target == "latin":
-                try:
-                    rendered = romanizer.romanize(word, language)
-                except Exception as exc:  # noqa: BLE001 - unsupported language
-                    raise AnnotationError(
-                        "unsupported-language",
-                        f"romanizer does not support {language!r}: {exc}",
-                        {"language": language},
-                    ) from exc
-                syllables = [rendered]
-            else:
-                from . import espeak
+            words.append((index, end))
+            index = end
+            continue
+        index += 1
+    # One espeak-ng subprocess per request, not one per word (api.md 10.2).
+    phonemes: list[list[str]] = []
+    if target == "ipa" and words:
+        from . import espeak
 
-                syllables = espeak.syllables(word, language)
-            units.append(
-                {"text": word, "category": "latin", "offset": index, "syllables": syllables}
-            )
+        phonemes = espeak.syllables_batch(
+            [text[start:end] for start, end in words], language
+        )
+    rendered: list[list[str]] = []
+    if target == "latin":
+        for start, end in words:
+            word = text[start:end]
+            try:
+                output = romanizer.romanize(word, language)
+            except Exception as exc:  # noqa: BLE001 - unsupported language
+                raise AnnotationError(
+                    "unsupported-language",
+                    f"romanizer does not support {language!r}: {exc}",
+                    {"language": language},
+                ) from exc
+            if output == word and any(ord(ch) > 127 for ch in word):
+                _log.warning(
+                    "romanizer kept the surface spelling of %r (%s)", word, language
+                )
+            # The syllable is the written word: romanizing again would drop
+            # diacritics (schon/naive), which the doc forbids (api.md 10.1).
+            rendered.append([word])
+    units: list[dict[str, Any]] = []
+    for position, (start, end) in enumerate(words):
+        syllables = phonemes[position] if target == "ipa" else rendered[position]
+        units.append(
+            {
+                "text": text[start:end],
+                "category": "latin",
+                "offset": start,
+                "syllables": syllables,
+            }
+        )
+    index = 0
+    while index < len(text):
+        ch = text[index]
+        if ch.isspace():
+            index += 1
+            continue
+        if is_letter(ch) or ch in "'\u2019":
+            end = index
+            while end < len(text) and (is_letter(text[end]) or text[end] in "'\u2019"):
+                end += 1
             index = end
             continue
         if is_digit(ch):
@@ -516,6 +572,7 @@ def _west_units(text: str, language: str, target: str) -> list[dict[str, Any]]:
             continue
         units.append({"text": ch, "category": "symbol", "offset": index, "syllables": [ch]})
         index += 1
+    units.sort(key=lambda unit: unit["offset"])
     return units
 
 

@@ -45,7 +45,6 @@ VIDEO_DEFAULT_SCALE = 0.5
 VIDEO_DEFAULT_FPS = 30
 VIDEO_STREAM_INDEX = 1
 AUDIO_STREAM_INDEX = 0
-IPA_LANGUAGES = ("en", "de", "fr", "ru", "es", "it", "pt")
 
 _METHODS = (
     "hello",
@@ -161,6 +160,14 @@ class BackendService:
         self._closed = False
         self.tasks = taskboard.TaskBoard(self._emit_event)
         self._whisper = taskboard.WhisperStore()
+        # Probe espeak-ng once: hello must not fork a subprocess per call, and
+        # a missing engine has to be visible in the startup log (api.md 4.3).
+        self._ipa = self._ipa_info()
+        self.log(
+            "espeak",
+            available=self._ipa["available"],
+            languages=len(self._ipa["languages"]),
+        )
 
     def attach(self, server: Server) -> None:
         self._server = server
@@ -319,9 +326,10 @@ class BackendService:
     # -- hello -------------------------------------------------------------
 
     def _ipa_info(self) -> dict[str, Any]:
+        available = espeak.available()
         return {
-            "available": espeak.available(),
-            "languages": espeak.languages() if espeak.available() else [],
+            "available": available,
+            "languages": espeak.languages() if available else [],
         }
 
     def _hello_result(self) -> dict[str, Any]:
@@ -332,7 +340,7 @@ class BackendService:
                 "max_range_seconds": MAX_RANGE_SECONDS,
                 "max_open_sources": MAX_OPEN_SOURCES,
             },
-            "ipa": self._ipa_info(),
+            "ipa": self._ipa,
         }
         if "flac" in self._encoders:
             result["audio"] = {
@@ -455,8 +463,12 @@ class BackendService:
         if not isinstance(source_id, str) or not source_id:
             raise BackendError("bad-request", "source_id must be a non-empty string")
         source = self._media.pop(source_id, None)
-        if source is not None:
-            await self._run(source.close)
+        if source is None:
+            # api.md 12: an unknown id is source-not-found, not a silent {}.
+            raise BackendError(
+                "source-not-found", f"unknown source_id {source_id!r}", {"source_id": source_id}
+            )
+        await self._run(source.close)
         self.log("source-close", source_id=source_id)
         return {}
 
@@ -827,6 +839,10 @@ class BackendService:
             return
         self._closed = True
         try:
+            # Stop the task board first: a running transcription aborts at its
+            # next check, queued tasks are marked cancelled, and their events
+            # never reach a closed socket (api.md 4.3).
+            self.tasks.close()
             for source in self._media.values():
                 source.close()
             self._media.clear()

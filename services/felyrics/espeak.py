@@ -79,30 +79,46 @@ def _find_exe() -> str | None:
     return None
 
 
+def _find_data_dir(exe: str) -> str | None:
+    """The engine cannot synthesise without its espeak-ng-data directory."""
+    candidates: list[str] = []
+    if _DIR:
+        candidates.append(os.path.join(os.path.expanduser(_DIR), "espeak-ng-data"))
+    candidates.append(os.path.join(os.path.dirname(exe), "espeak-ng-data"))
+    for candidate in candidates:
+        if os.path.isdir(candidate):
+            return candidate
+    return None
+
+
 def available() -> bool:
-    return _find_exe() is not None
+    exe = _find_exe()
+    return exe is not None and _find_data_dir(exe) is not None
 
 
 def languages() -> list[str]:
     return list(IPA_LANGUAGES) if available() else []
 
 
-def syllables(word: str, language: str) -> list[str]:
-    """Return the IPA syllables of one western word."""
+def _require_exe(language: str) -> str:
     exe = _find_exe()
-    if exe is None:
+    if exe is None or _find_data_dir(exe) is None:
         raise AnnotationError(
             "ipa-unavailable",
-            "the espeak-ng executable was not found",
+            "espeak-ng or its data directory was not found",
             {"language": language, "reason": "engine-missing"},
         )
+    return exe
+
+
+def _engine(exe: str, text: str, language: str) -> str:
     try:
         completed = subprocess.run(
             [exe, "-q", "--ipa=txt", "-v", language],
-            input=word + "\n",
+            input=text,
             capture_output=True,
             text=True,
-            timeout=10,
+            timeout=30,
             check=False,
             encoding="utf-8",
             errors="replace",
@@ -113,14 +129,35 @@ def syllables(word: str, language: str) -> list[str]:
             f"espeak-ng failed to start: {exc}",
             {"language": language, "reason": "engine-missing"},
         ) from exc
-    ipa = completed.stdout.strip()
+    return completed.stdout
+
+
+def syllables(word: str, language: str) -> list[str]:
+    """Return the IPA syllables of one western word."""
+    exe = _require_exe(language)
+    ipa = _engine(exe, word + "\n", language).strip()
     if not ipa:
         raise AnnotationError(
-            "annotation-anchor-mismatch",
+            "ipa-unavailable",
             f"espeak-ng produced no phonemes for {word!r}",
-            {"items": [{"text": word, "reason": "empty-phonemes"}]},
+            {"language": language, "reason": "empty-phonemes"},
         )
     return split_ipa(ipa, language)
+
+
+def syllables_batch(words: list[str], language: str) -> list[list[str]]:
+    """Phonemise many words in one engine call (one subprocess per request).
+
+    espeak-ng prints one IPA line per input line. If the line count ever
+    disagrees, fall back to the per-word path so a result never desynchronises.
+    """
+    if not words:
+        return []
+    exe = _require_exe(language)
+    lines = [line for line in _engine(exe, "\n".join(words) + "\n", language).splitlines() if line.strip()]
+    if len(lines) == len(words):
+        return [split_ipa(line.strip(), language) for line in lines]
+    return [syllables(word, language) for word in words]
 
 
 def _segment(ipa: str) -> list[str]:

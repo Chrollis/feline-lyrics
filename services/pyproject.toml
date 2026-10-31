@@ -4,10 +4,9 @@ version = "0.0.0"
 description = "Felyrics Backend Service"
 requires-python = ">=3.12, <3.13"
 dependencies = [
-    "fastapi",
-    "uvicorn[standard]",
+    "websockets>=17",
+    "numpy>=2.5",
     "stable-ts[fw]",
-    "librosa",
     "fugashi[unidic-lite]",
     "kiwipiepy",
     "hanja",

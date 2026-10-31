@@ -29,7 +29,6 @@ from __future__ import annotations
 
 import threading
 import uuid
-from collections import OrderedDict
 from pathlib import Path
 from typing import Any
 
@@ -318,63 +317,10 @@ def _duration_sec(
     return None
 
 
-class SourceRegistry:
-    """Server-wide open files, least recently used evicted first.
-
-    Sources outlive a websocket connection on purpose: a reconnect must be able
-    to keep using its ``source_id`` and its decode cursor.
-    """
-
-    def __init__(self, max_open: int = MAX_OPEN_SOURCES) -> None:
-        self._lock = threading.Lock()
-        self._sources: OrderedDict[str, Source] = OrderedDict()
-        self._max_open = max(1, max_open)
-
-    def open(self, path: Path) -> Source:
-        source = Source.open(path)
-        with self._lock:
-            self._sources[source.id] = source
-            while len(self._sources) > self._max_open:
-                _, evicted = self._sources.popitem(last=False)
-                evicted.close()
-        return source
-
-    def get(self, source_id: str) -> Source:
-        with self._lock:
-            source = self._sources.get(source_id)
-            if source is None:
-                raise SourceError(
-                    "source-not-found",
-                    "unknown source_id",
-                    source_id=source_id,
-                )
-            self._sources.move_to_end(source_id)
-        return source
-
-    def close(self, source_id: str) -> None:
-        with self._lock:
-            source = self._sources.pop(source_id, None)
-        if source is None:
-            raise SourceError("source-not-found", "unknown source_id", source_id=source_id)
-        source.close()
-
-    def close_all(self) -> None:
-        with self._lock:
-            sources = list(self._sources.values())
-            self._sources.clear()
-        for source in sources:
-            source.close()
-
-    def __len__(self) -> int:
-        with self._lock:
-            return len(self._sources)
-
-
 __all__ = [
     "CHANNELS",
     "MAX_OPEN_SOURCES",
     "OUTPUT_RATE",
     "Source",
     "SourceError",
-    "SourceRegistry",
 ]

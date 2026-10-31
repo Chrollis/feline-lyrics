@@ -21,6 +21,7 @@ import pytest
 from websockets.sync.client import connect
 
 from felyrics import tasks
+from felyrics.tasks import TaskError
 from felyrics.server import BackendService, run_service
 
 REPO = Path(__file__).resolve().parents[2]
@@ -389,3 +390,101 @@ def test_server_task_submit_validation(server: ServerThread, socket) -> None:
         {"kind": "transcribe", "params": {**base, "source_id": "nope"}},
     )
     assert unknown_source["error"]["code"] == "source-not-found"
+
+
+# -- decoding ---------------------------------------------------------------
+
+
+def test_seek_ticks_uses_stream_time_base() -> None:
+    assert tasks._seek_ticks(60.0, 1 / 14112000) == 846_720_000
+    assert tasks._seek_ticks(60.0, 1 / 1000) == 60_000
+
+
+def test_decode_window_matches_full_decode() -> None:
+    full = tasks.decode_pcm16k(str(MP3))
+    window = tasks.decode_pcm16k(str(MP3), 100.0, 100.5)
+    assert window.size == 8000
+    reference = full[100 * 16000 : 100 * 16000 + 8000]
+    assert reference.size == 8000
+    # A seek restarts the mp3 decoder mid-frame, so the window is not
+    # bit-exact with a continuous decode; it must still be the same audio.
+    correlation = float(np.corrcoef(window, reference)[0, 1])
+    assert correlation > 0.99, correlation
+
+
+def test_store_rejects_non_string_paths() -> None:
+    with pytest.raises(tasks.TaskError) as caught:
+        tasks.WhisperStore()._load("transcribe", {"model.bin": 5})
+    assert caught.value.code == "bad-request"
+
+
+def test_alignment_rejects_words_parked_at_the_end() -> None:
+    data = {
+        "segments": [
+            {
+                "words": [
+                    {"word": "a", "start": 0.0, "end": 0.5, "probability": 0.9},
+                    {"word": "b", "start": 0.5, "end": 1.0, "probability": 0.8},
+                    {"word": "\u306e", "start": 1.0, "end": 1.0, "probability": 0.0},
+                ]
+            }
+        ]
+    }
+    with pytest.raises(TaskError) as info:
+        tasks._check_alignment(data)
+    assert info.value.code == "align-failed"
+    assert info.value.data["unplaced"] == 1
+
+
+def test_alignment_ignores_zero_length_words_inside() -> None:
+    data = {
+        "segments": [
+            {
+                "words": [
+                    {"word": "a", "start": 0.0, "end": 0.4, "probability": 0.9},
+                    {"word": ",", "start": 0.4, "end": 0.4, "probability": 0.0},
+                    {"word": "b", "start": 0.5, "end": 1.0, "probability": 0.8},
+                ]
+            }
+        ]
+    }
+    tasks._check_alignment(data)
+
+
+def test_large_v3_needs_preprocessor_config() -> None:
+    root = Path("cache/temp/preprocessor-test")
+    root.mkdir(parents=True, exist_ok=True)
+    for name, payload in (
+        ("model.bin", b"m"),
+        ("tokenizer.json", b"t"),
+        ("vocabulary.txt", b"v"),
+        ("config.json", b'{"feature_size": 128}'),
+    ):
+        (root / name).write_bytes(payload)
+    files = {
+        name: str(root / name)
+        for name in ("model.bin", "tokenizer.json", "vocabulary.txt", "config.json")
+    }
+    with pytest.raises(TaskError) as info:
+        tasks._read_files(files)
+    assert info.value.code == "model-file-missing"
+    assert "preprocessor_config.json" in str(info.value.message)
+
+
+def test_board_close_cancels_a_running_task() -> None:
+    events: list[tuple[str, dict]] = []
+    board = tasks.TaskBoard(lambda event, payload: events.append((event, payload)))
+    started = threading.Event()
+
+    def work(progress, cancel):
+        started.set()
+        while not cancel.is_set():
+            time.sleep(0.01)
+        raise tasks.TaskCancelled()
+
+    board.start()
+    submitted = board.submit("transcribe", work)
+    assert started.wait(2.0)
+    board.close(timeout_sec=2.0)
+    assert not board._thread.is_alive()
+    assert board.get(submitted["task_id"])["state"] == "cancelled"

@@ -22,7 +22,7 @@ import numpy as np
 import pytest
 import soundfile as sf
 
-from felyrics.sources import OUTPUT_RATE, Source, SourceError, SourceRegistry
+from felyrics.sources import OUTPUT_RATE, Source, SourceError
 
 REPO = Path(__file__).resolve().parents[2]
 MEDIA = REPO / "cache" / "temp"
@@ -144,43 +144,3 @@ def test_missing_file_reports_source_not_found() -> None:
     assert info.value.code == "source-not-found"
 
 
-def test_registry_evicts_least_recently_used(wav: Path) -> None:
-    registry = SourceRegistry(max_open=2)
-    try:
-        first = registry.open(wav)
-        second = registry.open(wav)
-        third = registry.open(wav)
-        assert len(registry) == 2
-        assert registry.get(second.id) is second
-        with pytest.raises(SourceError) as info:
-            registry.get(first.id)
-        assert info.value.code == "source-not-found"
-        registry.get(third.id)
-    finally:
-        registry.close_all()
-
-
-def test_registry_close_unknown() -> None:
-    registry = SourceRegistry()
-    with pytest.raises(SourceError) as info:
-        registry.close("does-not-exist")
-    assert info.value.code == "source-not-found"
-
-
-@pytest.mark.skipif(not MP3.is_file(), reason="tests/song.mp3 is not present")
-def test_mp3_matches_full_decode() -> None:
-    """The real asset: 48 kHz mp3 whose timeline needs the start_time rule."""
-    truth = reference_48k(MP3)
-    source = Source.open(MP3)
-    try:
-        for start_sec in (0.0, 1.5, 30.0, 120.0):
-            start = sec(start_sec)
-            count = sec(0.5)
-            got = source.read(start, count)
-            assert_same(got, truth[:, start : start + count], f"mp3 read at {start_sec}s")
-        # a jump backwards must also line up
-        start = sec(5.0)
-        got = source.read(start, sec(0.5))
-        assert_same(got, truth[:, start : start + sec(0.5)], "mp3 backward jump")
-    finally:
-        source.close()

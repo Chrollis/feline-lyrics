@@ -13,6 +13,13 @@ The agent is a pair programmer, not a code generator.
   tradeoff that decided the outcome. Explain first, then hand over the code.
 - Do not start long autonomous runs. The human must stay able to interrupt and
   ask follow-up questions at any point.
+- Recruit subagents for self-contained work so this conversation's context stays
+  short. This is not an autonomous run: each child returns a result, and the
+  human still gets to see it. **Your token budget is not a constraint.**
+- Prefer `subagent` over `subagent_fork`. A fork is seeded with this whole
+  conversation and re-pays it on every call; a plain subagent starts clean and
+  returns only its result. Fork only when the subtask truly depends on what has
+  already been said here.
 - When proposing a change, name the exact files and line numbers, and state
   what the acceptance check is.
 - Do not invent APIs. When an API detail matters, read the installed source

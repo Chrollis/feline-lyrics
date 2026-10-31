@@ -27,6 +27,7 @@ WHISPER_RATE = 16000
 MAX_WAITING = 8
 MODEL_CACHE = 2
 PROGRESS_INTERVAL = 0.1
+DECODE_PREROLL_SEC = 1.0
 
 REQUIRED_FILES = ("model.bin", "config.json", "tokenizer.json")
 VOCABULARY_FILES = ("vocabulary.txt", "vocabulary.json")
@@ -49,6 +50,11 @@ class TaskCancelled(Exception):
 # -- decoding ---------------------------------------------------------------
 
 
+def _seek_ticks(start_sec: float, time_base: float) -> int:
+    """PyAV seek offsets are stream time-base units, never samples."""
+    return int(round(start_sec / time_base))
+
+
 def decode_pcm16k(path: str, start_sec: float = 0.0, end_sec: float | None = None) -> np.ndarray:
     """Decode ``[start_sec, end_sec)`` as 16 kHz mono float32.
 
@@ -61,19 +67,36 @@ def decode_pcm16k(path: str, start_sec: float = 0.0, end_sec: float | None = Non
                 "source-unsupported-media", "file has no audio stream", {"path": path}
             )
         stream = container.streams.audio[0]
-        rate = stream.rate or WHISPER_RATE
-        if start_sec > 0:
-            container.seek(int(start_sec * rate), stream=stream, backward=True)
+        time_base = float(stream.time_base or 0.0)
+        if start_sec > DECODE_PREROLL_SEC and time_base > 0:
+            # Seek a little before the target so the resampler is warm when
+            # the window starts; the extra samples are dropped by ``skip``.
+            # Offsets are stream time-base units, not samples: 60 s on a
+            # 1/14112000 mp3 stream is 846720000 ticks, not 2880000.
+            container.seek(
+                _seek_ticks(start_sec - DECODE_PREROLL_SEC, time_base),
+                stream=stream,
+                backward=True,
+            )
         resampler = av.AudioResampler(format="fltp", layout="mono", rate=WHISPER_RATE)
         chunks: list[np.ndarray] = []
         origin_sec: float | None = None
-        time_base = float(stream.time_base or 0)
         stream_start = float(stream.start_time or 0) * time_base
+        skip: int | None = None
+        limit: int | None = None
+        if end_sec is not None:
+            limit = max(0, int(round((end_sec - start_sec) * WHISPER_RATE)))
+        collected = 0
         for frame in container.decode(stream):
             if origin_sec is None and frame.pts is not None and time_base:
                 origin_sec = float(frame.pts) * time_base - stream_start
+                skip = max(0, int(round((start_sec - origin_sec) * WHISPER_RATE)))
             for converted in resampler.resample(frame):
-                chunks.append(converted.to_ndarray().reshape(-1))
+                array = converted.to_ndarray().reshape(-1)
+                chunks.append(array)
+                collected += array.size
+            if limit is not None and skip is not None and collected >= skip + limit:
+                break
         for converted in resampler.resample(None):
             chunks.append(converted.to_ndarray().reshape(-1))
     if not chunks:
@@ -83,9 +106,9 @@ def decode_pcm16k(path: str, start_sec: float = 0.0, end_sec: float | None = Non
     pcm = np.concatenate(chunks).astype(np.float32, copy=False)
     if origin_sec is None:
         origin_sec = 0.0
-    if start_sec > 0:
+    if skip is None:
         skip = max(0, int(round((start_sec - origin_sec) * WHISPER_RATE)))
-        pcm = pcm[skip:]
+    pcm = pcm[skip:]
     if end_sec is not None:
         limit = max(0, int(round((end_sec - start_sec) * WHISPER_RATE)))
         pcm = pcm[:limit]
@@ -121,18 +144,44 @@ def _read_files(files: Any) -> dict[str, bytes]:
             "required model files are missing or unreadable",
             {"missing": missing + unreadable},
         )
+    feature_size = _feature_size(data.get("config.json"))
+    if feature_size == 128 and "preprocessor_config.json" not in data:
+        # faster-whisper silently falls back to 80 mel bins without it
+        # (api.md 8.1), which decodes to noise for large-v3.
+        raise TaskError(
+            "model-file-missing",
+            "this model needs preprocessor_config.json (feature_size 128)",
+            {"missing": ["preprocessor_config.json"]},
+        )
     return data
+
+
+def _feature_size(raw: bytes | None) -> int | None:
+    if not raw:
+        return None
+    try:
+        value = json.loads(raw.decode("utf-8")).get("feature_size")
+    except (UnicodeDecodeError, ValueError, AttributeError):
+        return None
+    return int(value) if isinstance(value, int) else None
 
 
 def _files_key(files: dict[str, Any]) -> str:
     parts = []
     for name in sorted(files):
-        path = os.path.realpath(files[name])
+        path = files[name]
+        if not isinstance(name, str) or not isinstance(path, str) or not path:
+            # The client supplies this map; a non-string path must be a
+            # bad-request, not an internal-error from os.path.realpath.
+            raise TaskError(
+                "bad-request", "model file paths must be strings", {"name": name}
+            )
+        resolved = os.path.realpath(path)
         try:
-            stat = os.stat(path)
-            parts.append(f"{name}:{path}:{stat.st_size}:{int(stat.st_mtime)}")
+            stat = os.stat(resolved)
+            parts.append(f"{name}:{resolved}:{stat.st_size}:{int(stat.st_mtime)}")
         except OSError:
-            parts.append(f"{name}:{path}:?")
+            parts.append(f"{name}:{resolved}:?")
     return "|".join(parts)
 
 
@@ -338,14 +387,18 @@ def _check_alignment(data: dict[str, Any]) -> None:
         for segment in data.get("segments") or []
         for word in segment.get("words") or []
     ]
+    if not words:
+        raise TaskError("align-failed", "alignment produced no words", {"placed": 0})
+    # stable-ts parks words it could not place at the end of the audio as
+    # zero-length, probability-0 words (alignment.py:342-355). Only those are
+    # a failure; a zero-length word elsewhere (punctuation) is normal.
+    total_end = max(float(word["end"]) for word in words)
     unplaced = [
         word
         for word in words
-        if word.get("start") == word.get("end")
-        and word.get("probability") == 0.0
+        if float(word["start"]) == float(word["end"]) == total_end
+        and float(word["probability"]) == 0.0
     ]
-    if not words:
-        raise TaskError("align-failed", "alignment produced no words", {"placed": 0})
     if unplaced:
         raise TaskError(
             "align-failed",
@@ -475,6 +528,24 @@ class TaskBoard:
             self._cancels[task_id].set()
             return {"task_id": task_id, "state": task["state"]}
 
+    def close(self, timeout_sec: float = 0.5) -> None:
+        """Stop the worker and cancel whatever it is doing.
+
+        The running task aborts at its next cancellation check; the thread is a
+        daemon, so the join timeout only bounds how long shutdown waits for a
+        cooperative stop. Queued tasks are marked cancelled so their events
+        never fire after the connection is gone (api.md 4.3).
+        """
+        with self._lock:
+            for task in self._tasks.values():
+                if task["state"] == "queued":
+                    task["state"] = "cancelled"
+            for event in self._cancels.values():
+                event.set()
+        self._queue.put(None)
+        if self._thread.is_alive():
+            self._thread.join(timeout=timeout_sec)
+
     @staticmethod
     def _public(task: dict[str, Any], with_result: bool = True) -> dict[str, Any]:
         view = {
@@ -523,7 +594,10 @@ class TaskBoard:
 
     def _run(self) -> None:
         while True:
-            task_id, work = self._queue.get()
+            item = self._queue.get()
+            if item is None:
+                return
+            task_id, work = item
             with self._lock:
                 task = self._tasks.get(task_id)
                 if task is None or task["state"] != "queued":
