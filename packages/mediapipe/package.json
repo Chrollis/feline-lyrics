@@ -1,0 +1,29 @@
+{
+    "name": "@felyrics/mediapipe",
+    "version": "0.0.0",
+    "private": true,
+    "description": "Felyrics renderer media layer: clip algebra, timeline index, transport, frame and audio caches.",
+    "license": "MPL-2.0",
+    "type": "module",
+    "main": "./out/renderer/index.js",
+    "types": "./out/renderer/index.d.ts",
+    "exports": {
+        ".": {
+            "types": "./out/renderer/index.d.ts",
+            "default": "./out/renderer/index.js"
+        },
+        "./package.json": "./package.json"
+    },
+    "files": [
+        "out/renderer"
+    ],
+    "engines": {
+        "node": ">=22.18.0"
+    },
+    "scripts": {
+        "typecheck": "tsc --noEmit -p tsconfig.json",
+        "build": "tsc -p tsconfig.json",
+        "test": "node --import ./tests/register.mjs --test --test-isolation=none \"tests/**/*.test.mjs\"",
+        "test:watch": "node --import ./tests/register.mjs --test --test-isolation=none --watch \"tests/**/*.test.mjs\""
+    }
+}

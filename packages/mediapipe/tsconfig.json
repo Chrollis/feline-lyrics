@@ -1,0 +1,16 @@
+{
+    "extends": "../../tsconfig.base.json",
+    "compilerOptions": {
+        "noUncheckedIndexedAccess": false,
+        "lib": ["es2023", "dom"],
+        "module": "node16",
+        "moduleResolution": "node16",
+        "types": ["node"],
+        "rootDir": "src",
+        "outDir": "out",
+        "declaration": true,
+        "declarationMap": true,
+        "sourceMap": true
+    },
+    "include": ["src/**/*"]
+}
