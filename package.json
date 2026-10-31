@@ -5,9 +5,10 @@
     "description": "Feline-lyrics, lyrics timing and karaoke video composition.",
     "scripts": {
         "lint": "eslint .",
-        "format": "prettier --write apps packages \"*.js\" \"*.json\"",
-        "format:check": "prettier --check apps packages \"*.js\" \"*.json\"",
+        "format": "prettier --write apps packages \"*.js\" \"*.json\" \"scripts/*.mjs\"",
+        "format:check": "prettier --check apps packages \"*.js\" \"*.json\" \"scripts/*.mjs\"",
         "test": "npm test --workspaces --if-present",
+        "test:services": "python\\python.exe -s -m pytest services/tests -q -p no:cacheprovider",
         "typecheck": "npm run typecheck --workspaces --if-present"
     },
     "license": "MPL-2.0",

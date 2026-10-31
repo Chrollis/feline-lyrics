@@ -33,6 +33,15 @@ const PIP_INDEX_URL = 'https://mirrors.cloud.tencent.com/pypi/simple/';
 // const PIP_INDEX_URL = 'https://pypi.org/simple';
 
 const PBS_CACHE = path.join(CACHE_DIR, PBS_FILENAME);
+// The marker is written only once a whole extraction succeeded and the .pth is
+// in place, so a half-extracted runtime is never mistaken for a ready one.
+const READY_MARKER = path.join(RUNTIME_DIR, '.ready');
+const READY_MARKER_CONTENT = PBS_FILENAME;
+
+// A body sent without content-length ("chunked") cannot be checked against a
+// byte count, so the only cheap floor left is that no real release archive is
+// this small. A body cut to a few bytes still completes the pipeline.
+const MIN_DOWNLOAD_BYTES = 1024 ** 2;
 
 const BACKEND_PATH = '..\\..\\..\\services';
 const PTH_FILE = path.join(RUNTIME_DIR, 'Lib', 'site-packages', 'felyrics.pth');
@@ -58,7 +67,10 @@ function run(cmd, args, { env } = {}) {
         stdio: 'inherit',
     });
     if (r.error) throw r.error;
-    return r.status ?? 0;
+    if (r.status === null) {
+        throw new Error(`${cmd} was killed by ${r.signal ?? 'a signal'}`);
+    }
+    return r.status;
 }
 
 function runCapture(cmd, args, { env } = {}) {
@@ -68,7 +80,10 @@ function runCapture(cmd, args, { env } = {}) {
         stdio: ['ignore', 'pipe', 'pipe'],
     });
     if (r.error) throw r.error;
-    return { code: r.status ?? 0, stdout: r.stdout ?? '' };
+    if (r.status === null) {
+        throw new Error(`${cmd} was killed by ${r.signal ?? 'a signal'}`);
+    }
+    return { code: r.status, stdout: r.stdout ?? '' };
 }
 
 function formatBytes(n) {
@@ -133,6 +148,24 @@ async function download(url, dest, { retries = 3 } = {}) {
             paint();
             if (drew) process.stderr.write('\n');
 
+            // The mirror in front of this URL is external: a body cut short
+            // still completes the pipeline, and the next run trusts the file by
+            // its existence, so the short read has to fail here and retry.
+            if (total > 0 && received !== total) {
+                throw new Error(
+                    `received ${received} of ${total} bytes: the download was truncated`,
+                );
+            }
+            // Without content-length the exact size is unknown, so at least
+            // refuse the obviously truncated body instead of caching it.
+            if (total === 0 && received < MIN_DOWNLOAD_BYTES) {
+                throw new Error(
+                    `received ${received} bytes with no content-length to check ` +
+                        `against; anything under ${formatBytes(MIN_DOWNLOAD_BYTES)} ` +
+                        'is treated as truncated',
+                );
+            }
+
             fs.renameSync(part, dest);
             log(`  -> ${dest} (${received} bytes)`);
             return;
@@ -180,11 +213,40 @@ function distName(spec) {
 // 1) setup_runtime
 // ============================================================
 
+// Windows ships bsdtar and macOS ships tar, but PATH can still have none. The
+// probe runs before the archive is touched: a missing tar must not delete the
+// archive, and spawnSync's own "spawn tar ENOENT" says nothing useful.
+function requireTar() {
+    const r = spawnSync('tar', ['--version'], { stdio: 'ignore' });
+    if (r.error) {
+        throw new Error(
+            'tar/bsdtar is required to extract archives but could not be run ' +
+                `(${r.error.message}); no archive was removed`,
+        );
+    }
+    if (r.status !== 0) {
+        throw new Error(
+            'tar/bsdtar is required to extract archives but ' +
+                `'tar --version' exited with ${r.status}; no archive was removed`,
+        );
+    }
+}
+
 function isReady() {
-    return (
-        fs.existsSync(PYTHON) &&
-        fs.existsSync(path.join(RUNTIME_DIR, 'Lib', 'site-packages', 'pip'))
-    );
+    if (!fs.existsSync(PYTHON)) return false;
+    if (!fs.existsSync(path.join(RUNTIME_DIR, 'Lib', 'site-packages', 'pip'))) {
+        return false;
+    }
+    // python.exe plus pip can still be a leftover of a half-extracted archive,
+    // so the marker written at the end of a successful extraction is required.
+    try {
+        return (
+            fs.readFileSync(READY_MARKER, 'utf-8').trim() ===
+            READY_MARKER_CONTENT
+        );
+    } catch {
+        return false;
+    }
 }
 
 function cleanRuntime() {
@@ -199,10 +261,32 @@ function writePth() {
 }
 
 function unzip(zipPath, dest) {
+    requireTar();
+    // List first, but only a real non-zero exit means the archive is bad: a
+    // failed spawn or a killed tar must keep the archive for the next run.
+    const probe = spawnSync('tar', ['-tf', zipPath], { stdio: 'ignore' });
+    if (probe.error || probe.status === null) {
+        throw new Error(
+            `could not list ${path.basename(zipPath)} ` +
+                `(${probe.error?.message ?? `tar was killed by ${probe.signal ?? 'a signal'}`}); ` +
+                'no archive was removed',
+        );
+    }
+    if (probe.status !== 0) {
+        fs.rmSync(zipPath, { force: true });
+        throw new Error(
+            `extract failed: ${path.basename(zipPath)} could not be listed and was removed`,
+        );
+    }
     fs.mkdirSync(dest, { recursive: true });
     const rc = run('tar', ['-xf', zipPath, '-C', dest]);
     if (rc !== 0) {
-        throw new Error('extract failed');
+        // The next run trusts the archive by its existence alone, so a bad one
+        // has to go or every later run fails in the same place.
+        fs.rmSync(zipPath, { force: true });
+        throw new Error(
+            `extract failed (tar exit ${rc}): ${path.basename(zipPath)} was removed`,
+        );
     }
 }
 
@@ -217,6 +301,9 @@ async function buildRuntime() {
 
     log('[3/3] configuring paths');
     writePth();
+    // Last step: an extraction that dies in the middle leaves no marker, so
+    // isReady() rejects that tree and the next run extracts again.
+    fs.writeFileSync(READY_MARKER, `${READY_MARKER_CONTENT}\n`, 'utf-8');
     log('done');
 }
 
@@ -262,6 +349,31 @@ function readDependencies() {
     return deps;
 }
 
+/**
+ * The `dev` extras (test-only tooling). A pyproject without that section is
+ * not an error: production runtimes are built without it.
+ */
+function readDevDependencies() {
+    if (!fs.existsSync(PYPROJECT)) {
+        throw new Error(`cannot find ${PYPROJECT}`);
+    }
+    const text = fs.readFileSync(PYPROJECT, 'utf-8');
+
+    const group = text.match(
+        /\[project\.optional-dependencies\]([\s\S]*?)(?=\n\[|$)/,
+    );
+    if (!group) return [];
+
+    const arr = group[1].match(/^dev\s*=\s*\[([\s\S]*?)\]\s*(?:#[^\n]*)?$/m);
+    if (!arr) return [];
+
+    const deps = [];
+    for (const m of arr[1].matchAll(/"([^"]*)"|'([^']*)'/g)) {
+        deps.push(m[1] ?? m[2]);
+    }
+    return deps;
+}
+
 function listInstalled(env) {
     const { code, stdout } = runCapture(
         PYTHON,
@@ -275,9 +387,17 @@ function listInstalled(env) {
     return map;
 }
 
-function installDeps() {
+function installDeps({ prod = false } = {}) {
     const deps = readDependencies();
+    const devDeps = prod ? [] : readDevDependencies();
+    const specs = [...deps, ...devDeps];
     const env = pipEnv();
+
+    if (prod) {
+        log('mode: prod (dev extras skipped)');
+    } else if (devDeps.length > 0) {
+        log(`dev extras: ${devDeps.map((spec) => distName(spec)).join(', ')}`);
+    }
 
     const rc = run(
         PYTHON,
@@ -289,7 +409,7 @@ function installDeps() {
             PIP_INDEX_URL,
             '--no-input',
             '--no-warn-script-location',
-            ...deps,
+            ...specs,
         ],
         { env },
     );
@@ -299,7 +419,7 @@ function installDeps() {
     console.log();
     log('installed:');
     const missing = [];
-    for (const spec of deps) {
+    for (const spec of specs) {
         const name = distName(spec);
         const version = installed[name];
         if (version === undefined) {
@@ -362,10 +482,22 @@ function verify() {
 // ============================================================
 // main
 // ============================================================
-async function main() {
+async function main(argv = process.argv.slice(2)) {
+    if (argv.includes('--print-deps')) {
+        console.log(
+            JSON.stringify(
+                { runtime: readDependencies(), dev: readDevDependencies() },
+                null,
+                2,
+            ),
+        );
+        return 0;
+    }
+
+    const prod = argv.includes('--prod');
     await setupRuntime();
 
-    const installRc = installDeps();
+    const installRc = installDeps({ prod });
     if (installRc !== 0) return installRc;
 
     return verify();

@@ -11,6 +11,9 @@ export default defineConfig(
         '**/out/**',
         '**/dist/**',
         'reference/**',
+        // Local scratch: docs/.lrc is ignored by .gitignore and .prettierignore
+        // already, so lint must not fail on files that are not part of the repo.
+        'docs/**',
         'cache/**',
         'output/**',
         'python/**',
