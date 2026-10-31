@@ -198,3 +198,18 @@ test('index: snapping ties go to the start side and radius is inclusive', () => 
     assert.equal(snapToEditPoint(snapping, 999, 0), null);
     assert.equal(snapToEditPoint(snapping, 2001, 100), 2000);
 });
+
+test('index: refuses a span that starts before zero', () => {
+    // A negative start used to index buckets[-1] and throw a bare TypeError
+    // from inside the fill loop, far from the clip that caused it.
+    assert.throws(() => buildLayerIndex([clip('neg', -1, 500)]), TypeError);
+});
+
+test('index: refuses a span whose end leaves the int32 range', () => {
+    // The starts and ends live in Int32Array: a larger end wrapped negative
+    // and the clip was silently left out of every bucket.
+    assert.throws(
+        () => buildLayerIndex([clip('huge', 1, 2 ** 31 - 1)]),
+        TypeError,
+    );
+});

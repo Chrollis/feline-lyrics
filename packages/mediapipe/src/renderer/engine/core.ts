@@ -193,6 +193,11 @@ export interface MediapipeOptions {
     autoKey?: boolean;
     /** Prefetch horizon per window (one second at the preset fps). */
     windowMs?: number;
+    /**
+     * Bound for one page decode. Decodes run after the wire request settled,
+     * so this only bounds the app's decoder (default 10 s, tests shorten it).
+     */
+    decodeTimeoutMs?: number;
 }
 
 export interface MediapipeStats {
@@ -200,6 +205,12 @@ export interface MediapipeStats {
     readonly audioBytes: number;
     readonly subtitleFrames: number;
     readonly inFlight: number;
+    /** Decodes running on this side; they hold no wire credit. */
+    readonly decoding: number;
+    /** Pages that burned their decode attempts and stopped being requested. */
+    readonly failedPages: number;
+    /** Wire request failures (timeout, send error) since the engine started. */
+    readonly wireFailures: number;
     readonly underruns: number;
 }
 
@@ -221,6 +232,13 @@ const FIRST_ENGINE_ID = 1_000_000;
 /** Bound for a window build-then-ack; the backend builds before acking. */
 const WINDOW_TIMEOUT_MS = 30_000;
 const AUDIO_RATE = 48_000;
+/** Attempts before a page is declared dead and stops being re-requested. */
+const MAX_AUDIO_PAGE_FAILURES = 3;
+/**
+ * A decode is not a wire credit (review P0): it gets its own bound. A decoder
+ * that never settles must not hold one of the four media slots forever.
+ */
+const DECODE_TIMEOUT_MS = 10_000;
 
 function sourceSampleOf(clip: AudioClip, localMs: number): number {
     const sourceMs = clip.inMs + localMs;
@@ -248,6 +266,11 @@ function firstStartAfter(starts: Int32Array, tMs: number): number {
         }
     }
     return lo;
+}
+
+/** Decode bookkeeping key: one page of one source stream. */
+function decodeKey(token: number, pageIndex: number): string {
+    return `${token}:${pageIndex}`;
 }
 
 interface WindowRequest {
@@ -325,6 +348,17 @@ class Engine implements Mediapipe {
     private readonly audioPendingPages = new Map<number, Set<number>>();
     /** Pages the backend reported as past the source end (ack bytes 0). */
     private readonly audioEmpties = new Map<number, Set<number>>();
+    /** Token -> page -> failed attempts, so a dead page stops being retried. */
+    private readonly audioFailures = new Map<number, Map<number, number>>();
+    /**
+     * Page decodes in flight, keyed by `${token}:${page}`. A decode runs after
+     * the wire request settled, so it never holds one of the media slots
+     * (review P0); the timer bounds a decoder that never resolves.
+     */
+    private readonly decoding = new Map<
+        string,
+        ReturnType<typeof setTimeout>
+    >();
     private readonly windows = new Map<number, WindowRequest>();
     private readonly windowByClip = new Map<string, number>();
     /** Slot ranges the backend reported as having no frame (ack count 0). */
@@ -338,6 +372,7 @@ class Engine implements Mediapipe {
     private helloDone = false;
     private viewport: VideoPreset;
     private underruns = 0;
+    private wireFailures = 0;
     private disposed = false;
     private detach: (() => void) | undefined;
     private detachError: (() => void) | undefined;
@@ -411,6 +446,8 @@ class Engine implements Mediapipe {
             this.pages.dropToken(token);
             this.audioPendingPages.delete(token);
             this.audioEmpties.delete(token);
+            this.audioFailures.delete(token);
+            this.dropDecodes(token);
             this.audioTokens.delete(key);
         }
     }
@@ -419,16 +456,31 @@ class Engine implements Mediapipe {
         if (this.clipsById.has(clip.id)) {
             throw new TypeError(`clip already exists: ${clip.id}`);
         }
+        // Register, then roll back if the index refuses the span, so a rejected
+        // clip never becomes a ghost that poisons later edits (review P1).
         this.clipsById.set(clip.id, clip);
-        this.rebuild();
+        try {
+            this.rebuild();
+        } catch (error) {
+            this.clipsById.delete(clip.id);
+            this.rebuild();
+            throw error;
+        }
     }
 
     updateClip(clip: Clip): void {
-        if (!this.clipsById.has(clip.id)) {
+        const previous = this.clipsById.get(clip.id);
+        if (previous === undefined) {
             throw new TypeError(`unknown clip: ${clip.id}`);
         }
         this.clipsById.set(clip.id, clip);
-        this.rebuild();
+        try {
+            this.rebuild();
+        } catch (error) {
+            this.clipsById.set(clip.id, previous);
+            this.rebuild();
+            throw error;
+        }
     }
 
     removeClip(id: string): void {
@@ -566,7 +618,7 @@ class Engine implements Mediapipe {
                 width: entry.width,
                 height: entry.height,
                 ptsMs: entry.ptsMs,
-                image: entry.image as Uint8Array,
+                image: entry.image,
             };
         }
         const started = this.ensureWindow(clip, slot);
@@ -626,6 +678,11 @@ class Engine implements Mediapipe {
         }
         if (this.isAudioEmpty(token, pageIndex)) {
             return this.audioEmpty(clipId, atMs, pageIndex);
+        }
+        if (this.isAudioFailed(token, pageIndex)) {
+            // The page burned through its attempts: ask again would only repeat
+            // the same decode error on every tick.
+            return this.audioRejected(clipId, atMs, pageIndex, 'page-failed');
         }
         const page = this.pages.get(token, pageIndex);
         if (page !== undefined) {
@@ -754,6 +811,9 @@ class Engine implements Mediapipe {
             audioBytes: this.pages.bytes,
             subtitleFrames,
             inFlight: this.windows.size + this.audioRequests.size,
+            decoding: this.decoding.size,
+            failedPages: this.failedPageCount(),
+            wireFailures: this.wireFailures,
             underruns: this.underruns,
         };
     }
@@ -776,6 +836,8 @@ class Engine implements Mediapipe {
         this.pages.dropAll();
         this.empties.clear();
         this.audioEmpties.clear();
+        this.audioFailures.clear();
+        this.dropDecodes();
         this.subtitles.clear();
         this.sources.clear();
         this.client?.close?.();
@@ -956,6 +1018,13 @@ class Engine implements Mediapipe {
         if (this.isAudioEmpty(token, pageIndex)) {
             return 'empty';
         }
+        if (this.isAudioFailed(token, pageIndex)) {
+            return 'page-failed';
+        }
+        if (this.decoding.has(decodeKey(token, pageIndex))) {
+            // The bytes arrived and its decode is running: pending, not idle.
+            return undefined;
+        }
         if (this.windows.size + this.audioRequests.size >= MAX_IN_FLIGHT) {
             return 'window-full';
         }
@@ -1027,6 +1096,10 @@ class Engine implements Mediapipe {
                 }
             })
             .catch(() => {
+                // A transport failure is not a decode failure (review P1): it
+                // must not burn the page's decode attempts. The page stays
+                // requestable and the next tick retries it.
+                this.wireFailures += 1;
                 this.settleAudio(reqId, true);
             });
         return undefined;
@@ -1154,15 +1227,17 @@ class Engine implements Mediapipe {
     }): void {
         const audio = this.audioRequests.get(frame.reqId);
         if (audio !== undefined) {
-            // Audio arrives as one assembled stream at `last`. An empty
-            // stream is the terminal frame of a page past the source end.
+            // Audio arrives as one assembled stream at `last`. An empty stream
+            // is the terminal frame of a page past the source end.
             if (frame.header.last) {
+                // Release the wire credit first: a slow or hung decoder must
+                // not hold one of the four media slots (review P0).
+                this.settleAudio(frame.reqId, false);
                 if (frame.bytes.length < 4) {
                     this.markAudioEmpty(audio.token, audio.pageIndex);
                 } else {
-                    this.finishAudioFrame(audio, frame.bytes);
+                    this.startAudioDecode(audio, frame.bytes);
                 }
-                this.settleAudio(frame.reqId, false);
             }
             return;
         }
@@ -1330,7 +1405,8 @@ class Engine implements Mediapipe {
         };
     }
 
-    /** A configuration problem: refuse without counting an underrun. */
+    /** A configuration problem or a page that can never decode: refuse
+     *  without counting an underrun. */
     private audioRejected(
         clipId: string,
         atMs: number,
@@ -1392,6 +1468,67 @@ class Engine implements Mediapipe {
         return this.audioEmpties.get(token)?.has(pageIndex) === true;
     }
 
+    /**
+     * Record one failed attempt for a page. The reason is logged once, when the
+     * page reaches its attempt cap, so a deterministic decode failure does not
+     * print on every tick.
+     */
+    private failAudioPage(req: AudioRequest, reason: string): void {
+        let pages = this.audioFailures.get(req.token);
+        if (pages === undefined) {
+            pages = new Map<number, number>();
+            this.audioFailures.set(req.token, pages);
+        }
+        const attempts = (pages.get(req.pageIndex) ?? 0) + 1;
+        pages.set(req.pageIndex, attempts);
+        if (attempts === MAX_AUDIO_PAGE_FAILURES) {
+            console.error(
+                `mediapipe: audio page ${req.pageIndex} gave up after ${attempts} attempts: ${reason}`,
+            );
+        }
+    }
+
+    private isAudioFailed(token: number, pageIndex: number): boolean {
+        const attempts = this.audioFailures.get(token)?.get(pageIndex) ?? 0;
+        return attempts >= MAX_AUDIO_PAGE_FAILURES;
+    }
+
+    /** A working page forgets its earlier scars (review P1). */
+    private clearAudioFailure(token: number, pageIndex: number): void {
+        const pages = this.audioFailures.get(token);
+        if (pages === undefined) {
+            return;
+        }
+        pages.delete(pageIndex);
+        if (pages.size === 0) {
+            this.audioFailures.delete(token);
+        }
+    }
+
+    private failedPageCount(): number {
+        let total = 0;
+        for (const pages of this.audioFailures.values()) {
+            for (const attempts of pages.values()) {
+                if (attempts >= MAX_AUDIO_PAGE_FAILURES) {
+                    total += 1;
+                }
+            }
+        }
+        return total;
+    }
+
+    /** Cancel running decodes (all of them, or one token's) without waiting. */
+    private dropDecodes(token?: number): void {
+        const prefix = token === undefined ? undefined : `${token}:`;
+        for (const [key, timer] of [...this.decoding]) {
+            if (prefix !== undefined && !key.startsWith(prefix)) {
+                continue;
+            }
+            clearTimeout(timer);
+            this.decoding.delete(key);
+        }
+    }
+
     private audioEmpty(
         clipId: string,
         atMs: number,
@@ -1407,15 +1544,53 @@ class Engine implements Mediapipe {
         };
     }
 
-    private finishAudioFrame(req: AudioRequest, flac: Uint8Array): void {
+    /**
+     * Decode one page after its wire request settled. Decodes are tracked
+     * apart from the wire credit (review P0) and bounded by DECODE_TIMEOUT_MS;
+     * a decode that lands after dispose, closeSource or a timed-out attempt is
+     * dropped instead of repopulating a dead or retired page.
+     */
+    private startAudioDecode(req: AudioRequest, flac: Uint8Array): void {
         const decoder = this.opts.decodeAudio;
-        if (decoder === undefined) {
+        if (
+            decoder === undefined ||
+            this.disposed ||
+            !this.isAudioTokenAlive(req.token)
+        ) {
             return;
         }
-        void decoder(flac)
+        const key = decodeKey(req.token, req.pageIndex);
+        if (this.decoding.has(key)) {
+            // A duplicated terminal frame must not decode (or fail) twice.
+            return;
+        }
+        const timeoutMs = this.opts.decodeTimeoutMs ?? DECODE_TIMEOUT_MS;
+        const timer = setTimeout(() => {
+            this.decoding.delete(key);
+            this.failAudioPage(req, 'decode timed out');
+            console.error(
+                `mediapipe: audio page ${req.pageIndex} decode exceeded ${timeoutMs} ms`,
+            );
+        }, timeoutMs);
+        this.decoding.set(key, timer);
+        const finish = (): boolean => {
+            const current = this.decoding.get(key);
+            if (current === undefined) {
+                // A timeout retired this attempt; its late result is useless.
+                return false;
+            }
+            clearTimeout(current);
+            this.decoding.delete(key);
+            return true;
+        };
+        // A decoder that throws synchronously must still settle the page;
+        // otherwise it stays pending forever and is never requested again.
+        void Promise.resolve()
+            .then(() => decoder(flac))
             .then((decoded) => {
-                // A decode that lands after dispose or after its source was
-                // closed must not repopulate a dead pool.
+                if (!finish()) {
+                    return;
+                }
                 if (this.disposed || !this.isAudioTokenAlive(req.token)) {
                     return;
                 }
@@ -1425,8 +1600,9 @@ class Engine implements Mediapipe {
                 ) {
                     // The acked region does not start where the page does, so
                     // caching it under pageIndex would play shifted audio.
-                    console.error(
-                        `mediapipe: audio page start mismatch: page ${req.pageIndex} starts at ${req.pageIndex * PAGE_FRAMES}, ack says ${req.startSample}`,
+                    this.failAudioPage(
+                        req,
+                        `acked start ${req.startSample}, page starts at ${req.pageIndex * PAGE_FRAMES}`,
                     );
                     return;
                 }
@@ -1436,15 +1612,14 @@ class Engine implements Mediapipe {
                     !(left instanceof Float32Array) ||
                     !(right instanceof Float32Array)
                 ) {
-                    console.error(
-                        'mediapipe: audio decode returned non-float32 channels',
+                    this.failAudioPage(
+                        req,
+                        'decode returned non-float32 channels',
                     );
                     return;
                 }
                 if (left.length !== right.length) {
-                    console.error(
-                        'mediapipe: audio decode channels differ in length',
-                    );
+                    this.failAudioPage(req, 'decode channels differ in length');
                     return;
                 }
                 const expected = Math.min(Math.max(req.count, 0), PAGE_FRAMES);
@@ -1456,8 +1631,9 @@ class Engine implements Mediapipe {
                     // A decoder that returns the wrong number of frames (wrong
                     // context rate, mono copy) would silently pitch-shift the
                     // whole page; refuse it instead.
-                    console.error(
-                        `mediapipe: audio decode length mismatch: got ${left.length}, expected ${expected}`,
+                    this.failAudioPage(
+                        req,
+                        `decode length ${left.length}, expected ${expected}`,
                     );
                     return;
                 }
@@ -1467,9 +1643,16 @@ class Engine implements Mediapipe {
                     channels: [fitPage(left), fitPage(right)],
                     sampleRate: AUDIO_RATE,
                 };
+                // A healthy decode clears the scar: a later transient failure
+                // must not retire a page that has worked since (review P1).
+                this.clearAudioFailure(req.token, req.pageIndex);
                 this.pages.put(page);
             })
             .catch((err: unknown) => {
+                if (!finish()) {
+                    return;
+                }
+                this.failAudioPage(req, 'decode failed');
                 console.error('mediapipe: audio decode failed', err);
             });
     }
@@ -1632,6 +1815,9 @@ class Engine implements Mediapipe {
         for (const reqId of [...this.audioRequests.keys()]) {
             this.settleAudio(reqId, false);
         }
+        // Failures belong to one transport session: after a reconnect a page
+        // that timed out while the socket was down must be attempted again.
+        this.audioFailures.clear();
         this.detach?.();
         this.detach = undefined;
         this.detachError?.();

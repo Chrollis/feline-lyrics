@@ -8,6 +8,8 @@ import type { Clip } from './clips.js';
 
 /** Bucket width in milliseconds. A 10-minute song is 2400 buckets. */
 export const BUCKET_MS = 250;
+/** The index stores starts and ends in Int32Array: the end must fit. */
+const MAX_SPAN_MS = 2 ** 31 - 1;
 
 export interface PlaybackCursor {
     bucket: number;
@@ -27,6 +29,10 @@ export interface LayerIndex {
     readonly startIds: readonly number[];
     /** bucket b holds ids of clips intersecting [b*BUCKET_MS, (b+1)*BUCKET_MS). */
     readonly buckets: readonly (readonly number[])[];
+    /**
+     * One playhead per layer. An index may be cached by clip-array identity, so
+     * two consumers of the same array must not both drive this cursor.
+     */
     cursor: PlaybackCursor | null;
 }
 
@@ -36,10 +42,12 @@ function assertSpans(clips: readonly Clip[]): void {
         if (
             !Number.isInteger(startMs) ||
             !Number.isInteger(durationMs) ||
-            durationMs < 0
+            startMs < 0 ||
+            durationMs < 0 ||
+            startMs + durationMs > MAX_SPAN_MS
         ) {
             throw new TypeError(
-                `clip ${clip.id}: span must be integer milliseconds with a non-negative duration`,
+                `clip ${clip.id}: span must be integer milliseconds with a non-negative start and an end inside the int32 range`,
             );
         }
     }
@@ -93,6 +101,8 @@ const indexCache = new WeakMap<readonly Clip[], LayerIndex>();
  * The index for a clip array, rebuilt only when the array identity changes.
  * A fresh document means a fresh array; the cached index must not outlive
  * in-place mutation of its array (the engine rebuilds on new identities).
+ * The engine's frame path still calls buildLayerIndex on every rebuild, so
+ * this cache is only reached by callers that hand over a stable array.
  */
 export function layerIndexFor(clips: readonly Clip[]): LayerIndex {
     let index = indexCache.get(clips);

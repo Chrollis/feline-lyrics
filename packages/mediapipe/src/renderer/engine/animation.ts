@@ -74,15 +74,24 @@ function curveFor(interp: Interp): Curve {
     }
 }
 
+/** A handle coordinate, falling back when the stored value is not a number. */
+function unit(value: number | undefined, fallback: number): number {
+    return typeof value === 'number' && Number.isFinite(value)
+        ? value
+        : fallback;
+}
+
 /** The segment a -> b uses a's hOut as start control and b's hIn as end. */
 function segmentCurve(a: Keyframe, b: Keyframe): Curve {
     const hOut = a.hOut;
     const hIn = b.hIn;
+    // NaN must never reach the curve: sampleChannel would return NaN values
+    // that render as blank frames (review L10).
     return [
-        hOut?.dx ?? 0.33,
-        hOut?.dy ?? 0,
-        1 - (hIn?.dx ?? 0.33),
-        1 - (hIn?.dy ?? 0),
+        unit(hOut?.dx, 0.33),
+        unit(hOut?.dy, 0),
+        1 - unit(hIn?.dx, 0.33),
+        1 - unit(hIn?.dy, 0),
     ];
 }
 
@@ -562,6 +571,15 @@ export class AnimationStore {
         if (keys.length === 0) {
             this.tracks.get(ownerId)?.delete(path);
             return;
+        }
+        // The first key has no predecessor to compare against, so it needs its
+        // own check: a single-key track (or a NaN first key) used to slip
+        // through and make sampleChannel return NaN.
+        const first = keys[0] as Keyframe;
+        if (!Number.isInteger(first.tMs) || !Number.isFinite(first.value)) {
+            throw new TypeError(
+                `keys must be whole milliseconds with finite values: ${ownerId}:${path}`,
+            );
         }
         for (let i = 1; i < keys.length; i++) {
             const prev = keys[i - 1] as Keyframe;

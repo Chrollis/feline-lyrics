@@ -70,7 +70,7 @@ AudioPageCache  1 s planar pages (48 kHz stereo), per-source and pool caps
 
 ```
 createMediapipe({ connect, presets?: { playback? }, cache?, autoKey?, windowMs?,
-                  decodeAudio? })
+                  decodeTimeoutMs?, decodeAudio? })
 ```
 
 - The engine is a clock slave: `tick(nowMs)` per rAF focuses the caches and
@@ -88,10 +88,14 @@ createMediapipe({ connect, presets?: { playback? }, cache?, autoKey?, windowMs?,
   returns `{left, right}`; a short tail page is padded to 48000 samples, and a
   page past the source end is answered `empty` and never requested twice.
   A pending page reports why (`inflight`, `no-backend`, `no-decoder`,
-  `window-full`), a decoded length that is neither the announced count nor a
-  full page is refused and cached nowhere, `tick` prefetches audio before video,
-  and audio keeps a reserved in-flight slot so a busy video layer cannot starve
-  it.
+  `window-full`, `page-out-of-range`), a decoded length that is neither the
+  announced count nor a full page is refused and cached nowhere, `tick`
+  prefetches audio before video, and audio keeps a reserved in-flight slot so a
+  busy video layer cannot starve it. The decode runs after the wire request
+  settled (a slow decoder holds no media slot), bounded by `decodeTimeoutMs`
+  (10 s); a decode failure counts one attempt and retires the page after three
+  (`failedPages`), while a wire failure only bumps `wireFailures` and stays
+  retryable. `stats()` reports `decoding`, `failedPages` and `wireFailures`.
 - One preset is active for the whole surface (`setViewport`). Changing it keeps
   the frames of the old preset: the token carries scale and fps, so an entry
   stays reachable when the user switches back and distance-to-playhead eviction
@@ -139,7 +143,7 @@ FrameReassembler  per-req_id payloads: one stream (flac) or one frame each (png)
 npm test --workspace @felyrics/mediapipe
 ```
 
-117 tests: clip algebra, timeline index, wire codec, reassembly and the
+128 tests: clip algebra, timeline index, wire codec, reassembly and the
 client against an in-memory socket, sampling/remap/evaluation, the frame/page
 caches and the engine core (video windows, audio pages, subtitle windows,
 reconnect) against a fake transport.

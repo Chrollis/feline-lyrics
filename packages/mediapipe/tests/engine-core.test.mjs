@@ -20,6 +20,7 @@ class FakeTransport {
         this.cancelled = [];
         this.ackCount = 2;
         this.ackBytes = 4;
+        this.failRangeOnce = false;
         this.closed = false;
     }
 
@@ -50,6 +51,10 @@ class FakeTransport {
             };
         }
         if (method === 'request_range') {
+            if (this.failRangeOnce) {
+                this.failRangeOnce = false;
+                throw new Error('send failed');
+            }
             return {
                 req_id: opts.id,
                 start_pts_us: 0,
@@ -215,6 +220,7 @@ class FakeSubtitle {
 }
 
 const flush = () => new Promise((resolve) => setTimeout(resolve, 0));
+const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 test('openSource connects lazily, sends hello once and records the source', async () => {
     const transport = new FakeTransport();
@@ -677,6 +683,103 @@ test('an audio page past the source end is empty and never re-requested', async 
     await engine.dispose();
 });
 
+test('a page that keeps failing is retired instead of retried forever', async () => {
+    const transport = new FakeTransport();
+    let decodes = 0;
+    const engine = createMediapipe({
+        connect: async () => transport,
+        decodeAudio: async () => {
+            decodes += 1;
+            throw new Error('bad flac');
+        },
+    });
+    await engine.openSource('a.mp3');
+    engine.addClip(audioClip('a1'));
+
+    // Every answered frame fails to decode, so each retry burns one attempt.
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+        assert.equal(engine.audioPage('a1', 250).status, 'pending');
+        await flush();
+        const req = transport.calls
+            .filter((c) => c.method === 'request_range')
+            .at(-1);
+        transport.emit(req.id, 0, true);
+        await flush();
+    }
+
+    const retired = engine.audioPage('a1', 250);
+    assert.equal(retired.status, 'unavailable');
+    assert.equal(retired.reason, 'page-failed');
+    const before = transport.calls.filter(
+        (c) => c.method === 'request_range',
+    ).length;
+    assert.equal(before, 3);
+
+    assert.equal(engine.audioPage('a1', 250).status, 'unavailable');
+    await flush();
+    const after = transport.calls.filter(
+        (c) => c.method === 'request_range',
+    ).length;
+    assert.equal(after, before);
+    assert.equal(decodes, 3);
+    await engine.dispose();
+});
+
+test('a decoder that throws synchronously still releases the page', async () => {
+    const transport = new FakeTransport();
+    let decodes = 0;
+    const engine = createMediapipe({
+        connect: async () => transport,
+        // Not async on purpose: the throw happens before any promise exists.
+        decodeAudio: () => {
+            decodes += 1;
+            throw new Error('sync decode failure');
+        },
+    });
+    await engine.openSource('a.mp3');
+    engine.addClip(audioClip('a1'));
+
+    assert.equal(engine.audioPage('a1', 250).status, 'pending');
+    await flush();
+    const req = transport.calls.find((c) => c.method === 'request_range');
+    transport.emit(req.id, 0, true);
+    await flush();
+
+    // The failure was counted and the request settled, so the page is retried
+    // instead of staying pending forever.
+    assert.equal(decodes, 1);
+    assert.equal(engine.stats().inFlight, 0);
+    assert.equal(engine.audioPage('a1', 250).status, 'pending');
+    await engine.dispose();
+});
+
+test('a reconnect gives a retired page a fresh set of attempts', async () => {
+    const transport = new FakeTransport();
+    const engine = createMediapipe({
+        connect: async () => transport,
+        decodeAudio: async () => {
+            throw new Error('bad flac');
+        },
+    });
+    await engine.openSource('a.mp3');
+    engine.addClip(audioClip('a1'));
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+        assert.equal(engine.audioPage('a1', 250).status, 'pending');
+        await flush();
+        const req = transport.calls
+            .filter((c) => c.method === 'request_range')
+            .at(-1);
+        transport.emit(req.id, 0, true);
+        await flush();
+    }
+    assert.equal(engine.audioPage('a1', 250).status, 'unavailable');
+
+    transport.emitClose({ code: 1006, reason: 'drop' });
+    // A new transport session may find the page healthy again.
+    assert.equal(engine.audioPage('a1', 250).status, 'pending');
+    await engine.dispose();
+});
+
 test('an ack without a byte count is not armed as zero bytes', async () => {
     const transport = new FakeTransport();
     transport.ackBytes = undefined;
@@ -878,4 +981,119 @@ test('audioPage needs a registered decoder and an open source', async () => {
     const withoutDecoder = engine.audioPage('a1', 0);
     assert.equal(withoutDecoder.status, 'pending');
     await engine.dispose();
+});
+
+test('a hung decoder releases its media slot after the decode timeout', async () => {
+    const transport = new FakeTransport();
+    const engine = createMediapipe({
+        connect: async () => transport,
+        decodeTimeoutMs: 5,
+        decodeAudio: () => new Promise(() => {}),
+    });
+    await engine.openSource('a.mp3');
+    engine.addClip(audioClip('a1'));
+
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+        assert.equal(engine.audioPage('a1', 0).status, 'pending');
+        await flush();
+        const req = transport.calls
+            .filter((call) => call.method === 'request_range')
+            .at(-1);
+        transport.emit(req.id, 0, true);
+        await flush();
+        assert.equal(engine.stats().decoding, 1);
+        await wait(15);
+        assert.equal(engine.stats().decoding, 0);
+    }
+    assert.equal(engine.stats().failedPages, 1);
+    const retired = engine.audioPage('a1', 0);
+    assert.equal(retired.status, 'unavailable');
+    assert.equal(retired.reason, 'page-failed');
+    await engine.dispose();
+});
+
+test('a transport failure does not burn a decode attempt', async () => {
+    const transport = new FakeTransport();
+    transport.failRangeOnce = true;
+    const engine = createMediapipe({
+        connect: async () => transport,
+        decodeAudio: async () => ({
+            left: new Float32Array(48000),
+            right: new Float32Array(48000),
+        }),
+    });
+    await engine.openSource('a.mp3');
+    engine.addClip(audioClip('a1'));
+    assert.equal(engine.audioPage('a1', 0).status, 'pending');
+    await flush();
+    assert.equal(engine.stats().wireFailures, 1);
+    assert.equal(engine.stats().failedPages, 0);
+
+    // The page stayed requestable: the next tick retries it and it decodes.
+    assert.equal(engine.audioPage('a1', 0).status, 'pending');
+    await flush();
+    const req = transport.calls
+        .filter((call) => call.method === 'request_range')
+        .at(-1);
+    transport.emit(req.id, 0, true);
+    await flush();
+    assert.equal(engine.audioPage('a1', 0).status, 'ready');
+    await engine.dispose();
+});
+
+test('a successful decode clears an earlier failed attempt', async () => {
+    const transport = new FakeTransport();
+    let decodes = 0;
+    const engine = createMediapipe({
+        connect: async () => transport,
+        decodeAudio: async () => {
+            decodes += 1;
+            if (decodes === 1) {
+                throw new Error('decode failed once');
+            }
+            return {
+                left: new Float32Array(48000),
+                right: new Float32Array(48000),
+            };
+        },
+    });
+    await engine.openSource('a.mp3');
+    engine.addClip(audioClip('a1'));
+    engine.audioPage('a1', 0);
+    await flush();
+    let req = transport.calls
+        .filter((call) => call.method === 'request_range')
+        .at(-1);
+    transport.emit(req.id, 0, true);
+    await flush();
+    await flush();
+    assert.equal(engine.stats().failedPages, 0);
+
+    engine.audioPage('a1', 0);
+    await flush();
+    req = transport.calls
+        .filter((call) => call.method === 'request_range')
+        .at(-1);
+    transport.emit(req.id, 0, true);
+    await flush();
+    await flush();
+    assert.equal(engine.audioPage('a1', 0).status, 'ready');
+    assert.equal(engine.stats().failedPages, 0);
+    await engine.dispose();
+});
+
+test('a clip the index rejects is not left registered', () => {
+    const engine = createMediapipe({});
+    assert.throws(
+        () => {
+            engine.addClip({
+                ...videoClip('bad'),
+                span: { startMs: -1, durationMs: 1000 },
+            });
+        },
+        (error) => error instanceof TypeError,
+    );
+    assert.equal(engine.getClip('bad'), undefined);
+    engine.addClip(videoClip('ok'));
+    assert.ok(engine.getClip('ok'));
 });

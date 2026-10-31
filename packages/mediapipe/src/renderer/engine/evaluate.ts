@@ -24,6 +24,8 @@ export interface ClipRenderState {
 /** Static audio gain carried by the clip payload (video clips carry one too). */
 const DEFAULT_OPACITY = 1;
 const DEFAULT_GAIN = 1;
+/** Same int32 bound the layer index enforces (doc 15.1). */
+const MAX_SPAN_MS = 2 ** 31 - 1;
 
 function validate(clip: Clip, atMs: number): void {
     if (!Number.isFinite(atMs)) {
@@ -34,7 +36,9 @@ function validate(clip: Clip, atMs: number): void {
         span === undefined ||
         !Number.isInteger(span.startMs) ||
         !Number.isInteger(span.durationMs) ||
-        span.durationMs < 0
+        span.startMs < 0 ||
+        span.durationMs < 0 ||
+        span.startMs + span.durationMs > MAX_SPAN_MS
     ) {
         throw new TypeError(
             `evaluateClip: clip ${clip.id} has an invalid span`,

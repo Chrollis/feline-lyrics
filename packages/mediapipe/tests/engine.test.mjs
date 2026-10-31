@@ -115,6 +115,11 @@ test('AnimationStore rejects keys that are not strictly increasing', () => {
     );
 });
 
+test('AnimationStore rejects a single key whose time is not a whole number', () => {
+    const store = new AnimationStore();
+    assert.throws(() => store.set('clip', 'opacity', [key(NaN, 1)]), TypeError);
+});
+
 test('AnimationStore preview overrides sampling until committed', () => {
     const store = new AnimationStore();
     store.set('clip', 'opacity', [key(0, 0), key(1000, 1)]);
@@ -402,4 +407,22 @@ test('AudioPageCache caps each source and keeps pinned pages', () => {
     cache.unpinAll(0);
     cache.dropToken(0);
     assert.equal(cache.size, 0);
+});
+
+test('a non-finite bezier handle falls back to the default curve', () => {
+    const store = new AnimationStore();
+    store.set('c1', 'opacity', [
+        { tMs: 0, value: 0, interp: 'bezier', hOut: { dx: NaN, dy: 0 } },
+        { tMs: 100, value: 1 },
+    ]);
+    const value = store.sample('c1', 'opacity', 50);
+    assert.equal(Number.isFinite(value), true);
+    assert.ok(value > 0 && value < 1);
+
+    store.set('c1', 'audio.gain', [
+        { tMs: 0, value: 0, interp: 'bezier' },
+        { tMs: 100, value: 1, hIn: { dx: Infinity, dy: 1 } },
+    ]);
+    const gain = store.sample('c1', 'audio.gain', 25);
+    assert.equal(Number.isFinite(gain), true);
 });

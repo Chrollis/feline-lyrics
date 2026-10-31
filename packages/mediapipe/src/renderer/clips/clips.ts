@@ -189,7 +189,10 @@ export function compareTopmost(a: Clip, b: Clip): number {
     return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
 }
 
-/** Hit test over an already active list: the clip the pointer would grab. */
+/**
+ * Hit test over an already active list: the clip the pointer would grab, by the
+ * same rule as topmostAt (layer, then z, then id) but without a LayerIndex.
+ */
 export function hitTestAt(clips: readonly Clip[], tMs: number): Clip | null {
     let best: Clip | null = null;
     for (const clip of clips) {

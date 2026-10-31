@@ -27,7 +27,8 @@ export interface FrameEntry {
     readonly height: number;
     /** Approximate decoded size; the budget is about memory, not wire bytes. */
     readonly bytes: number;
-    readonly image: unknown;
+    /** PNG bytes as the backend delivered them; the cache never decodes them. */
+    readonly image: Uint8Array;
 }
 
 export interface FrameCacheStats {
@@ -155,9 +156,11 @@ export class FrameCache {
     }
 
     /**
-     * Drop every frame rendered at one width: a viewport change makes those
-     * frames unreachable (the key includes the width) and keeping them would
-     * let them evict frames of the new viewport.
+     * Drop every frame rendered at one width. The key is token + frame index,
+     * so width lives on the entry and is compared here; a header without a
+     * width stores 0, which makes width 0 match those entries. setViewport does
+     * not call this on purpose (see its doc): frames of the previous preset
+     * stay reachable when the user switches back.
      */
     dropWidth(width: number): void {
         for (const [key, entry] of [...this.entries]) {
