@@ -126,6 +126,13 @@ const painted = withOverlay(line, {
   `Lyrics.styleBook`, which inherits through `basedOn` and resolves with
   `resolveStyle`. A line may name a style the book does not define; that is a
   dangling reference for the renderer, not a reason to refuse the document.
+  The book's own edges are checked, though: `withStyle` refuses a `basedOn`
+  that names no definition, a style that inherits from itself, an edge that
+  closes a cycle and a chain deeper than 32 links - `invalid-style-def` for the
+  one definition, `invalid-style-book` for the chain - and `assertStyleBook`
+  applies the same rules to a book built elsewhere. The project reader runs
+  them again on load and reports a failure under `invalid-project-file`, like
+  every other shape error.
 - An `InsertedObject` anchors to a span of the body. A zero-width anchor is a
   point: a soft break that splits the line into display blocks without splitting
   the lyric. A width-bearing anchor binds the cells it covers and survives an
@@ -165,7 +172,13 @@ const { lyrics, losses } = importTagText(text); // losses: { at, code, detail }[
   inline `{parent|reading}` with `＋` continuation, `$XXXX` escapes, and the
   `@Key=value` / `[key:value]` headers.
 - **LRC**: one timestamp per line, so per-word times and annotations are
-  reported as losses rather than silently collapsed.
+  reported as losses rather than silently collapsed. Export can also report
+  `unsupported-construct` (the body carries a `[` the reader parses as a tag,
+  or a `$XXXX` it decodes: LRC has no quoting), `time-truncated` (an end time
+  that is not a whole centisecond), `collapsed-run` (an inner chunk starts
+  after the line does) and `dropped-annotation` (a group other than the default
+  one). A line reports each of these at most once, and `dropped-annotation`
+  once per group name.
 - **Plain text**: text only; everything else is a loss.
 - **Stanza breaks**: a blank line inside the lyric body is reported once per
   file (`n stanza break(s) dropped`). The separator this package writes before

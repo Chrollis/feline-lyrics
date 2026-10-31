@@ -17,6 +17,10 @@ export function isGraphemeCluster(text: string): boolean {
     return [...GRAPHEMES.segment(text)].length === 1;
 }
 
+/**
+ * Public validator for the one-grapheme-cell rule; no module in this repo calls
+ * it yet (the writers that build cells rely on the text they were given).
+ */
 export function assertGraphemeCluster(text: string): void {
     if (!isGraphemeCluster(text)) {
         throw new LyricoreError(

@@ -570,6 +570,12 @@ export function insertedObjectProblem(
             detail: 'is not a non-negative integer',
         };
     }
+    if (object.content === undefined) {
+        return {
+            field: 'content',
+            detail: 'is missing: write null for a zero-width marker',
+        };
+    }
     if (object.content === null) {
         if (length !== 0) {
             return {

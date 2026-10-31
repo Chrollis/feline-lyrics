@@ -6,6 +6,7 @@ import { withOverlay } from '../../src/main/lyrics/line.js';
 import { NO_ANIMATIONS, textToLyrics } from '../../src/main/lyrics/lyrics.js';
 import { emptyStyleBook, withStyle } from '../../src/main/lyrics/stylebook.js';
 import {
+    lyricsToProject,
     lyricsToProjectJson,
     projectToLyrics,
     readProjectJson,
@@ -263,6 +264,39 @@ describe('the project document', () => {
         assert.equal(read.lyrics.lines[0].overlay.styles[0].styleId, 'nobody');
     });
 
+    it('reports an orphan style on an inserted text block too', () => {
+        // The text of an inserted block paints itself with a style id, so it
+        // has to resolve exactly like a run does; nothing else checks it.
+        const value = parsed();
+        value.overlay[0].inserted = [
+            {
+                id: 't1',
+                kind: 'text',
+                anchor: [1, 0],
+                content: { type: 'text', lines: ['x'], styleId: 'nope' },
+            },
+        ];
+        const read = projectToLyrics(value);
+        assert.deepEqual(read.issues, [
+            { code: 'style-orphan', styleId: 'nope' },
+        ]);
+        assert.equal(
+            read.lyrics.lines[0].overlay.inserted[0].content.styleId,
+            'nope',
+        );
+
+        const valid = parsed();
+        valid.overlay[0].inserted = [
+            {
+                id: 't1',
+                kind: 'text',
+                anchor: [1, 0],
+                content: { type: 'text', lines: ['x'], styleId: 'chorus' },
+            },
+        ];
+        assert.deepEqual(projectToLyrics(valid).issues, []);
+    });
+
     it('reads an empty basedOn as no parent and rejects a dangling one', () => {
         const value = parsed();
         value.styleBook.defs['chorus-hot'].basedOn = '';
@@ -452,6 +486,18 @@ describe('the project document, edge by edge', () => {
                     value.lyrics.lines[0].groups.default[0].pieces[0].mystery = 1;
                 },
             ],
+            [
+                '.check',
+                (value) => {
+                    // `checkFromFile` rebuilds the check from time and type, so
+                    // a third key inside it would be dropped without a word.
+                    value.lyrics.lines[0].groups.default[0].pieces[0].check = {
+                        time: 1000,
+                        type: 'KeyDown',
+                        mystery: 1,
+                    };
+                },
+            ],
         ];
         for (const [expected, mutate] of rows) {
             const value = JSON.parse(timedText());
@@ -541,6 +587,21 @@ describe('the project document, edge by edge', () => {
             lyricsToProjectJson({ ...base, styleBook: book2 }),
         );
         assert.deepEqual(Object.keys(value.styleBook.defs), ['aaa', 'zzz']);
+    });
+
+    it('refuses to write a book whose parent does not resolve', () => {
+        // Writing first and validating on the next read would put a document on
+        // disk that this package can never open again.
+        const base = textToLyrics('a\n');
+        const broken = {
+            ...base,
+            styleBook: {
+                defs: { a: { basedOn: 'missing', fields: { color: 'x' } } },
+            },
+        };
+        const invalid = (error) => error.code === 'invalid-style-book';
+        assert.throws(() => lyricsToProject(broken), invalid);
+        assert.throws(() => lyricsToProjectJson(broken), invalid);
     });
 
     it('rejects a defs value that is not an object', () => {

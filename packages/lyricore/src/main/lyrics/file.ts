@@ -107,6 +107,10 @@ export const META_KEYS: readonly string[] = [...TEXT_FIELDS, 'offset', 'extra'];
 
 /** One document as the shape that goes to disk. */
 export function lyricsToExport(lyrics: Lyrics): LyricsFile {
+    // The reader asserts what it builds; the writer used to hand back anything
+    // it was given, so an invalid document reached disk and failed on the next
+    // load with a path far from the edit that made it.
+    assertLyrics(lyrics);
     return {
         format: FILE_FORMAT,
         version: FILE_VERSION,

@@ -1,7 +1,13 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import { textToStream } from '../../src/main/lyrics/char.js';
-import { fillFromCheck, TAIL_MS } from '../../src/main/lyrics/interpolate.js';
+import { importLrc } from '../../src/main/io/lrc.js';
+import { importTagText } from '../../src/main/io/tagtext.js';
+import {
+    fillFromCheck,
+    recordCheck,
+    TAIL_MS,
+} from '../../src/main/lyrics/interpolate.js';
 
 function tap(time, type = 'KeyDown') {
     return { time, type };
@@ -419,5 +425,88 @@ describe('interpolation', () => {
         const twice = fill(once.lines, target);
         assert.deepEqual(twice, once);
         console.log('filling again from the same check is a no-op');
+    });
+});
+
+describe('a tap that disagrees with the cells already there', () => {
+    function imported() {
+        return importLrc(
+            '[00:01:00]a[00:02:33]b[00:03:66]c[00:05:00]d[00:06:33]e\n',
+        ).lyrics;
+    }
+
+    it('stops the cell in front of the start of the cell behind it', () => {
+        const tapped = recordCheck(
+            imported(),
+            { lineIndex: 0, group: 'default', runIndex: 3, pieceIndex: 0 },
+            tap(5_500),
+        );
+        // The tag at 5000 already placed the next cell. Before the cut the
+        // third cell ended at 5500 and overlapped the fourth by 500 ms.
+        assert.deepEqual(spans(tapped.lines[0].baseStream), [
+            [1_000, 1_330],
+            [2_330, 1_330],
+            [3_660, 1_340],
+            [5_000, 1_330],
+            [6_330, 5_000],
+            [11_330, 500],
+        ]);
+        assert.equal(
+            tapped.lines[0].groups.default[3].pieces[0].check.time,
+            5_500,
+        );
+        console.log('a tap never pushes a cell past the cell behind it');
+    });
+
+    it('keeps a tail that a tag already placed later', () => {
+        const tapped = recordCheck(
+            imported(),
+            { lineIndex: 0, group: 'default', runIndex: 5, pieceIndex: 0 },
+            tap(3_000),
+        );
+        assert.deepEqual(
+            spans(tapped.lines[0].baseStream).at(-1),
+            [11_330, 500],
+        );
+        console.log('a tail never runs backwards into the cell before it');
+    });
+});
+
+describe('a fill that has to stop short of the cell it lands in', () => {
+    function tagImported(source) {
+        return importTagText(source).lyrics;
+    }
+
+    it('splits the stretch over the shortened range, not the full tap', () => {
+        // The tapped run already starts at 3000, so a tap at 5000 cannot push
+        // the cell in front of it past 3000. Two cells take [1000, 3000): 1000
+        // each. Clamping the last bound after the fact left the second cell zero
+        // long and sharing a start with the third.
+        const tapped = recordCheck(
+            tagImported('[00:01:00]ab[00:03:00]cd\n'),
+            { lineIndex: 0, group: 'default', runIndex: 1, pieceIndex: 0 },
+            tap(5_000),
+        );
+        assert.deepEqual(spans(tapped.lines[0].baseStream).slice(0, 2), [
+            [1_000, 1_000],
+            [2_000, 1_000],
+        ]);
+        console.log('a fill never collapses the cell in front of a tag');
+    });
+
+    it('still moves the cells when the tap lands past the recorded start', () => {
+        // A tap at 9000 against a run that starts at 2000: the fill can only run
+        // to 2000, but it has to run there instead of being dropped whole and
+        // leaving a check no cell reflects.
+        const tapped = recordCheck(
+            tagImported('[00:01:00]ab[00:02:00]cd[00:02:20]e\n'),
+            { lineIndex: 0, group: 'default', runIndex: 1, pieceIndex: 0 },
+            tap(9_000),
+        );
+        assert.deepEqual(spans(tapped.lines[0].baseStream).slice(0, 2), [
+            [1_000, 500],
+            [1_500, 500],
+        ]);
+        console.log('a tap past a tag still fills the cells in front of it');
     });
 });

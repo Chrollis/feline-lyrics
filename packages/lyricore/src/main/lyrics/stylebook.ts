@@ -167,6 +167,10 @@ export function withStyle(
     }
     const next: Record<string, StyleDef> = { ...book.defs };
     defineStyle(next, id, freezeStyleDef(def));
+    // A new edge is the only way a cycle can appear, and `styleChain` is the
+    // one place that knows how to find one: run it now so the write is refused
+    // here, not by `assertStyleBook` on the next load.
+    styleChain({ defs: next }, id);
     return Object.freeze({ defs: Object.freeze(next) });
 }
 

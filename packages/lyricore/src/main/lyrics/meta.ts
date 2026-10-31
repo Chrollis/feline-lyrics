@@ -64,9 +64,13 @@ export function isValidMeta(meta: LyricsMeta): boolean {
     if (!TEXT_KEYS.every((key) => typeof meta[key] === 'string')) {
         return false;
     }
-    return Object.values(meta.extra).every(
-        (value) => typeof value === 'string',
-    );
+    // A raw JSON document can leave `extra` out; the answer is "no", not a
+    // TypeError out of Object.values.
+    const extra: unknown = meta.extra;
+    if (typeof extra !== 'object' || extra === null || Array.isArray(extra)) {
+        return false;
+    }
+    return Object.values(extra).every((value) => typeof value === 'string');
 }
 
 /** Whether two values say the same thing, field by field, `extra` by value. */

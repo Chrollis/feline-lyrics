@@ -22,6 +22,7 @@ import {
     type TextContent,
 } from '../lyrics/overlay.js';
 import {
+    assertStyleBook,
     emptyStyleBook,
     styleBookProblem,
     styleDefProblem,
@@ -130,6 +131,7 @@ const LYRICS_KEYS = ['format', 'version', 'meta', 'lines'] as const;
 const LINE_KEYS = ['text', 'spans', 'groups'] as const;
 const RUN_KEYS = ['offset', 'length', 'pieces'] as const;
 const PIECE_KEYS = ['check', 'text', 'spans'] as const;
+const CHECK_KEYS = ['time', 'type'] as const;
 const STYLE_BOOK_KEYS = ['defs'] as const;
 const STYLE_DEF_KEYS = ['basedOn', 'fields'] as const;
 const OVERLAY_ENTRY_KEYS = ['styles', 'inserted'] as const;
@@ -234,11 +236,18 @@ function sweepLyricsBlock(value: unknown): void {
                 const pieces = arrayAt(run.pieces, `${runPath}.pieces`);
                 pieces.forEach((pieceValue, pieceIndex) => {
                     const piecePath = `${runPath}.pieces[${pieceIndex}]`;
-                    closedKeys(
-                        recordAt(pieceValue, piecePath),
-                        PIECE_KEYS,
-                        piecePath,
-                    );
+                    const piece = recordAt(pieceValue, piecePath);
+                    closedKeys(piece, PIECE_KEYS, piecePath);
+                    // `checkFromFile` rebuilds the check from time and type, so
+                    // anything else inside it would be dropped the same way.
+                    if (piece.check !== null && piece.check !== undefined) {
+                        const checkPath = `${piecePath}.check`;
+                        closedKeys(
+                            recordAt(piece.check, checkPath),
+                            CHECK_KEYS,
+                            checkPath,
+                        );
+                    }
                 });
             });
         }
@@ -551,16 +560,31 @@ export function projectToLyrics(value: unknown): ProjectRead {
 
     const issues: ProjectIssue[] = [];
     const reported = new Set<string>();
+    // Both a run and the text of an inserted block name a style id: the block
+    // paints itself, so an id no def answers is the same orphan a run would be.
+    // One report per id, whichever layer named it first.
+    const reportStyle = (styleId: string): void => {
+        if (Object.hasOwn(styleBook.defs, styleId)) {
+            return;
+        }
+        if (reported.has(styleId)) {
+            return;
+        }
+        reported.add(styleId);
+        issues.push({ code: 'style-orphan', styleId });
+    };
     for (const overlay of overlays) {
         for (const run of overlay.styles) {
-            if (Object.hasOwn(styleBook.defs, run.styleId)) {
+            reportStyle(run.styleId);
+        }
+        for (const object of overlay.inserted) {
+            const content = object.content;
+            if (content === null || content.type !== 'text') {
                 continue;
             }
-            if (reported.has(run.styleId)) {
-                continue;
+            if (content.styleId !== undefined) {
+                reportStyle(content.styleId);
             }
-            reported.add(run.styleId);
-            issues.push({ code: 'style-orphan', styleId: run.styleId });
         }
     }
 
@@ -579,6 +603,10 @@ export function projectToLyrics(value: unknown): ProjectRead {
 
 /** The document as the shape that goes to disk. */
 export function lyricsToProject(lyrics: Lyrics): ProjectFile {
+    // The book goes straight into the file, so a parent that does not resolve
+    // has to be refused here: the alternative is a document this package can
+    // write and then never read back.
+    assertStyleBook(lyrics.styleBook);
     const defs = writeDefs(lyrics.styleBook);
     const overlay = lyrics.lines.map(writeOverlayEntry);
     return {

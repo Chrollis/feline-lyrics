@@ -44,6 +44,21 @@ describe('lyrics meta', () => {
         assert.equal(isValidMeta({ ...emptyMeta(), extra: { bad: 1 } }), false);
     });
 
+    it('rejects an array of extra tags', () => {
+        // The reader only accepts an object here, so an array that passed
+        // validation would write a project the reader refuses to load.
+        assert.equal(isValidMeta({ ...emptyMeta(), extra: ['x'] }), false);
+    });
+
+    it('answers false when extra is missing or not an object', () => {
+        const missing = { ...emptyMeta() };
+        delete missing.extra;
+
+        assert.equal(isValidMeta(missing), false);
+        assert.equal(isValidMeta({ ...emptyMeta(), extra: null }), false);
+        assert.equal(isValidMeta({ ...emptyMeta(), extra: 'x' }), false);
+    });
+
     it('reports metadata problems through the metadata code', () => {
         const lyrics = { meta: { ...emptyMeta(), offset: 1.5 }, lines: [] };
 

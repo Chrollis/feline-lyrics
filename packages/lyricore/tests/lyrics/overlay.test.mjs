@@ -386,6 +386,13 @@ describe('overlay validation', () => {
         );
     });
 
+    it('rejects content that is missing rather than null', () => {
+        const absent = { ...marker(1) };
+        delete absent.content;
+
+        assert.match(text(insertedObjectProblem(absent, BODY)), /is missing/);
+    });
+
     it('rejects a known kind whose content is missing or of the wrong type', () => {
         assert.match(
             text(insertedObjectProblem({ ...marker(1), kind: 'text' }, BODY)),

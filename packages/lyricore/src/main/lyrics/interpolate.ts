@@ -92,6 +92,30 @@ function spanCells(
     return changed ? next : cells;
 }
 
+/**
+ * Whether the spanned cells in [from, to] keep the order of the line: every one
+ * starts where the one before it ends. Cells with no time are skipped.
+ */
+function inOrder(
+    cells: readonly CharCell[],
+    from: number,
+    to: number,
+): boolean {
+    const start = Math.max(from, 0);
+    const last = Math.min(to, cells.length - 1);
+    for (let index = Math.max(start, 1); index <= last; index += 1) {
+        const before = cells[index - 1].span;
+        const here = cells[index].span;
+        if (before === null || here === null) {
+            continue;
+        }
+        if (here.start < before.start + before.duration) {
+            return false;
+        }
+    }
+    return true;
+}
+
 /** A subrange of cells that takes consecutive boundaries. */
 function spanRange(
     cells: readonly CharCell[],
@@ -272,13 +296,31 @@ export function fillFromCheck(
             check.time >= anchorTime
         ) {
             const count = run.offset - anchor.offset;
-            cells = spanRange(
-                cells,
-                anchor.offset,
-                boundaryStarts(anchorTime, check.time, count),
-            );
-            changedStart = anchor.offset;
-            changedEnd = run.offset;
+            // The run being tapped already owns the cell after this range: an
+            // imported tag or an earlier tap may sit earlier than this one, and
+            // a tap later than that cell's start would push the cell in front of
+            // it across the cell behind it. The fill ends at that start instead,
+            // and the split is worked out over the shortened stretch, so each
+            // bound still falls between its neighbours instead of the last one
+            // being patched after the fact.
+            const recorded = cells[run.offset];
+            const limit =
+                recorded === undefined || recorded.span === null
+                    ? null
+                    : recorded.span.start;
+            const end =
+                limit === null ? check.time : Math.min(check.time, limit);
+            // `end === anchorTime` is legal: two checks on one instant give the
+            // stretch between them a zero-length chain, which the model allows.
+            if (end >= anchorTime) {
+                cells = spanRange(
+                    cells,
+                    anchor.offset,
+                    boundaryStarts(anchorTime, end, count),
+                );
+                changedStart = anchor.offset;
+                changedEnd = run.offset;
+            }
         }
     }
 
@@ -288,13 +330,34 @@ export function fillFromCheck(
         run.length === 1 &&
         run.offset === cells.length - 1;
     if (isTerminal) {
-        cells = spanRange(cells, run.offset, [
-            check.time,
-            terminalEnd(lyrics, target.lineIndex, check.time, tailMs),
-        ]);
-        changedStart =
-            changedStart < 0 ? run.offset : Math.min(changedStart, run.offset);
-        changedEnd = Math.max(changedEnd, run.offset + 1);
+        // The cell in front of the tail may already end later than this tap (an
+        // imported tag). The tail starts where that cell ends, so a tap never
+        // moves the line backwards.
+        const front = run.offset > 0 ? cells[run.offset - 1] : undefined;
+        const floor =
+            front === undefined || front.span === null
+                ? null
+                : front.span.start + front.span.duration;
+        const start = floor === null ? check.time : Math.max(check.time, floor);
+        const end = terminalEnd(lyrics, target.lineIndex, start, tailMs);
+        // `end === start` is legal: a tap at TIME_MAX has no room left for a
+        // tail, and the model spells that as a cell of no width.
+        if (end >= start) {
+            cells = spanRange(cells, run.offset, [start, end]);
+            changedStart =
+                changedStart < 0
+                    ? run.offset
+                    : Math.min(changedStart, run.offset);
+            changedEnd = Math.max(changedEnd, run.offset + 1);
+        }
+    }
+
+    // Belt and braces: the fills above are cut so the chain stays in order, so
+    // this should never fire on a line this file built. When it does - the model
+    // already held a span out of order before the tap - the fill is dropped
+    // rather than written, and the check stays where recordCheck put it.
+    if (changedStart >= 0 && !inOrder(cells, changedStart, changedEnd)) {
+        return lyrics;
     }
 
     // R2: the piece chain is anchored by any check.
@@ -321,8 +384,23 @@ export function fillFromCheck(
     ) {
         const filling = flat.slice(anchorFlat, targetFlat);
         const size = cellCount(filling);
-        if (size > 0) {
-            const bounds = boundaryStarts(anchorCheck.time, check.time, size);
+        // Same cut as R1, from the tapped piece's own first cell: the piece
+        // chain stops where that cell starts, so the two chains agree.
+        const tapped = flat[targetFlat];
+        const tappedCell =
+            tapped === undefined ? undefined : tapped.piece.text.cells[0];
+        const tappedStart =
+            tappedCell === undefined || tappedCell.span === null
+                ? null
+                : tappedCell.span.start;
+        const end =
+            tappedStart === null
+                ? check.time
+                : Math.min(check.time, tappedStart);
+        // A chain that starts and ends on the same instant is a legal shape
+        // here, for the same reason the terminal tail allows it.
+        if (size > 0 && end >= anchorCheck.time) {
+            const bounds = boundaryStarts(anchorCheck.time, end, size);
             const filled = spanPieces(runs, filling, bounds);
             if (filled !== runs) {
                 groups = { ...groups, [target.group]: filled };

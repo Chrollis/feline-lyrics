@@ -77,6 +77,15 @@ describe('the lyrics export', () => {
         assert.deepEqual(after, before);
     });
 
+    it('refuses to export a document the reader would reject', () => {
+        const lyrics = { meta: { ...emptyMeta(), offset: 1.5 }, lines: [] };
+
+        assert.throws(
+            () => lyricsToExport(lyrics),
+            (error) => own(error, 'invalid-lyrics-meta'),
+        );
+    });
+
     it('round trips through JSON text', () => {
         const before = timed();
         assert.deepEqual(readExportJson(lyricsToExportJson(before)), before);

@@ -98,6 +98,16 @@ describe('writing a definition', () => {
         );
     });
 
+    it('refuses a new parent edge that closes a cycle', () => {
+        const a = withStyle(emptyStyleBook(), 'a', def(null));
+        const b = withStyle(a, 'b', def('a'));
+
+        assert.throws(
+            () => withStyle(b, 'a', def('b')),
+            (error) => error.code === 'invalid-style-book',
+        );
+    });
+
     it('refuses a field name or value that is not a plain string', () => {
         assert.throws(
             () =>
@@ -242,7 +252,13 @@ describe('a hand-built book that contradicts itself', () => {
         }
         assert.equal(styleDepth(book, 's32'), 32);
         assert.deepEqual(resolveStyle(book, 's32'), {});
-        const deeper = withStyle(book, 's33', def('s32', {}));
+        // A 33rd link is refused when it is added: the book that holds it
+        // cannot be written at all, so it cannot reach a reader either.
+        assert.throws(
+            () => withStyle(book, 's33', def('s32', {})),
+            (error) => error.code === 'invalid-style-book',
+        );
+        const deeper = { defs: { ...book.defs, s33: def('s32', {}) } };
         assert.throws(
             () => resolveStyle(deeper, 's33'),
             (error) => error.code === 'invalid-style-book',
