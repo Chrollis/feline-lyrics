@@ -161,6 +161,20 @@ describe('merging two lines', () => {
         assert.equal(ruby(merged).at(-1).pieces[0].check, null);
     });
 
+    it('gives a group named after a prototype member the same treatment', () => {
+        // The group name comes from the union of both lines' keys, so one line
+        // holding "constructor" makes the other line's lookup fall through to
+        // Object.prototype. A group is a list of runs or nothing at all.
+        const first = lineOf('あ\n', {
+            constructor: [run(0, 1, [piece('あ')]), terminal(1)],
+        });
+        const second = lineOf('い\n', {});
+        const merged = mergeLines(first, second);
+
+        assert.equal(merged.groups.constructor.at(-1).offset, 2);
+        assert.equal(merged.groups.constructor.at(-1).pieces[0].check, null);
+    });
+
     it('refuses a seam that joins into one cluster', () => {
         const first = lineOf('か\n', {});
         const second = lineOf('\u3099あ\n', {});

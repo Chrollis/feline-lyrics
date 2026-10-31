@@ -44,6 +44,12 @@ describe('applying a header', () => {
             : withHeader(emptyMeta(), header, 'line', losses);
     };
 
+    it('keeps a bracket field whose name is on Object.prototype', () => {
+        const meta = apply('[constructor:x]');
+        assert.equal(Object.hasOwn(meta.extra, 'constructor'), true);
+        assert.equal(meta.extra.constructor, 'x');
+    });
+
     it('maps both spellings onto one field', () => {
         assert.equal(apply('@Title=歌').title, '歌');
         assert.equal(apply('[ti:歌]').title, '歌');

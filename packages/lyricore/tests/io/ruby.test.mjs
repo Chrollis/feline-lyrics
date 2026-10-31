@@ -215,3 +215,40 @@ describe('@Ruby windows and cancellation', () => {
         );
     });
 });
+
+describe('a @Ruby window survives the round trip', () => {
+    // The export reads a run's window from the cells it covers; the import used
+    // to take the first occurrence the window accepted, and an untimed cell
+    // accepts any window. A reading therefore moved onto the untimed twin that
+    // precedes it, and the next export wrote `,,` -- a silent loss.
+    for (const source of [
+        'い[00:01:00]{い|明}\n',
+        'い[00:01:00]{い|明}い\n',
+        'い[00:01:00]{い|明}い[00:02:00]\n',
+    ]) {
+        it(`keeps ${JSON.stringify(source)} stable`, () => {
+            const first = exportTagText(importTagText(source).lyrics);
+            const second = exportTagText(importTagText(first.text).lyrics);
+            assert.equal(second.text, first.text);
+            assert.equal(second.text.includes('@Ruby1=い,明,['), true);
+            const run = importTagText(second.text).lyrics.lines[0]?.groups
+                .ruby?.[0];
+            assert.equal(run?.offset, 1);
+        });
+    }
+});
+
+describe('a @Ruby window with no lower bound', () => {
+    // `formatRuby` writes an empty `from` when the run sits on untimed cells.
+    // Such a window carries no evidence, so a timed twin elsewhere in the line
+    // must not win: that would move the reading one cell right on the first
+    // round trip and keep it there.
+    it('keeps a ruby over untimed text where it came from', () => {
+        const source = '{い|明}[00:01:00]い\n';
+        const first = exportTagText(importTagText(source).lyrics);
+        const second = exportTagText(importTagText(first.text).lyrics);
+        assert.equal(second.text, first.text);
+        const run = importTagText(first.text).lyrics.lines[0]?.groups.ruby?.[0];
+        assert.equal(run?.offset, 0);
+    });
+});

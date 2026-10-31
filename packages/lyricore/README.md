@@ -2,13 +2,14 @@
 
 The lyric model for Felyrics: plain data, pure functions, no rendering and no
 timeline. A document is a list of lines; a line is a base character stream plus
-named annotation runs; time lives on the cells and on the checks, nothing else.
+named annotation runs; time lives on the cells and on the checks, plus the one
+explicit span an inserted object may carry.
 
 Everything here is immutable: every edit returns a new value. An edit that would
-change nothing returns the argument you passed in, so a caller can tell "no
-change" by identity -- but only in the functions that take that fast path
-(`withCheck`, `clearCheck`, `refillAll`). `withGroup` and `withPiece` always
-rebuild, so do not compare by identity there.
+change nothing usually returns the argument you passed in, so a caller can often
+tell "no change" by identity -- but the fast path is per function, not a promise,
+so do not build a comparison on it. When a difference has to be detected, compare
+the values.
 
 ## Requirements
 
@@ -17,12 +18,15 @@ rebuild, so do not compare by identity there.
 ## The model
 
 ```
-Lyrics        { meta, lines[] }
-LyricsLine    { baseStream, groups }
-CharStream    { cells[] }               one cell per grapheme cluster
-CharCell      { text, span }            span = { start, duration } | null
-SegRun        { offset, length, pieces[] }
-SegPiece      { check, text }           check = { time, type } | null
+Lyrics         { meta, lines[], styleBook, animations }
+LyricsLine     { baseStream, groups, overlay }
+CharStream     { cells[] }               one cell per grapheme cluster
+CharCell       { text, span }            span = { start, duration } | null
+SegRun         { offset, length, pieces[] }
+SegPiece       { check, text }           check = { time, type } | null
+StyleRun       { offset, length, styleId }
+InsertedObject { id, kind, anchor, content, time? }
+LineOverlay    { styles[], inserted[] }
 ```
 
 - `baseStream` always ends with exactly one line break cell.
@@ -31,8 +35,15 @@ SegPiece      { check, text }           check = { time, type } | null
   covers the line break cell.
 - A run covers `[offset, offset + length)` base cells. Its `pieces` are the
   syllables of that annotation; the piece count is unrelated to `length`.
-- Time is stored in two places only: `CharCell.span` and `SegPiece.check`.
-  Everything else (line start, run start, piece start) is derived on demand.
+- Time is stored on `CharCell.span` and on `SegPiece.check`, plus the optional
+  `time` of an inserted object that pins its own span. Everything else (line
+  start, run start, piece start, a marker's extent) is derived on demand.
+- `overlay` is the covering layer: the styles and the inserted objects. It rides
+  on the line so that every edit keeps it aligned, but the lyric rules never
+  interpret it and the lyrics export does not carry it.
+- Overlay coordinates index the body, which is the line without its break cell:
+  `styles` cover `[offset, offset + length)` inside `0..cells.length - 1`, and an
+  `inserted` anchor uses the same span. `anchor.length === 0` is a point.
 
 `default` is the group the tag formats read and write: one run per tagged chunk,
 empty pieces, the chunk time on the first piece's check.
@@ -40,22 +51,29 @@ empty pieces, the chunk time on the first piece's check.
 ## Build a document
 
 ```js
-import { textToLyrics, lyricsToText, lyricsToJson, jsonToLyrics } from '@felyrics/lyricore';
+import { textToLyrics, lyricsToText, lyricsToExportJson, readExportJson } from '@felyrics/lyricore';
 
 const lyrics = textToLyrics('明日へ\n君と\n'); // untimed
-lyricsToText(lyrics);                          // back to '明日へ\n君と\n'
-jsonToLyrics(lyricsToJson(lyrics));            // the native file format
+lyricsToText(lyrics);                         // back to '明日へ\n君と\n'
+readExportJson(lyricsToExportJson(lyrics));   // the frozen lyrics export
 ```
 
 ## Tag
 
-Tapping records a check, and `recordCheck` derives the times behind it:
+Tapping records a check, and the cells behind that check are derived from it. A
+check has to land in a slot, so the document needs runs first: a tag import
+makes one run per tagged chunk, while `textToLyrics` makes none and gives you
+nothing to write into.
 
 ```js
-import { recordCheck } from '@felyrics/lyricore';
+import { importTagText, recordCheck, refillGroup } from '@felyrics/lyricore';
 
-const tapped = recordCheck(lyrics, { lineIndex: 0, group: 'default', runIndex: 0, pieceIndex: 0 },
-    { time: 1000, type: 'KeyDown' });
+// The import timed every chunk already, so this replaces a check instead of
+// adding one, and the cells keep their spans until the group is refilled.
+const { lyrics } = importTagText('[00:01:00]明[00:03:00]日へ\n');
+const retimed = recordCheck(lyrics, { lineIndex: 0, group: 'default', runIndex: 1, pieceIndex: 0 },
+    { time: 2000, type: 'KeyDown' });
+const refilled = refillGroup(retimed, 0, 'default'); // 明 1000-2000, then 日へ from 2000
 ```
 
 The rules that fill the cells, in the order they were decided:
@@ -88,6 +106,44 @@ import { splitLine, mergeLines, withPieceText, withGroup, editLineText } from '@
 
 Every one of them validates what it touched and throws a `LyricoreError` with a
 code instead of writing a shape the invariants reject.
+
+## Style and inserted objects
+
+```js
+import { withOverlay, withStyle, resolveStyle } from '@felyrics/lyricore';
+
+const painted = withOverlay(line, {
+    styles: [{ offset: 0, length: 3, styleId: 'chorus' }],
+    inserted: [],
+});
+```
+
+- `StyleRun` paints a span of the body with a style id. Runs are sorted and never
+  overlap; the writer merges two adjacent runs that name the same id into one.
+  Typing at the end of a painted run extends the paint; typing at its start does
+  not.
+- A style id is a name, not a description: the definition lives in
+  `Lyrics.styleBook`, which inherits through `basedOn` and resolves with
+  `resolveStyle`. A line may name a style the book does not define; that is a
+  dangling reference for the renderer, not a reason to refuse the document.
+- An `InsertedObject` anchors to a span of the body. A zero-width anchor is a
+  point: a soft break that splits the line into display blocks without splitting
+  the lyric. A width-bearing anchor binds the cells it covers and survives an
+  edit by clamping to whatever is left of them.
+- `content` is what the object carries: `{ type: 'text', lines, styleId? }`,
+  `{ type: 'image', src, wipedSrc?, scale? }`, or `null` for an object that
+  carries nothing of its own - a marker. `kind` is the renderer's word for it, and
+  the type stays a plain string: this package reads `kind` only to check that a
+  known name agrees with its content (`soft-break` has none, `text` carries text,
+  `image` carries an image) and carries every other name as it is.
+- `content: null` requires a zero-width anchor. An edit that deletes the cells
+  under a marker drops it; an object with content clamps to the surviving cells
+  and is never destroyed.
+- `time` pins an explicit span. Without it the object lasts as long as the cells
+  it covers.
+- The overlay is **not** in the lyrics export: `lyricsToExport` writes the lyric
+  only, and the round trip through it comes back with an empty overlay. Paint and
+  inserted objects belong to the project file.
 
 ## Import and export
 
@@ -134,8 +190,67 @@ NicoKaraMaker3's `.lrc` files plus `reference/whisper/test/original.lrc`.
 `isValidLyrics` / `assertLyrics` check structure; a span outside the int32
 millisecond range is a structure error. They do not check that timings are
 consistent with each other. `isValidLyricsLine` and `assertLyricsLine` are the
-per-line versions. A document that validates is not necessarily splittable —
-splitting additionally needs the terminal runs the importer creates.
+per-line versions. A document that validates can be split: validation already
+requires the terminal run that splitting cuts around, and every importer makes
+one.
+
+## The project file
+
+`.flrc` is one JSON document: the lyrics export, plus the layers that are not lyrics.
+
+```js
+import { lyricsToProjectJson, readProjectJson } from '@felyrics/lyricore';
+
+const text = lyricsToProjectJson(lyrics); // write
+const { lyrics: back, issues } = readProjectJson(text); // read
+```
+
+```json
+{
+    "format": "felyrics/lyrics-project",
+    "version": 1,
+    "lyrics": { "format": "felyrics/lyrics", "version": 1, "meta": {}, "lines": [] },
+    "styleBook": { "defs": { "chorus": { "fields": { "color": "0xffcc00" } } } },
+    "animations": [{ "kind": "fade", "target": "line:0" }]
+}
+```
+
+A document with painted lines also writes `overlay`, one entry per line, so two
+lines with the first one painted look like
+`"overlay": [{ "styles": [{ "offset": 0, "length": 3, "styleId": "chorus" }] }, {}]`.
+
+- `lyrics` is the shape `lyricsToExport` produces, and the same reader reads it.
+  The project adds nothing to it: the style book, the overlay and the animation
+  list are siblings of the lyric, never keys inside it.
+- `overlay` holds one entry per line, in line order. An unstyled line is `{}`, so
+  the array index is the line index.
+- A SECTION is omitted when it is empty: `overlay` when there are no lines,
+  `styleBook` when there are no definitions, `animations` when the list is empty.
+  Inside a section, a value that is empty is omitted too - a definition with no
+  parent writes no `basedOn`, an entry with no paint writes no `styles`, an object
+  with no content writes no `content`, and a marker without a pinned span writes
+  no `time`.
+- Reading is strict about keys. An unknown key in the lyrics block, in the style
+  book or in an overlay entry is an error with a path, not a value silently
+  dropped on the next save. Every rejection is a `LyricoreError` with code
+  `invalid-project-file`.
+- A style id a line uses but the book does not define is reported once per id in
+  `issues` as `style-orphan` and kept; the document still loads.
+- Writing is canonical: a document written twice produces the same bytes, and
+  writing what was just read reproduces the file. Reading normalises as it goes -
+  adjacent runs that name the same style are merged - so a hand-written file with
+  two such runs comes back with one. Two documents that compare equal can still
+  differ in bytes: group names come out in the order the record holds them.
+- `version` is `1`. A file written by a newer version is refused. A migration
+  table exists for the first version that needs one; it is empty today, so only
+  version 1 is accepted.
+- `animations` is opaque here. It is checked to be an array and re-emitted
+  unchanged; the shape inside is the renderer's.
+
+The module also exports the object forms, `lyricsToProject` and
+`projectToLyrics`, `projectToJson`, the format id `PROJECT_FORMAT` and the
+`PROJECT_VERSION`, plus the file-shape types (`ProjectFile`, `ProjectRead`,
+`StyleRunFile`, `InsertedObjectFile`, `OverlayEntryFile`, ...).
 
 ## Test
 

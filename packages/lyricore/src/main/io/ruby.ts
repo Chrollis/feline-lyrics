@@ -1,6 +1,6 @@
 import type { CharCell } from '../lyrics/char.js';
 import { textToStream } from '../lyrics/char.js';
-import type { LyricsLine } from '../lyrics/line.js';
+import { rebuild, type LyricsLine } from '../lyrics/line.js';
 import type { Lyrics } from '../lyrics/lyrics.js';
 import type { SegPiece, SegRun } from '../lyrics/seg-run.js';
 import { isTime } from '../lyrics/time.js';
@@ -202,76 +202,6 @@ export function timeAnnotation(run: SegRun, parentEnd: number | null): SegRun {
     return { ...run, pieces };
 }
 
-/**
- * Resolves every entry against the line: the first unclaimed occurrence of the
- * parent that also falls inside the entry's window wins.
- */
-export function resolveRuby(
-    line: LyricsLine,
-    entries: readonly RubyEntry[],
-    at: string,
-    losses: LossCollector,
-): SegRun[] {
-    const cells = line.baseStream.cells;
-    const claimed = new Uint8Array(cells.length);
-    const runs: SegRun[] = [];
-    for (const entry of entries) {
-        if (entry.parent === '') {
-            losses.add(
-                at,
-                'unsupported-construct',
-                'a @Ruby line has no parent text',
-            );
-            continue;
-        }
-        const width = textToStream(entry.parent).cells.length;
-        let placed = false;
-        for (
-            let start = 0;
-            start + width <= cells.length && !placed;
-            start += 1
-        ) {
-            let free = true;
-            for (let at2 = start; at2 < start + width; at2 += 1) {
-                if (claimed[at2] !== 0) {
-                    free = false;
-                    break;
-                }
-            }
-            if (!free || textOf(cells, start, width) !== entry.parent) {
-                continue;
-            }
-            if (!acceptsWindow(windowOf(entry), startOf(cells[start]))) {
-                continue;
-            }
-            for (let at2 = start; at2 < start + width; at2 += 1) {
-                claimed[at2] = 1;
-            }
-            const run = runFromEntry(
-                entry,
-                start,
-                width,
-                startOf(cells[start]),
-            );
-            const last = cells[start + width - 1];
-            const parentEnd =
-                last?.span === undefined || last.span === null
-                    ? null
-                    : last.span.start + last.span.duration;
-            runs.push(timeAnnotation(run, parentEnd));
-            placed = true;
-        }
-        if (!placed) {
-            losses.add(
-                at,
-                'unsupported-construct',
-                `@Ruby "${entry.parent}" has no unclaimed occurrence in this line`,
-            );
-        }
-    }
-    return runs.sort((left, right) => left.offset - right.offset);
-}
-
 function runFromEntry(
     entry: RubyEntry,
     offset: number,
@@ -297,7 +227,9 @@ function runFromEntry(
 
 /**
  * Applies every `@Ruby` entry to the document in file order: each entry claims
- * the first unclaimed occurrence of its parent text that its window accepts.
+ * the first unclaimed occurrence of its parent text that its window accepts,
+ * and an entry whose window has a lower bound is tried against timed cells
+ * first, so a re-imported assertion lands back where it was exported from.
  */
 export function applyRuby(
     lyrics: Lyrics,
@@ -350,29 +282,63 @@ export function applyRuby(
             if (used === undefined) {
                 continue;
             }
-            for (let start = 0; start + width <= cells.length; start += 1) {
-                let free = true;
-                for (let inner = start; inner < start + width; inner += 1) {
-                    if (used[inner] !== 0) {
-                        free = false;
-                        break;
+            // An untimed cell satisfies any window (`acceptsWindow` says yes to
+            // a null start), and an untimed duplicate usually sits before the
+            // occurrence the window was read from. Trying the timed cells first
+            // is what makes an exported window re-attach where it came from;
+            // the untimed pass is the fallback that keeps a ruby over text that
+            // was never timed.
+            const findStart = (timedOnly: boolean): number => {
+                for (
+                    let candidate = 0;
+                    candidate + width <= cells.length;
+                    candidate += 1
+                ) {
+                    let free = true;
+                    for (
+                        let inner = candidate;
+                        inner < candidate + width;
+                        inner += 1
+                    ) {
+                        if (used[inner] !== 0) {
+                            free = false;
+                            break;
+                        }
                     }
+                    if (
+                        !free ||
+                        textOf(cells, candidate, width) !== entry.parent
+                    ) {
+                        continue;
+                    }
+                    const first = startOf(cells[candidate]);
+                    if (!acceptsWindow(window, first)) {
+                        continue;
+                    }
+                    if (timedOnly && first === null) {
+                        continue;
+                    }
+                    return candidate;
                 }
-                if (!free || textOf(cells, start, width) !== entry.parent) {
-                    continue;
-                }
-                if (!acceptsWindow(window, startOf(cells[start]))) {
-                    continue;
-                }
-                for (let inner = start; inner < start + width; inner += 1) {
-                    used[inner] = 1;
-                }
-                // An entry with no reading cancels the ruby over its window: the
-                // occurrence is claimed so no later entry can re-attach one.
-                if (entry.reading === '') {
-                    placed = true;
-                    break;
-                }
+                return -1;
+            };
+            // A window with no lower bound is what `formatRuby` writes for a run
+            // over untimed cells, so it carries no evidence: the untimed
+            // occurrence is the one it came from, and preferring a timed twin
+            // would move the reading right on every round trip.
+            let start = window[0] === null ? -1 : findStart(true);
+            if (start < 0) {
+                start = findStart(false);
+            }
+            if (start < 0) {
+                continue;
+            }
+            for (let inner = start; inner < start + width; inner += 1) {
+                used[inner] = 1;
+            }
+            // An entry with no reading cancels the ruby over its window: the
+            // occurrence is claimed so no later entry can re-attach one.
+            if (entry.reading !== '') {
                 const run = runFromEntry(
                     entry,
                     start,
@@ -385,9 +351,8 @@ export function applyRuby(
                         ? null
                         : last.span.start + last.span.duration;
                 added[index]?.push(timeAnnotation(run, parentEnd));
-                placed = true;
-                break;
             }
+            placed = true;
         }
         if (!placed) {
             losses.add(
@@ -419,10 +384,9 @@ export function applyRuby(
                     pieces: [{ check: null, text: textToStream('') }],
                 });
             }
-            return {
-                baseStream: line.baseStream,
+            return rebuild(line, {
                 groups: { ...line.groups, [group]: merged },
-            };
+            });
         }),
     };
 }

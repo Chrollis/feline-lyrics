@@ -34,7 +34,11 @@ function line(text, groups = {}) {
                 ? runs
                 : [...runs, { offset: last, length: 1, pieces: [piece('')] }];
     }
-    return { baseStream, groups: complete };
+    return {
+        baseStream,
+        groups: complete,
+        overlay: { styles: [], inserted: [] },
+    };
 }
 
 function spans(lines) {
@@ -321,11 +325,14 @@ describe('the entry points', () => {
         }
     });
 
-    it('rejects an edit that would make the line invalid', () => {
+    it('rejects an edit past the body instead of corrupting the line', () => {
+        // The break cell is not part of the body, so `spliceLine` refuses the
+        // range rather than producing a stream that is no longer a line. This
+        // used to fail later, as `invalid-lyrics-line`, from the assert.
         const lyrics = { lines: [three()] };
         assert.throws(
             () => editLineText(lyrics, 0, [4, 4], 'X', null),
-            (error) => error.code === 'invalid-lyrics-line',
+            (error) => error.code === 'invalid-edit',
         );
     });
 

@@ -3,11 +3,14 @@ import type { CharCell } from './char.js';
 import { textToStream } from './char.js';
 import {
     assertLyricsLine,
+    overlayOf,
+    rebuild,
     spliceGroups,
     spliceLine,
     withCheck,
     type LyricsLine,
 } from './line.js';
+import { assertOverlay, spliceOverlay } from './overlay.js';
 import type { Lyrics } from './lyrics.js';
 import type { CheckPoint, SegPiece, SegRun } from './seg-run.js';
 import { isTime, isValidSpan, TIME_MAX, type TimeSpan } from './time.js';
@@ -392,7 +395,10 @@ export function fillFromCheck(
 
     const lines = lyrics.lines.slice();
     if (!sameCells || !sameGroups) {
-        lines[target.lineIndex] = { baseStream: { cells }, groups };
+        lines[target.lineIndex] = rebuild(line, {
+            baseStream: { cells },
+            groups,
+        });
     }
     if (previous !== null) {
         lines[target.lineIndex - 1] = previous;
@@ -619,6 +625,7 @@ function foldClusters(
 ): LyricsLine {
     let cells = line.baseStream.cells;
     let groups = line.groups;
+    let overlay = overlayOf(line);
     let index = Math.max(0, start - 1);
     const stop = Math.min(cells.length - 1, end + 1);
     while (index < stop) {
@@ -640,8 +647,11 @@ function foldClusters(
         next.splice(index + 1, 1);
         cells = next;
         groups = spliceGroups(groups, [index + 1, index + 2], 0);
+        overlay = spliceOverlay(overlay, [index + 1, index + 2], 0);
     }
-    return cells === line.baseStream.cells
-        ? line
-        : { baseStream: { cells }, groups };
+    if (cells === line.baseStream.cells) {
+        return line;
+    }
+    assertOverlay(overlay, cells.length - 1);
+    return rebuild(line, { baseStream: { cells }, groups, overlay });
 }

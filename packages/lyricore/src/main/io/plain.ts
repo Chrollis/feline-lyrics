@@ -1,5 +1,5 @@
 import { textToLyricsLine } from '../lyrics/line.js';
-import type { Lyrics } from '../lyrics/lyrics.js';
+import { lyricsOf, type Lyrics } from '../lyrics/lyrics.js';
 import { emptyMeta, isSameMeta } from '../lyrics/meta.js';
 import type { LyricsMeta } from '../lyrics/meta.js';
 import { newLosses, type Loss } from './loss.js';
@@ -46,7 +46,7 @@ export function importPlainText(
     const lines = asLines(text, 'file', losses).map((line) =>
         textToLyricsLine(line.content + line.break),
     );
-    return { lyrics: { meta, lines }, losses: losses.losses };
+    return { lyrics: lyricsOf(meta, lines), losses: losses.losses };
 }
 
 /** Writes the base text only; timing, annotation and metadata cannot follow. */

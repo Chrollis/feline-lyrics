@@ -44,18 +44,31 @@ export {
     joinPieces,
     terminalRun,
 } from './lyrics/seg-run.js';
+export type {
+    CellSpan,
+    ImageContent,
+    InsertContent,
+    InsertedObject,
+    LineOverlay,
+    StyleRun,
+    TextContent,
+} from './lyrics/overlay.js';
+export { NO_OVERLAY, overlayProblem } from './lyrics/overlay.js';
 export type { CheckSlot, LyricsLine } from './lyrics/line.js';
 export {
     assertLyricsLine,
     assertTerminalRuns,
+    emptyLyricsLine,
     isValidLyricsLine,
     lyricsLineToText,
+    overlayOf,
     runAt,
     spliceGroups,
     spliceLine,
     textToLyricsLine,
     withCheck,
     withGroup,
+    withOverlay,
     withPiece,
     withPieceText,
     withRun,
@@ -81,12 +94,30 @@ export type { LyricsMeta } from './lyrics/meta.js';
 export { emptyMeta, isValidMeta } from './lyrics/meta.js';
 export type { Lyrics } from './lyrics/lyrics.js';
 export {
+    NO_ANIMATIONS,
     assertLyrics,
     isValidLyrics,
+    lyricsOf,
     lyricsToText,
     textToLyrics,
     withMeta,
 } from './lyrics/lyrics.js';
+export type { StyleBook, StyleDef } from './lyrics/stylebook.js';
+export {
+    STYLE_ID_PATTERN,
+    assertStyleBook,
+    emptyStyleBook,
+    isValidStyleBook,
+    removeStyle,
+    resolveStyle,
+    styleBookProblem,
+    styleDefAt,
+    styleDefProblem,
+    styleDepth,
+    styleIds,
+    styleInheritors,
+    withStyle,
+} from './lyrics/stylebook.js';
 export { lineSpan, pieceStart, runStart } from './lyrics/views.js';
 export type {
     CellTimeFile,
@@ -99,10 +130,10 @@ export type {
     SpanFile,
 } from './lyrics/file.js';
 export {
-    fileToLyrics,
-    jsonToLyrics,
-    lyricsToFile,
-    lyricsToJson,
+    exportToLyrics,
+    lyricsToExport,
+    lyricsToExportJson,
+    readExportJson,
 } from './lyrics/file.js';
 export type { Loss, LossCode, LossCollector } from './io/loss.js';
 export { newLosses } from './io/loss.js';
@@ -147,3 +178,25 @@ export {
     joinLines,
     splitLines,
 } from './io/text.js';
+export type {
+    ImageContentFile,
+    InsertContentFile,
+    InsertedObjectFile,
+    OverlayEntryFile,
+    ProjectFile,
+    ProjectIssue,
+    ProjectRead,
+    StyleBookFile,
+    StyleDefFile,
+    StyleRunFile,
+    TextContentFile,
+} from './project/index.js';
+export {
+    PROJECT_FORMAT,
+    PROJECT_VERSION,
+    lyricsToProject,
+    lyricsToProjectJson,
+    projectToJson,
+    projectToLyrics,
+    readProjectJson,
+} from './project/index.js';

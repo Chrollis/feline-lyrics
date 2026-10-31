@@ -1,8 +1,14 @@
 import type { CharCell, CharStream } from './char.js';
 import { textToStream } from './char.js';
 import { LyricoreError } from '../errors.js';
-import { assertLyricsLine, lyricsLineToText, type LyricsLine } from './line.js';
-import { assertLyrics, type Lyrics } from './lyrics.js';
+import {
+    assertLyricsLine,
+    emptyLyricsLine,
+    lyricsLineToText,
+    rebuild,
+    type LyricsLine,
+} from './line.js';
+import { assertLyrics, lyricsOf, type Lyrics } from './lyrics.js';
 import type { LyricsMeta } from './meta.js';
 import { emptyMeta } from './meta.js';
 import type { CheckPoint, CheckType, SegPiece, SegRun } from './seg-run.js';
@@ -90,8 +96,17 @@ const TEXT_FIELDS = [
 
 const CHECK_TYPES: readonly CheckType[] = ['KeyDown', 'KeyUp'];
 
+/**
+ * Every key a metadata object may carry.
+ *
+ * Exported for the project reader, which has to reject an unknown key before
+ * the frozen reader silently drops it. `extra` is a key here and its own keys
+ * stay open: that is what it exists for.
+ */
+export const META_KEYS: readonly string[] = [...TEXT_FIELDS, 'offset', 'extra'];
+
 /** One document as the shape that goes to disk. */
-export function lyricsToFile(lyrics: Lyrics): LyricsFile {
+export function lyricsToExport(lyrics: Lyrics): LyricsFile {
     return {
         format: FILE_FORMAT,
         version: FILE_VERSION,
@@ -101,8 +116,8 @@ export function lyricsToFile(lyrics: Lyrics): LyricsFile {
 }
 
 /** One document as pretty JSON text, with the cell times kept on one line. */
-export function lyricsToJson(lyrics: Lyrics): string {
-    const file = lyricsToFile(lyrics);
+export function lyricsToExportJson(lyrics: Lyrics): string {
+    const exported = lyricsToExport(lyrics);
     const packed: string[] = [];
     const token = (spans: readonly CellTimeFile[]): string => {
         const body = spans
@@ -120,8 +135,8 @@ export function lyricsToJson(lyrics: Lyrics): string {
         return { ...run, pieces } as unknown as RunFile;
     };
     const shrunken = {
-        ...file,
-        lines: file.lines.map((line) => {
+        ...exported,
+        lines: exported.lines.map((line) => {
             const groups =
                 line.groups === undefined
                     ? undefined
@@ -140,9 +155,9 @@ export function lyricsToJson(lyrics: Lyrics): string {
     return `${text}\n`;
 }
 
-/** Reads a document back from the shape produced by `lyricsToFile`. */
-export function fileToLyrics(value: unknown): Lyrics {
-    const root = requireRecord(value, 'file');
+/** Reads a document back from the shape produced by `lyricsToExport`. */
+export function exportToLyrics(value: unknown): Lyrics {
+    const root = requireRecord(value, 'export');
     if (root.format !== FILE_FORMAT) {
         fail('format', FILE_FORMAT, root.format);
     }
@@ -153,7 +168,7 @@ export function fileToLyrics(value: unknown): Lyrics {
     const lines = requireArray(root.lines, 'lines').map((entry, index) => {
         return lineFromFile(entry, `lines[${index}]`);
     });
-    const lyrics: Lyrics = { meta, lines };
+    const lyrics: Lyrics = lyricsOf(meta, lines);
     try {
         assertLyrics(lyrics);
     } catch (error) {
@@ -170,7 +185,7 @@ export function fileToLyrics(value: unknown): Lyrics {
 }
 
 /** Reads a document back from JSON text. */
-export function jsonToLyrics(text: string): Lyrics {
+export function readExportJson(text: string): Lyrics {
     let value: unknown;
     try {
         value = JSON.parse(text);
@@ -182,7 +197,20 @@ export function jsonToLyrics(text: string): Lyrics {
             actual: detail,
         });
     }
-    return fileToLyrics(value);
+    return exportToLyrics(value);
+}
+
+// A group name and a metadata key are data, so either may be spelled like an
+// Object.prototype member. Assigning through `target[key] = value` would run
+// that member's setter and lose the entry (`'__proto__'` is the one that
+// actually bites); an own property cannot.
+function putEntry<T>(target: Record<string, T>, key: string, value: T): void {
+    Object.defineProperty(target, key, {
+        value,
+        enumerable: true,
+        writable: true,
+        configurable: true,
+    });
 }
 
 function metaToFile(meta: LyricsMeta): MetaFile {
@@ -204,7 +232,7 @@ function metaToFile(meta: LyricsMeta): MetaFile {
 function lineToFile(line: LyricsLine): LineFile {
     const groups: Record<string, RunFile[]> = {};
     for (const [name, runs] of Object.entries(line.groups)) {
-        groups[name] = runs.map(runToFile);
+        putEntry(groups, name, runs.map(runToFile));
     }
     const text = lyricsLineToText(line);
     const spans = spansToFile(line.baseStream);
@@ -270,7 +298,7 @@ function metaFromFile(value: unknown): LyricsMeta {
             if (typeof entry !== 'string') {
                 fail(`meta.extra.${key}`, 'a string', entry);
             }
-            kept[key] = entry;
+            putEntry(kept, key, entry);
         }
         meta.extra = kept;
     }
@@ -291,13 +319,15 @@ function lineFromFile(value: unknown, path: string): LyricsLine {
             : requireRecord(file.groups, `${path}.groups`);
     const groups: Record<string, SegRun[]> = {};
     for (const [name, runs] of Object.entries(groupsValue)) {
-        groups[name] = requireArray(runs, `${path}.groups.${name}`).map(
-            (entry, index) => {
+        putEntry(
+            groups,
+            name,
+            requireArray(runs, `${path}.groups.${name}`).map((entry, index) => {
                 return runFromFile(entry, `${path}.groups.${name}[${index}]`);
-            },
+            }),
         );
     }
-    const line: LyricsLine = { baseStream, groups };
+    const line: LyricsLine = rebuild(emptyLyricsLine(baseStream), { groups });
     try {
         assertLyricsLine(line);
     } catch (error) {

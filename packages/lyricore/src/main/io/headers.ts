@@ -92,7 +92,10 @@ export function withHeader(
     at: string,
     losses: LossCollector,
 ): LyricsMeta {
-    const field = FIELDS[header.key.toLowerCase()];
+    const key = header.key.toLowerCase();
+    // `FIELDS` is an object literal, so a bracket field named `constructor`
+    // would otherwise resolve to `Object`, not to "unknown".
+    const field = Object.hasOwn(FIELDS, key) ? FIELDS[key] : undefined;
     if (field === undefined) {
         return {
             ...meta,

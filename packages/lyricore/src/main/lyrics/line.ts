@@ -16,10 +16,20 @@ import {
     type SegPiece,
     type SegRun,
 } from './seg-run.js';
+import {
+    NO_OVERLAY,
+    assertOverlay,
+    spliceOverlay,
+    spliceSpan,
+    type LineOverlay,
+} from './overlay.js';
 
 export interface LyricsLine {
     readonly baseStream: CharStream;
     readonly groups: Record<string, readonly SegRun[]>;
+    // The overlay travels with the line but is not part of the lyric: no rule
+    // in this file reads it, and the frozen export does not write it.
+    readonly overlay: LineOverlay;
 }
 
 /** One piece of one run of one group: where a check is recorded. */
@@ -29,8 +39,51 @@ export interface CheckSlot {
     readonly pieceIndex: number;
 }
 
+/** A line with no groups and no overlay: the shape every constructor starts from. */
+export function emptyLyricsLine(baseStream: CharStream): LyricsLine {
+    return { baseStream, groups: {}, overlay: NO_OVERLAY };
+}
+
 export function textToLyricsLine(text: string): LyricsLine {
-    return { baseStream: textToStream(text), groups: {} };
+    return emptyLyricsLine(textToStream(text));
+}
+
+/**
+ * The overlay of a line, for callers OUTSIDE the model.
+ *
+ * Inside the model the field is read directly: it is required, so no tolerance
+ * belongs on the normal path, and a fixture that forgot it must fail loudly
+ * rather than be repaired here. This helper exists for a boundary that owns
+ * lines it did not build - the project reader, an app holding older JSON - so
+ * the repair, when there is one, is performed at the door that knows why.
+ */
+export function overlayOf(line: LyricsLine): LineOverlay {
+    return line.overlay ?? NO_OVERLAY;
+}
+
+/** The parts of a line a rebuild may replace; an absent part is kept as it is. */
+export interface LinePatch {
+    readonly baseStream?: CharStream;
+    readonly groups?: Record<string, readonly SegRun[]>;
+    readonly overlay?: LineOverlay;
+}
+
+/**
+ * The one place a line is rebuilt from another line.
+ *
+ * Every mutation of a line goes through here so that a field added later is
+ * added once, not once per call site. `null` is not a value a patch can carry:
+ * clearing the overlay is `{ overlay: NO_OVERLAY }`.
+ */
+export function rebuild(line: LyricsLine, patch: LinePatch): LyricsLine {
+    return {
+        baseStream: patch.baseStream ?? line.baseStream,
+        groups: patch.groups ?? line.groups,
+        // `overlayOf`, not the raw field: a line built by hand (an untyped
+        // fixture, a caller passing `{ baseStream, groups }`) would otherwise
+        // come out with `overlay: undefined` and fail somewhere far away.
+        overlay: patch.overlay ?? overlayOf(line),
+    };
 }
 
 export function lyricsLineToText(line: LyricsLine): string {
@@ -182,19 +235,13 @@ export function spliceGroups(
     removed: readonly [number, number],
     inserted: number,
 ): Record<string, readonly SegRun[]> {
-    const [removedStart, removedEnd] = removed;
-    const delta = inserted - (removedEnd - removedStart);
     const spliced: Record<string, readonly SegRun[]> = {};
     for (const [name, runs] of Object.entries(groups)) {
         const next: SegRun[] = [];
         for (const run of runs) {
-            const kept = spliceRun(
-                run,
-                removedStart,
-                removedEnd,
-                inserted,
-                delta,
-            );
+            // A run claims no cell on a boundary: the inserted cells belong to
+            // no existing piece, which is why the affinity here is 'none'.
+            const kept = spliceSpan(run, removed, inserted, 'none');
             if (kept !== null) {
                 next.push(kept);
             }
@@ -206,51 +253,6 @@ export function spliceGroups(
     return spliced;
 }
 
-function spliceRun(
-    run: SegRun,
-    removedStart: number,
-    removedEnd: number,
-    inserted: number,
-    delta: number,
-): SegRun | null {
-    const start = run.offset;
-    const end = run.offset + run.length;
-    if (removedStart === removedEnd) {
-        // An insertion inside the run grows it; one on a boundary claims nothing.
-        if (removedStart > start && removedStart < end) {
-            return { ...run, length: run.length + inserted };
-        }
-        if (start >= removedStart) {
-            return { ...run, offset: start + inserted };
-        }
-        return run;
-    }
-    if (end <= removedStart) {
-        return run;
-    }
-    if (start >= removedEnd) {
-        return { ...run, offset: start + delta };
-    }
-    // The edit sits strictly inside the run: it survives whole and only changes
-    // width, which is what typing over a character inside a word does.
-    if (start < removedStart && removedEnd < end) {
-        return { ...run, length: run.length + delta };
-    }
-    const leftLength = Math.min(end, removedStart) - start;
-    if (leftLength > 0) {
-        return { ...run, length: leftLength };
-    }
-    const rightLength = end - removedEnd;
-    if (rightLength > 0) {
-        return {
-            ...run,
-            offset: removedStart + inserted,
-            length: rightLength,
-        };
-    }
-    return null;
-}
-
 export function spliceLine(
     line: LyricsLine,
     removed: readonly [number, number],
@@ -258,16 +260,20 @@ export function spliceLine(
 ): LyricsLine {
     const [removedStart, removedEnd] = removed;
     const count = line.baseStream.cells.length;
+    // The overlay tables are defined on the body only (`0 .. cells.length - 1`),
+    // so an edit may not swallow the break cell: the result would not be a line
+    // stream, and the overlay would be asserted against a body of -1. Callers
+    // that need to drop a break build the cell list themselves.
     if (
         !Number.isInteger(removedStart) ||
         !Number.isInteger(removedEnd) ||
         removedStart < 0 ||
         removedEnd < removedStart ||
-        removedEnd > count
+        removedEnd > count - 1
     ) {
         throw new LyricoreError(
             'invalid-edit',
-            `cannot replace cells [${removedStart}, ${removedEnd}) of ${count}`,
+            `cannot replace cells [${removedStart}, ${removedEnd}) of a line with ${count - 1} body cells`,
         );
     }
     const cells = [
@@ -275,10 +281,17 @@ export function spliceLine(
         ...insertedCells,
         ...line.baseStream.cells.slice(removedEnd),
     ];
-    return {
+    const overlay = spliceOverlay(
+        overlayOf(line),
+        removed,
+        insertedCells.length,
+    );
+    assertOverlay(overlay, cells.length - 1);
+    return rebuild(line, {
         baseStream: { cells },
         groups: spliceGroups(line.groups, removed, insertedCells.length),
-    };
+        overlay,
+    });
 }
 
 /**
@@ -320,10 +333,9 @@ export function withCheck(
     pieces[slot.pieceIndex] = { check: stored, text: piece.text };
     const nextRuns = runs.slice();
     nextRuns[slot.runIndex] = { ...run, pieces };
-    return {
-        baseStream: line.baseStream,
+    return rebuild(line, {
         groups: { ...line.groups, [slot.group]: nextRuns },
-    };
+    });
 }
 
 function runsOf(
@@ -346,7 +358,7 @@ function withRuns(
     } else {
         putGroup(groups, group, runs);
     }
-    return { baseStream: line.baseStream, groups };
+    return rebuild(line, { groups });
 }
 
 function assertAnnotationLine(line: LyricsLine): LyricsLine {
@@ -471,7 +483,7 @@ export function withGroup(
         }
         const groups: Record<string, readonly SegRun[]> = { ...line.groups };
         delete groups[name];
-        return { baseStream: line.baseStream, groups };
+        return rebuild(line, { groups });
     }
     if (!runs.every((run) => isValidSegRun(run))) {
         throw new LyricoreError('invalid-seg-run', 'not an annotation run', {
@@ -479,4 +491,29 @@ export function withGroup(
         });
     }
     return assertAnnotationLine(withRuns(line, name, runs));
+}
+
+/**
+ * The line with its overlay replaced.
+ *
+ * The only way in, so a style run or an inserted object that does not fit the
+ * line cannot be written: the overlay is checked against the body here and
+ * nowhere else on the edit path. The two layers are compared by identity, so a
+ * call that changes nothing returns the line itself.
+ */
+export function withOverlay(
+    line: LyricsLine,
+    overlay: LineOverlay,
+): LyricsLine {
+    assertOverlay(overlay, line.baseStream.cells.length - 1);
+    // The tolerance read, not the raw field: a line built by hand has no
+    // `overlay` key, and the fast path must not throw on it.
+    const current = overlayOf(line);
+    if (
+        current.styles === overlay.styles &&
+        current.inserted === overlay.inserted
+    ) {
+        return line;
+    }
+    return rebuild(line, { overlay });
 }

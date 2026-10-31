@@ -21,7 +21,11 @@ function run(offset, length, pieces = []) {
 }
 
 function line(text, groups = {}) {
-    return { baseStream: textToStream(text), groups };
+    return {
+        baseStream: textToStream(text),
+        groups,
+        overlay: { styles: [], inserted: [] },
+    };
 }
 
 function lyrics(line0) {

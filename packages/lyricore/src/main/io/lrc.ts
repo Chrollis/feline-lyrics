@@ -1,10 +1,12 @@
 import type { Lyrics } from '../lyrics/lyrics.js';
 import type { LyricsLine } from '../lyrics/line.js';
+import { TIME_MAX } from '../lyrics/time.js';
 import { formatLrcHeaders } from './headers.js';
 import { newLosses } from './loss.js';
 import {
     DEFAULT_GROUP,
     importTagText,
+    LAST_LINE_MS,
     type Exported,
     type Imported,
 } from './tagtext.js';
@@ -92,16 +94,36 @@ export function exportLrc(lyrics: Lyrics): Exported {
         // the line's own start; otherwise the next tag already says the same
         // thing, or the tag would contradict the line it ends.
         //
-        // A last line is never given one: it has no next tag to be the natural
-        // end, and its stored end is the tail this package fabricates. A file
-        // whose last line carries a real end therefore loses it on export --
-        // LRC has no syntax that distinguishes the two.
+        // A last line has no next tag to be the natural end, so the reader
+        // invents one: its last check plus `LAST_LINE_MS`. A bare tag also
+        // spells a RECORDED end, so one is written whenever the document holds
+        // an end the reader would not fabricate -- dropping it silently loses
+        // the time. An end that happens to equal the fabricated value cannot
+        // be told apart from the default and is left out.
         const end = cells[cells.length - 1]?.span?.start;
         const next = nextStart(lyrics, index + 1);
+        // The text this line becomes carries ONE tag, so the reader of it
+        // dates the single run from `start` and, on a last line, invents an end
+        // at `start + LAST_LINE_MS`. Comparing against the in-memory last check
+        // instead would compare against a run the export never writes.
+        const fabricated = Math.min(TIME_MAX, start + LAST_LINE_MS);
         const tail =
-            next !== null && end !== undefined && end !== next && end > start
+            end !== undefined &&
+            end > start &&
+            end !== next &&
+            (next !== null || end !== fabricated)
                 ? formatTag(end)
                 : '';
+        // A tail equal to the line start is expressible, but many players read
+        // a repeated timestamp as a zero-length entry, so it stays out. When two
+        // lines share an instant the next tag says the same thing anyway.
+        if (tail !== '' && end !== undefined && end % 10 !== 0) {
+            losses.add(
+                at,
+                'time-truncated',
+                `${end} ms written as ${Math.floor(end / 10) * 10} ms: the format counts whole centiseconds, so ${end % 10} ms was lost`,
+            );
+        }
         out.push(`${formatTag(start)}${text}${tail}`);
     }
     return {

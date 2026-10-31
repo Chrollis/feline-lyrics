@@ -26,7 +26,11 @@ function line(text, groups = {}) {
                 ? runs
                 : [...runs, { offset: last, length: 1, pieces: [piece('')] }];
     }
-    return { baseStream, groups: complete };
+    return {
+        baseStream,
+        groups: complete,
+        overlay: { styles: [], inserted: [] },
+    };
 }
 
 function spans(stream) {

@@ -72,6 +72,14 @@ describe('inline ruby {parent|reading}', () => {
         );
     });
 
+    it('counts a continuation past a multi-cell parent', () => {
+        const { lyrics, losses } = importTagText('[00:01:00]{明日|あし＋}へ\n');
+        assert.deepEqual(losses, []);
+        const run = lyrics.lines[0]?.groups.ruby?.[0];
+        assert.equal(run?.offset, 0);
+        assert.equal(run?.length, 3);
+    });
+
     it('stops a continuation at the line break', () => {
         const { lyrics, losses } = importTagText('[00:01:00]{貴|あなた＋＋}\n');
         const run = lyrics.lines[0]?.groups.ruby?.[0];
@@ -80,5 +88,33 @@ describe('inline ruby {parent|reading}', () => {
             losses.some((loss) => loss.code === 'collapsed-run'),
             true,
         );
+    });
+
+    it('keeps a continuation out of the next annotation', () => {
+        // A `＋` grows the run by one column, and the column that follows may
+        // already belong to the next `{...}`. One cell cannot hold two runs,
+        // so the continuation gives way and the loss is recorded.
+        for (const text of [
+            '[00:03:00]{明|明＋}{い|あ}\n',
+            '[00:03:00]{明|明＋あ}{い|あ}\n',
+            '[00:03:00]{明|明＋＋}{い|あ}\n',
+        ]) {
+            const { lyrics, losses } = importTagText(text);
+            const runs = lyrics.lines[0]?.groups.ruby ?? [];
+            assert.deepEqual(
+                runs.map((run) => [run.offset, run.length]),
+                [
+                    [0, 1],
+                    [1, 1],
+                    [2, 1],
+                ],
+                text,
+            );
+            assert.equal(
+                losses.some((loss) => loss.code === 'collapsed-run'),
+                true,
+                text,
+            );
+        }
     });
 });

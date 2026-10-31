@@ -74,4 +74,38 @@ describe('LRC out', () => {
         );
         assert.equal(second.lyrics.meta.title, '歌');
     });
+
+    it('writes a recorded end on the last line and leaves a made-up one out', () => {
+        // A bare tag is how a line end is spelled, so an end the document
+        // really holds has to be written; the end the reader invents for a
+        // closing line (its last check plus five seconds) does not.
+        const recorded = importLrc('[00:01:00]aaa\n[00:02:00]bbb[00:04:50]\n');
+        assert.equal(
+            exportLrc(recorded.lyrics).text,
+            '[00:01:00]aaa\n[00:02:00]bbb[00:04:50]\n',
+        );
+        const madeUp = importLrc('[00:01:00]aaa\n[00:02:00]bbb\n');
+        assert.equal(
+            exportLrc(madeUp.lyrics).text,
+            '[00:01:00]aaa\n[00:02:00]bbb\n',
+        );
+        // And the end the first file recorded is still there after a round trip.
+        const written = exportLrc(recorded.lyrics).text;
+        assert.equal(exportLrc(importLrc(written).lyrics).text, written);
+    });
+
+    it('dates the invented end from the one tag the line becomes', () => {
+        // The export writes a single tag per line, so whoever reads the export
+        // invents its end from that tag, not from the last chunk the document
+        // still holds. Two chunks start at 1000 and 2000: the end (7000) is not
+        // the invented one (6000), so it has to be written or it is lost.
+        const { lyrics } = importLrc('[00:01:00]ab[00:02:00]cd\n');
+        const end = lyrics.lines[0]?.baseStream.cells.at(-1)?.span?.start;
+        assert.equal(end, 7000);
+        const written = exportLrc(lyrics).text;
+        assert.equal(written, '[00:01:00]abcd[00:07:00]\n');
+        const back = importLrc(written).lyrics;
+        assert.equal(back.lines[0]?.baseStream.cells.at(-1)?.span?.start, 7000);
+        assert.equal(exportLrc(back).text, written);
+    });
 });

@@ -1,10 +1,9 @@
 import { textToStream } from '../lyrics/char.js';
 import { refillGroup, TAIL_MS } from '../lyrics/interpolate.js';
 import { TIME_MAX } from '../lyrics/time.js';
-import { textToLyricsLine } from '../lyrics/line.js';
-import type { LyricsLine } from '../lyrics/line.js';
+import { rebuild, textToLyricsLine, type LyricsLine } from '../lyrics/line.js';
 import { emptyMeta } from '../lyrics/meta.js';
-import type { Lyrics } from '../lyrics/lyrics.js';
+import { lyricsOf, type Lyrics } from '../lyrics/lyrics.js';
 import type { SegRun } from '../lyrics/seg-run.js';
 import { newLosses, type Loss, type LossCollector } from './loss.js';
 import { formatHeaders, parseHeader, withHeader } from './headers.js';
@@ -17,7 +16,7 @@ import {
 } from './ruby.js';
 
 /** How long a closing line is assumed to show when nothing dates its end. */
-const LAST_LINE_MS = 5_000;
+export const LAST_LINE_MS = 5_000;
 import { formatTag, parseTagContent, scanTags } from './tags.js';
 import { ensureTrailingBreak, splitLines } from './text.js';
 
@@ -303,7 +302,7 @@ function lineFromChunks(
         runs.push(terminalRun(null, cells));
     }
     const rubies: SegRun[] = [];
-    for (const span of spans) {
+    for (const [index, span] of spans.entries()) {
         const start = cellAtChar(line.baseStream.cells, span.char);
         const end = cellAtChar(
             line.baseStream.cells,
@@ -324,15 +323,35 @@ function lineFromChunks(
         // reading ending in `＋` grows the joined span by one column).
         const joined = [...span.reading].filter((char) => char === '＋').length;
         const chunks = splitReading(span.reading.replace(/＋/g, ''));
-        // The newline is never part of an annotation, so a continuation stops
-        // one cell short of it.
-        const room = Math.max(0, line.baseStream.cells.length - 1 - start);
-        const runLength = Math.max(end - start, Math.min(joined + 1, room));
-        if (joined > 0 && runLength < joined + 1) {
+        // A continuation may not claim the first cell of the next annotation:
+        // one cell cannot belong to two runs, and the next span is placed
+        // there already. The newline is never part of an annotation either, so
+        // a continuation stops one cell short of it.
+        const cells = line.baseStream.cells;
+        const lineEnd = cells.length - 1;
+        // The first following annotation that really occupies a cell: one that
+        // is dropped below as "has no cells" claims nothing and must not stop
+        // a continuation here.
+        const following = spans.slice(index + 1).find((later) => {
+            const from = cellAtChar(cells, later.char);
+            const to = cellAtChar(cells, later.char + later.parent.length);
+            return from >= 0 && to > from;
+        });
+        const next =
+            following === undefined ? -1 : cellAtChar(cells, following.char);
+        const limit = next < 0 ? lineEnd : Math.min(lineEnd, next);
+        const room = Math.max(0, limit - start);
+        // Each `＋` adds one cell past the parent, so a two-cell parent with one
+        // marker wants three cells - not the `joined + 1` a one-cell parent
+        // happens to make right.
+        const wanted = end - start + joined;
+        const runLength = Math.max(end - start, Math.min(wanted, room));
+        if (joined > 0 && runLength < wanted) {
+            const missing = wanted - runLength;
             losses.add(
                 at,
                 'collapsed-run',
-                `{${span.parent}|${span.reading}}: the continuation runs past the line`,
+                `{${span.parent}|${span.reading}}: the continuation needs ${missing} more ${missing === 1 ? 'cell' : 'cells'}${next < 0 ? ' before the end of the line' : ' before the next annotation'}`,
             );
         }
         if (chunks.length > 1 && parent === null) {
@@ -379,7 +398,7 @@ function lineFromChunks(
                   [group]: runs,
                   [RUBY_GROUP]: [...rubies, terminalRun(null, cells)],
               };
-    return { baseStream: line.baseStream, groups };
+    return rebuild(line, { groups });
 }
 
 /**
@@ -486,7 +505,7 @@ export function importTagText(
             lines[index] = withTerminalCheck(lines[index]!, group, end);
         }
     }
-    let lyrics: Lyrics = { meta, lines };
+    let lyrics: Lyrics = lyricsOf(meta, lines);
     for (let index = 0; index < lines.length; index += 1) {
         lyrics = refillGroup(lyrics, index, group);
     }

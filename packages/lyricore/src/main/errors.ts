@@ -11,7 +11,12 @@ export type LyricoreErrorCode =
     | 'invalid-edit'
     | 'invalid-line-index'
     | 'invalid-cell-index'
-    | 'invalid-lyrics-file';
+    | 'invalid-lyrics-file'
+    | 'invalid-style-run'
+    | 'invalid-inserted-object'
+    | 'invalid-style-def'
+    | 'invalid-style-book'
+    | 'invalid-project-file';
 
 export interface LyricoreErrorContext {
     readonly expected?: string;

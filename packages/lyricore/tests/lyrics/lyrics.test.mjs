@@ -66,7 +66,11 @@ describe('lyrics', () => {
             lines: [
                 lyrics.lines[0],
                 textToLyricsLine('c\n'),
-                { baseStream: { cells: [] }, groups: {} },
+                {
+                    baseStream: { cells: [] },
+                    groups: {},
+                    overlay: { styles: [], inserted: [] },
+                },
             ],
         };
 

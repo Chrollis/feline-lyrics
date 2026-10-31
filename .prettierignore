@@ -12,3 +12,4 @@ package-lock.json
 packages/stemalign/tests/fixtures/
 *.svg
 *.md
+docs/.lrc/

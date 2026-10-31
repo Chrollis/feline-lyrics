@@ -4,10 +4,13 @@ import { alignPreviousEnd } from './interpolate.js';
 import {
     assertLyricsLine,
     assertTerminalRuns,
+    emptyLyricsLine,
+    overlayOf,
     putGroup,
-    spliceLine,
+    rebuild,
     type LyricsLine,
 } from './line.js';
+import { assertOverlay, joinOverlay, splitOverlay } from './overlay.js';
 import type { Lyrics } from './lyrics.js';
 import {
     isTerminalRun,
@@ -18,6 +21,18 @@ import {
 
 function emptyPiece(): SegPiece {
     return { check: null, text: { cells: [] } };
+}
+
+/**
+ * The runs a line owns under `name`, never a value inherited from the
+ * prototype chain: group names are data, and one spelled `constructor` is
+ * legal in a document.
+ */
+function ownGroup(
+    groups: Readonly<Record<string, readonly SegRun[]>>,
+    name: string,
+): readonly SegRun[] {
+    return Object.hasOwn(groups, name) ? (groups[name] ?? []) : [];
 }
 
 function requireCellIndex(value: number, high: number): void {
@@ -150,14 +165,19 @@ export function splitLine(
     const leftCells: CharCell[] = cells.slice(0, at);
     leftCells.push({ text: breakCell.text, span: null });
     const [leftGroups, rightGroups] = splitGroups(line.groups, at);
-    const left: LyricsLine = {
+    const [leftOverlay, rightOverlay] = splitOverlay(overlayOf(line), at);
+    assertOverlay(leftOverlay, leftCells.length - 1);
+    assertOverlay(rightOverlay, cells.length - at - 1);
+    const left: LyricsLine = rebuild(line, {
         baseStream: { cells: leftCells },
         groups: leftGroups,
-    };
-    const right: LyricsLine = {
+        overlay: leftOverlay,
+    });
+    const right: LyricsLine = rebuild(line, {
         baseStream: { cells: cells.slice(at) },
         groups: rightGroups,
-    };
+        overlay: rightOverlay,
+    });
     assertLyricsLine(left);
     assertTerminalRuns(left);
     assertLyricsLine(right);
@@ -195,12 +215,13 @@ export function mergeLines(first: LyricsLine, second: LyricsLine): LyricsLine {
     assertTerminalRuns(second);
     requireJoinableSeam(first, second);
     const junction = first.baseStream.cells.length - 1;
-    const head = spliceLine(
-        { baseStream: first.baseStream, groups: {} },
-        [junction, junction + 1],
-        [],
-    );
-    const cells = [...head.baseStream.cells, ...second.baseStream.cells];
+    // Built by slicing, not by splicing the break cell out: `spliceLine` refuses
+    // to remove a break (its overlay tables only cover the body), and the value
+    // here is the same either way.
+    const cells = [
+        ...first.baseStream.cells.slice(0, junction),
+        ...second.baseStream.cells,
+    ];
     const total = cells.length;
     const groups: Record<string, SegRun[]> = {};
     for (const name of new Set([
@@ -208,12 +229,12 @@ export function mergeLines(first: LyricsLine, second: LyricsLine): LyricsLine {
         ...Object.keys(second.groups),
     ])) {
         const runs: SegRun[] = [];
-        for (const run of first.groups[name] ?? []) {
+        for (const run of ownGroup(first.groups, name)) {
             if (!isTerminalRun(run, junction)) {
                 runs.push(run);
             }
         }
-        for (const run of second.groups[name] ?? []) {
+        for (const run of ownGroup(second.groups, name)) {
             runs.push({ ...run, offset: run.offset + junction });
         }
         const last = runs[runs.length - 1];
@@ -222,7 +243,35 @@ export function mergeLines(first: LyricsLine, second: LyricsLine): LyricsLine {
         }
         putGroup(groups, name, runs);
     }
-    const merged: LyricsLine = { baseStream: { cells }, groups };
+    // No seam splice is needed: `junction` is the break cell, and a sound
+    // overlay never reaches it (`offset + length <= cells.length - 1`), so
+    // splicing `[junction, junction + 1]` out of `first` is the identity. An
+    // unsound overlay is not repaired here either - the assert below is what
+    // refuses it, which is the outcome we want.
+    // Two lines that each hold an object with the same id would produce a
+    // document `assertLyrics` refuses later, pointing at a line index that no
+    // longer means anything. Refuse it at the join instead.
+    const headIds = new Set(
+        overlayOf(first).inserted.map((object) => object.id),
+    );
+    for (const object of overlayOf(second).inserted) {
+        if (headIds.has(object.id)) {
+            throw new LyricoreError(
+                'invalid-inserted-object',
+                `inserted object id "${object.id}" is on both lines being joined`,
+                {
+                    expected: 'an inserted object id unique in the document',
+                    actual: object.id,
+                },
+            );
+        }
+    }
+    const overlay = joinOverlay(overlayOf(first), overlayOf(second), junction);
+    assertOverlay(overlay, cells.length - 1);
+    const merged: LyricsLine = rebuild(emptyLyricsLine({ cells }), {
+        groups,
+        overlay,
+    });
     assertLyricsLine(merged);
     assertTerminalRuns(merged);
     return merged;
@@ -248,8 +297,17 @@ export function insertLine(
     requireLineIndex(index, lyrics.lines.length);
     assertLyricsLine(line);
     assertTerminalRuns(line);
+    // A caller may hand over a line it built itself, so the carrier is
+    // normalised here rather than trusted: the document must not gain a line
+    // that `overlayOf` has to invent an overlay for.
+    const overlay = overlayOf(line);
+    assertOverlay(overlay, line.baseStream.cells.length - 1);
+    const carried = rebuild(emptyLyricsLine(line.baseStream), {
+        groups: line.groups,
+        overlay,
+    });
     const lines = lyrics.lines.slice();
-    lines.splice(index, 0, line);
+    lines.splice(index, 0, carried);
     const inserted = { ...lyrics, lines };
     const result = alignPreviousEnd(
         alignPreviousEnd(inserted, index),
