@@ -13,6 +13,7 @@ from __future__ import annotations
 import asyncio
 import io
 import json
+import subprocess
 import threading
 import time
 from pathlib import Path
@@ -24,7 +25,15 @@ from websockets.exceptions import ConnectionClosed
 from websockets.sync.client import connect
 
 from felyrics import espeak, sources
-from felyrics.server import MAX_PAYLOAD_BYTES, BackendService, encode_flac, run_service
+from felyrics import server as server_module
+from felyrics.annotate import AnnotationError
+from felyrics.server import (
+    MAX_OPEN_SOURCES,
+    MAX_PAYLOAD_BYTES,
+    BackendService,
+    encode_flac,
+    run_service,
+)
 
 REPO = Path(__file__).resolve().parents[2]
 MEDIA = REPO / "cache" / "temp"
@@ -162,6 +171,18 @@ def test_bad_token_is_rejected(server: ServerThread) -> None:
     assert excinfo.value.rcvd.code == 4401
 
 
+def test_non_ascii_token_is_rejected_with_4401(server: ServerThread) -> None:
+    # A token that is not ASCII must be compared as bytes: hmac.compare_digest
+    # raises TypeError on two non-ASCII str, and that used to escape the close
+    # path so the peer saw a 1011 instead of api.md 4.1's 4401.
+    with connect(server.url(token="é"), proxy=None) as socket:
+        with pytest.raises(ConnectionClosed) as excinfo:
+            socket.recv()
+    assert excinfo.value.rcvd is not None
+    assert excinfo.value.rcvd.code == 4401
+    assert excinfo.value.rcvd.reason == "unauthorized"
+
+
 def test_hello_required_before_other_methods(ws) -> None:
     reply = request(ws, "1", "open_source", {"path": str(MP3)})
     assert reply["ok"] is False
@@ -218,6 +239,43 @@ def test_open_source_missing_file(ws) -> None:
     hello(ws)
     reply = request(ws, "1", "open_source", {"path": str(MEDIA / "nope.mp3")})
     assert reply["error"]["code"] == "source-not-found"
+
+
+def test_open_source_evicts_the_oldest(ws, monkeypatch) -> None:
+    """api.md 7: LRU(8); an evicted source_id becomes source-not-found.
+
+    The eviction must close the source on a media worker, not inline on the
+    event loop: ``Source.close`` takes the lock a media thread may be holding
+    for a whole range read.
+    """
+    hello(ws)
+    closed: list[tuple[str, str]] = []
+    original = server_module.OpenedSource.close
+
+    def recording_close(self) -> None:
+        closed.append((self.id, threading.current_thread().name))
+        original(self)
+
+    monkeypatch.setattr(server_module.OpenedSource, "close", recording_close)
+
+    ids: list[str] = []
+    for index in range(MAX_OPEN_SOURCES + 1):
+        reply = request(ws, f"o{index}", "open_source", {"path": str(MP3)})
+        assert reply["ok"] is True, reply
+        ids.append(reply["result"]["source_id"])
+
+    assert [source_id for source_id, _ in closed] == [ids[0]]
+    assert closed[0][1].startswith("media"), closed[0][1]
+    # Gone from the pool, not just closed: the id answers source-not-found.
+    evicted = request(
+        ws,
+        "r1",
+        "request_range",
+        {"source_id": ids[0], "start_sec": 0.0, "duration_sec": 0.1},
+    )
+    assert evicted["error"]["code"] == "source-not-found"
+    kept = request(ws, "r2", "close_source", {"source_id": ids[1]})
+    assert kept["ok"] is True, kept
 
 
 def test_audio_range_round_trip(ws) -> None:
@@ -284,6 +342,34 @@ def test_range_clamped_past_end_is_one_terminal_frame(ws) -> None:
     assert len(frames) == 1
     assert frames[0]["header"]["last"] is True
     assert frames[0]["payload"] == b""
+
+
+def test_audio_range_with_a_short_decode_is_an_error(ws, monkeypatch) -> None:
+    hello(ws)
+    opened = request(ws, "1", "open_source", {"path": str(MP3)})["result"]
+    # Patch the media layer rather than reaching into the service's private
+    # registry: the failure has to be reachable through request_range alone
+    # (api.md 7 - the ack is only sent once the payload exists).
+    real_read = sources.Source.read
+
+    def short_read(self, start: int, count: int) -> np.ndarray:
+        return real_read(self, start, count - 1)
+
+    monkeypatch.setattr(sources.Source, "read", short_read)
+    reply = request(
+        ws,
+        "2",
+        "request_range",
+        {
+            "source_id": opened["source_id"],
+            "kind": "audio",
+            "start_sec": 0.0,
+            "duration_sec": 1.0,
+        },
+    )
+    assert reply["ok"] is False, reply
+    assert reply["error"]["code"] == "source-decode-failed"
+    assert reply["error"]["data"]["source_id"] == opened["source_id"]
 
 
 def test_range_bounds_errors(ws) -> None:
@@ -560,6 +646,19 @@ def test_annotate_ja_hiragana_and_romaji(ws) -> None:
     ]
 
 
+def test_annotate_ja_offsets_count_the_whole_text(ws) -> None:
+    hello(ws)
+    result = annotate(ws, "ja1", "怜い 出せ", "ja", "hiragana")
+    # The ASCII space between the words is part of the text, so the second
+    # word starts at index 3, not 2.
+    assert [(unit["text"], unit["offset"]) for unit in result["units"]] == [
+        ("怜", 0),
+        ("い", 1),
+        ("出", 3),
+        ("せ", 4),
+    ]
+
+
 def test_annotate_ko_hangul(ws) -> None:
     hello(ws)
     result = annotate(ws, "a1", "안녕 大韓", "ko", "hangul")
@@ -571,6 +670,47 @@ def test_annotate_ko_hangul(ws) -> None:
         ("녕", "hangul", ["녕"]),
         ("大", "hanja", ["대"]),
         ("韓", "hanja", ["한"]),
+    ]
+
+
+def test_annotate_ko_offsets_follow_the_text(ws) -> None:
+    hello(ws)
+    result = annotate(ws, "ko1", "사랑합니다", "ko", "hangul")
+    units = result["units"]
+    # Kiwi reports 합니다 as an overlapping 하 + ᆸ니다 pair; the unit offsets
+    # must still be the code point positions of the text.
+    assert [(unit["text"], unit["offset"]) for unit in units] == [
+        ("사", 0),
+        ("랑", 1),
+        ("합", 2),
+        ("니", 3),
+        ("다", 4),
+    ]
+    assert all(unit["category"] == "hangul" for unit in units)
+    assert all(unit.get("morpheme") for unit in units)
+
+
+def test_annotate_ko_romaji_is_lower_case(ws) -> None:
+    hello(ws)
+    result = annotate(ws, "kr1", "사랑합니다", "ko", "romaji")
+    # korean-romanizer title-cases every syllable; text mode must not, and the
+    # ja/zh paths are lower-case too.
+    assert [
+        (unit["text"], unit["category"], unit["syllables"]) for unit in result["units"]
+    ] == [
+        ("사", "hangul", ["sa"]),
+        ("랑", "hangul", ["rang"]),
+        ("합", "hangul", ["hap"]),
+        ("니", "hangul", ["ni"]),
+        ("다", "hangul", ["da"]),
+    ]
+    # Hanja reach romanizer through their hangul rendering.
+    hanja = annotate(ws, "kr2", "大韓", "ko", "romaji")
+    assert [
+        (unit["text"], unit["category"], unit["syllables"]) for unit in hanja["units"]
+    ] == [
+        ("大", "hanja", ["dae"]),
+        ("韓", "hanja", ["han"]),
     ]
 
 
@@ -613,6 +753,37 @@ def test_ipa_split_matches_spike_samples() -> None:
     for (ipa, language), expected in cases.items():
         assert espeak.split_ipa(ipa, language) == expected
 
+
+def test_espeak_timeout_is_ipa_unavailable(monkeypatch) -> None:
+    # subprocess.run(timeout=30) raises TimeoutExpired, which is not an OSError
+    # and used to escape as internal-error instead of api.md 12's
+    # ipa-unavailable.
+    def timeout(*args, **kwargs):
+        raise subprocess.TimeoutExpired(cmd="espeak-ng", timeout=30)
+
+    monkeypatch.setattr(espeak.subprocess, "run", timeout)
+    with pytest.raises(AnnotationError) as info:
+        espeak._engine("espeak-ng", "hello", "en")
+    assert info.value.code == "ipa-unavailable"
+    assert info.value.data["reason"] == "timeout"
+
+
+def test_espeak_batch_keeps_the_per_word_fallback(monkeypatch) -> None:
+    monkeypatch.setattr(espeak, "_require_exe", lambda language: "espeak-ng")
+    calls: list[str] = []
+
+    def engine(exe, text, language):
+        calls.append(text)
+        token = text.strip()
+        if "\n" in token:
+            return "he\n"  # one line for two words: the batch desynchronised
+        return "he\n" if token == "hello" else "wo\n"
+
+    monkeypatch.setattr(espeak, "_engine", engine)
+    # A line-count mismatch means the batch mapping is unknown, so the per-word
+    # path must take over instead of guessing which line belongs to which word.
+    assert espeak.syllables_batch(["hello", "world"], "en") == [["he"], ["wo"]]
+    assert [text.strip() for text in calls] == ["hello\nworld", "hello", "world"]
 
 
 def test_close_source_unknown_is_source_not_found(ws) -> None:

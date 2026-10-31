@@ -14,6 +14,7 @@ import asyncio
 import json
 import threading
 import time
+import types
 from pathlib import Path
 
 import numpy as np
@@ -131,6 +132,27 @@ def event_until(connection, name: str) -> dict:
     raise AssertionError(f"no {name} event arrived")
 
 
+def run_task(connection, msg_id: str, payload: dict) -> dict:
+    """Submit one task and return the result of *that* task's terminal event.
+
+    Several tasks run over the same socket in one test, so the events are
+    filtered on ``task_id``: a broadcast carries the id at the top level.
+    """
+    submitted = request(connection, msg_id, "task.submit", payload)
+    assert submitted["ok"] is True, submitted
+    task_id = submitted["result"]["task_id"]
+    deadline = time.monotonic() + 10.0
+    while time.monotonic() < deadline:
+        message = recv(connection)
+        if message.get("task_id") != task_id:
+            continue
+        if message.get("event") == "task.done":
+            return message["data"]["result"]
+        if message.get("event") == "task.failed":
+            raise AssertionError(message["data"]["error"])
+    raise AssertionError(f"task {task_id} never finished")
+
+
 # -- fakes ------------------------------------------------------------------
 
 
@@ -169,6 +191,17 @@ class FakeTranscribeModel:
 class FakeAlignModel:
     def align(self, audio, text, **kwargs):
         return None
+
+
+class RecordingAlignModel:
+    """``align`` that records every keyword argument it was handed."""
+
+    def __init__(self) -> None:
+        self.calls: list[dict] = []
+
+    def align(self, audio, text, **kwargs):
+        self.calls.append({"audio": audio, "text": text, **kwargs})
+        return FakeAlignResult()
 
 
 @pytest.fixture()
@@ -418,6 +451,57 @@ def test_store_rejects_non_string_paths() -> None:
     assert caught.value.code == "bad-request"
 
 
+# -- task times are file-relative -------------------------------------------
+
+
+class FakeAlignResult:
+    def to_dict(self):
+        return {
+            "segments": [
+                {
+                    "start": 0.0,
+                    "end": 1.0,
+                    "text": "こんにちは",
+                    "words": [
+                        {
+                            "word": "こんにちは",
+                            "start": 0.0,
+                            "end": 1.0,
+                            "probability": 0.9,
+                        }
+                    ],
+                }
+            ],
+            "language": "ja",
+        }
+
+
+def test_transcribe_times_are_file_relative(stub_models) -> None:
+    store = types.SimpleNamespace(transcribe_model=lambda files: FakeTranscribeModel())
+    data = tasks.transcribe(store, "in.mp3", {}, "ja", "hiragana", start_sec=30.0)
+    segment = data["segments"][0]
+    assert segment["start"] == pytest.approx(30.0)
+    assert segment["end"] == pytest.approx(31.0)
+    assert segment["words"][0]["start"] == pytest.approx(30.0)
+    assert segment["words"][0]["end"] == pytest.approx(31.0)
+
+
+def test_align_times_are_file_relative(stub_models) -> None:
+    store = types.SimpleNamespace(
+        align_model=lambda files: types.SimpleNamespace(
+            align=lambda *args, **kwargs: FakeAlignResult()
+        )
+    )
+    data = tasks.align(
+        store, "in.mp3", {}, "こんにちは", "ja", "hiragana", start_sec=30.0
+    )
+    segment = data["segments"][0]
+    assert segment["start"] == pytest.approx(30.0)
+    assert segment["end"] == pytest.approx(31.0)
+    assert segment["words"][0]["start"] == pytest.approx(30.0)
+    assert segment["words"][0]["end"] == pytest.approx(31.0)
+
+
 def test_alignment_rejects_words_parked_at_the_end() -> None:
     data = {
         "segments": [
@@ -471,6 +555,128 @@ def test_large_v3_needs_preprocessor_config() -> None:
     assert "preprocessor_config.json" in str(info.value.message)
 
 
+# -- align options (api.md 8.3) ---------------------------------------------
+
+
+def test_align_forwards_fast_mode_to_the_backend(stub_models) -> None:
+    # api.md 8.3 promises fast_mode grouping; alignment.align takes it as a
+    # keyword-only argument, so the service must hand it through.
+    model = RecordingAlignModel()
+    store = types.SimpleNamespace(align_model=lambda files: model)
+    tasks.align(store, "in.mp3", {}, "こんにちは", "ja", "hiragana", fast_mode=True)
+    assert model.calls[0]["fast_mode"] is True
+
+    tasks.align(store, "in.mp3", {}, "こんにちは", "ja", "hiragana")
+    assert model.calls[1]["fast_mode"] is False
+    # The option the unplaced-word check depends on stays pinned (api.md 8.3).
+    assert model.calls[1]["remove_instant_words"] is False
+    assert model.calls[1]["language"] == "ja"
+    assert model.calls[1]["text"] == "こんにちは"
+
+
+# -- annotation attachment (api.md 10.2) ------------------------------------
+
+
+def test_attach_annotates_once_per_segment(monkeypatch) -> None:
+    real = tasks.annotator.annotate
+    calls: list[str] = []
+
+    def counting(text, language, target, espeak_dir=None):
+        calls.append(text)
+        return real(text, language, target)
+
+    monkeypatch.setattr(tasks.annotator, "annotate", counting)
+    segments = [
+        {"text": "こんにちは", "words": [{"word": "こん"}, {"word": "にち"}, {"word": "は"}]},
+        {"text": "さようなら", "words": [{"word": "さよ"}, {"word": "うなら"}]},
+    ]
+    tasks._attach_syllables(segments, "ja", "hiragana", "all")
+
+    # One annotate per segment, not per word: under the ipa target each call is
+    # an espeak-ng subprocess (api.md 10.2).
+    assert calls == ["こんにちは", "さようなら"]
+    assert [word["syllables"] for word in segments[0]["words"]] == [
+        ["こ", "ん"],
+        ["に", "ち"],
+        ["は"],
+    ]
+    assert [word["syllables"] for word in segments[1]["words"]] == [
+        ["さ", "よ"],
+        ["う", "な", "ら"],
+    ]
+
+
+def test_attach_checks_cancellation_between_segments(monkeypatch) -> None:
+    real = tasks.annotator.annotate
+    cancel = threading.Event()
+    calls: list[str] = []
+
+    def cancelling(text, language, target, espeak_dir=None):
+        calls.append(text)
+        cancel.set()
+        return real(text, language, target)
+
+    monkeypatch.setattr(tasks.annotator, "annotate", cancelling)
+    segments = [
+        {"text": "こんにちは", "words": [{"word": "こんにちは"}]},
+        {"text": "さようなら", "words": [{"word": "さようなら"}]},
+    ]
+    with pytest.raises(tasks.TaskCancelled):
+        tasks._attach_syllables(segments, "ja", "hiragana", "all", cancel=cancel)
+    assert calls == ["こんにちは"]
+
+
+# -- section 6: task times are file-relative, over the wire -----------------
+
+
+def _segment_times(segments: list[dict]) -> list[tuple]:
+    return [
+        (
+            round(segment["start"], 6),
+            round(segment["end"], 6),
+            [(round(word["start"], 6), round(word["end"], 6)) for word in segment["words"]],
+        )
+        for segment in segments
+    ]
+
+
+def test_task_times_are_file_relative_over_the_wire(
+    server: ServerThread, socket, stub_models, monkeypatch
+) -> None:
+    """api.md 6: a range at start_sec=30 returns the 0 result plus 30 s."""
+    request(socket, "0", "hello", {"protocol": 1})
+    opened = request(socket, "1", "open_source", {"path": str(MP3)})["result"]
+    monkeypatch.setattr(
+        tasks.WhisperStore,
+        "align_model",
+        lambda self, files: types.SimpleNamespace(
+            align=lambda *args, **kwargs: FakeAlignResult()
+        ),
+    )
+    base = {
+        "source_id": opened["source_id"],
+        "files": {"model.bin": str(MP3)},
+        "language": "ja",
+        "target": "hiragana",
+    }
+    for index, (kind, extra) in enumerate(
+        (("transcribe", {}), ("align", {"text": "こんにちは"}))
+    ):
+        params = {**base, **extra}
+        at_zero = run_task(socket, f"s{index}a", {"kind": kind, "params": params})
+        at_thirty = run_task(
+            socket,
+            f"s{index}b",
+            {"kind": kind, "params": {**params, "range": {"start_sec": 30.0}}},
+        )
+        expected = [
+            (start + 30.0, end + 30.0, [(a + 30.0, b + 30.0) for a, b in words])
+            for start, end, words in _segment_times(at_zero["segments"])
+        ]
+        assert _segment_times(at_thirty["segments"]) == expected, kind
+        assert at_thirty.get("text") == at_zero.get("text"), kind
+
+
 def test_board_close_cancels_a_running_task() -> None:
     events: list[tuple[str, dict]] = []
     board = tasks.TaskBoard(lambda event, payload: events.append((event, payload)))
@@ -488,3 +694,40 @@ def test_board_close_cancels_a_running_task() -> None:
     board.close(timeout_sec=2.0)
     assert not board._thread.is_alive()
     assert board.get(submitted["task_id"])["state"] == "cancelled"
+
+
+# -- span and time-shift helpers -------------------------------------------
+
+
+def test_span_syllables_refuses_a_word_boundary_that_cuts_a_unit():
+    units = [
+        {"text": "東京", "offset": 0, "syllables": ["と", "う"]},
+        {"text": "タ", "offset": 2, "syllables": ["た"]},
+        {"text": "ワ", "offset": 3, "syllables": ["わ"]},
+    ]
+    # 1..3 starts inside 東京, so a partial list (["た"]) would be a lie.
+    assert tasks._span_syllables(units, (1, 3)) is None
+    assert tasks._span_syllables(units, (0, 2)) == ["と", "う"]
+    assert tasks._span_syllables(units, (2, 4)) == ["た", "わ"]
+    assert tasks._span_syllables(units, (0, 4)) == ["と", "う", "た", "わ"]
+    # A gap in the unit list is refused as well.
+    gapped = [units[0], units[2]]
+    assert tasks._span_syllables(gapped, (0, 4)) is None
+
+
+def test_shift_mapping_moves_nested_ori_and_nonspeech_times():
+    data = {
+        "ori_dict": {
+            "text": "abc",
+            "segments": [{"start": 1.0, "end": 2.5}],
+            "nonspeech_sections": [{"start": 0.0, "end": 0.8}],
+        },
+        "nonspeech_sections": [{"start": 3.0, "end": 4.0}],
+    }
+    tasks._shift_mapping(data["ori_dict"], 30.0)
+    tasks._shift_mapping(data["nonspeech_sections"], 30.0)
+    assert data["ori_dict"]["segments"][0] == {"start": 31.0, "end": 32.5}
+    assert data["ori_dict"]["nonspeech_sections"][0] == {"start": 30.0, "end": 30.8}
+    assert data["nonspeech_sections"][0] == {"start": 33.0, "end": 34.0}
+    tasks._shift_mapping(data["ori_dict"], 0.0)
+    assert data["ori_dict"]["segments"][0]["start"] == 31.0

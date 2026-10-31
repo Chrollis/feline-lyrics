@@ -21,12 +21,6 @@ FALLBACK_FPS = 30.0
 MIN_WIDTH = 16
 
 
-def _pts_sec(frame: av.VideoFrame) -> float:
-    if frame.pts is None or frame.time_base is None:
-        return 0.0
-    return float(frame.pts * frame.time_base)
-
-
 def encode_png(frame: av.VideoFrame, width: int, height: int) -> bytes:
     """Encode one decoded frame as a PNG of exactly ``width`` x ``height``."""
     rgb = frame.reformat(width=width, height=height, format="rgb24")
@@ -64,6 +58,17 @@ class VideoFile:
         self.fps = float(rate) if rate else FALLBACK_FPS
         self._container = container
         self._stream = stream
+        # Container timestamps are absolute: the first frame of a stream with a
+        # non-zero start_time still carries pts == start_time. Everything this
+        # class returns is in media seconds (zero at the start of the file), so
+        # the seek below adds this back and every comparison subtracts it.
+        start_time = stream.start_time
+        start_time_sec = (
+            float(start_time * stream.time_base) if start_time is not None else 0.0
+        )
+        # Some containers report a negative first timestamp; media time zero is
+        # still the file start, so the shift never goes below zero.
+        self._start_time_sec = max(0.0, start_time_sec)
         self._lock = threading.Lock()
         self._closed = False
 
@@ -116,6 +121,12 @@ class VideoFile:
             self._closed = True
             self._container.close()
 
+    def _media_sec(self, frame: av.VideoFrame) -> float:
+        """Presentation time of ``frame`` in media seconds (zero at the file start)."""
+        if frame.pts is None or frame.time_base is None:
+            return 0.0
+        return max(0.0, float(frame.pts * frame.time_base) - self._start_time_sec)
+
     def read_window(
         self,
         start_sec: float,
@@ -143,8 +154,15 @@ class VideoFile:
             if self._closed:
                 raise SourceError("source-closed", "source is closed", path=self.path)
             try:
-                # seek offsets for a stream are in that stream's time base.
-                ticks = int(round(start_sec / float(self._stream.time_base)))
+                # Seek ticks are absolute container timestamps in the stream's
+                # time base (measured on the same scale as Frame.pts), so the
+                # media time has to be shifted by start_time first.
+                ticks = int(
+                    round(
+                        max(0.0, start_sec + self._start_time_sec)
+                        / float(self._stream.time_base)
+                    )
+                )
                 self._container.seek(ticks, stream=self._stream, backward=True)
             except Exception as exc:  # noqa: BLE001 - seek failures are protocol data
                 raise SourceError(
@@ -158,7 +176,10 @@ class VideoFile:
             out: list[dict[str, Any]] = []
             for slot in range(count):
                 target = start_sec + slot / fps
-                while pending is not None and _pts_sec(pending) <= target + 1e-6:
+                while (
+                    pending is not None
+                    and self._media_sec(pending) <= target + 1e-6
+                ):
                     current = pending
                     pending = next(frames, None)
                 chosen = current if current is not None else pending
@@ -180,7 +201,7 @@ class VideoFile:
                 break
             width = max(MIN_WIDTH, width // 2)
             height = max(2, int(round(width * src_h / src_w)))
-        pts = _pts_sec(frame)
+        pts = self._media_sec(frame)
         return {
             "pts_us": int(round(pts * 1_000_000)),
             "frame_index": int(round(pts * self.fps)),

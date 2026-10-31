@@ -82,11 +82,14 @@ class _Reader:
         self._container = container
         self._stream = stream
         self._time_base = float(stream.time_base)
-        self._start_time_sec = (
+        start_time_sec = (
             float(stream.start_time * self._time_base)
             if stream.start_time is not None
             else 0.0
         )
+        # Media time zero is the file start; a container that reports a negative
+        # first timestamp must not push the buffer origin below zero.
+        self._start_time_sec = max(0.0, start_time_sec)
         self._frames = container.decode(stream)
         self._resampler = _new_resampler()
         self._pending: list[np.ndarray] = []
@@ -125,7 +128,10 @@ class _Reader:
                 float(frame.pts) * self._time_base if frame.pts is not None else self._start_time_sec
             )
             # Rule 2: the buffer starts before the frame's presentation time.
-            self._pending_start = int(round((pts_sec - self._start_time_sec) * OUTPUT_RATE))
+            self._pending_start = max(
+                0,
+                int(round((pts_sec - self._start_time_sec) * OUTPUT_RATE)),
+            )
         self._store([out.to_ndarray() for out in self._resampler.resample(frame)])
         return True
 

@@ -268,12 +268,98 @@ def _word_syllables(word: str, language: str, target: str) -> list[str] | None:
     return syllables
 
 
+def _word_spans(
+    text: str, words: list[dict[str, Any]]
+) -> list[tuple[int, int]] | None:
+    """Locate each word inside its segment text, in order.
+
+    Returns None when a word cannot be found verbatim: the caller then falls
+    back to annotating that word on its own, because slicing by a guessed span
+    could hand a word another word's phonemes.
+    """
+    spans: list[tuple[int, int]] = []
+    cursor = 0
+    for word in words:
+        token = (word.get("word") or "").strip()
+        if not token:
+            return None
+        start = text.find(token, cursor)
+        if start < 0:
+            return None
+        spans.append((start, start + len(token)))
+        cursor = start + len(token)
+    return spans
+
+
+def _span_syllables(
+    units: list[dict[str, Any]], span: tuple[int, int]
+) -> list[str] | None:
+    """Collect the syllables of the units that cover one word's span exactly.
+
+    A word boundary that cuts through a unit (a Latin word inside a Japanese
+    kanji run, say) must not yield a partial list: the caller then falls back to
+    annotating that single word.
+    """
+    start, end = span
+    syllables: list[str] = []
+    cursor = start
+    for unit in units:
+        if cursor == end:
+            break
+        offset = unit["offset"]
+        if offset < start:
+            continue
+        if offset != cursor:
+            return None
+        cursor = offset + len(unit["text"])
+        if cursor > end:
+            return None
+        syllables.extend(unit["syllables"])
+    if cursor != end:
+        return None
+    return syllables or None
+
+
+def _segment_units(
+    text: str, language: str, target: str
+) -> list[dict[str, Any]] | None:
+    """Annotate a whole segment once and return its units, if they are sliceable.
+
+    ``annotate`` reports integer ``offset``s that tile the input text in order,
+    so one call per segment replaces one espeak-ng subprocess per word under the
+    ipa target (api.md 9.4.1). A unit without an integer offset breaks that
+    contract, and then the caller must stay on the per-word path.
+    """
+    if not text:
+        return None
+    units = annotator.annotate(text, language, target)["units"]
+    if any(not isinstance(unit.get("offset"), int) for unit in units):
+        return None
+    return units
+
+
 def _attach_syllables(
-    segments: list[dict[str, Any]], language: str, target: str, scope: str
+    segments: list[dict[str, Any]],
+    language: str,
+    target: str,
+    scope: str,
+    cancel: threading.Event | None = None,
 ) -> None:
     for segment in segments:
-        for word in segment.get("words") or []:
-            syllables = _word_syllables(word["word"], language, target)
+        if cancel is not None and cancel.is_set():
+            raise TaskCancelled()
+        words = segment.get("words") or []
+        if not words:
+            continue
+        text = segment.get("text") or ""
+        spans = _word_spans(text, words) if text else None
+        units = _segment_units(text, language, target) if spans is not None else None
+        for index, word in enumerate(words):
+            syllables = None
+            if units is not None and spans is not None:
+                syllables = _span_syllables(units, spans[index])
+            if syllables is None:
+                syllables = _word_syllables(word["word"], language, target)
             if syllables is None:
                 continue
             if scope == "part" and all(
@@ -357,7 +443,8 @@ def transcribe(
     if not segments:
         raise TaskError("align-failed", "no speech was recognised", {"placed": 0})
 
-    _attach_syllables(segments, language, target, scope)
+    _shift_times(segments, start_sec)
+    _attach_syllables(segments, language, target, scope, cancel=cancel)
     return {
         "text": "".join(texts).strip(),
         "segments": segments,
@@ -379,6 +466,48 @@ def _num(value: Any) -> Any:
     if isinstance(value, dict):
         return {key: _num(item) for key, item in value.items()}
     return value
+
+
+def _shift_times(segments: list[dict[str, Any]], offset: float) -> None:
+    """Move segment and word times from the decoded window to the source.
+
+    The model only sees the samples that start at ``start_sec``; its times are
+    relative to that window. Task results are file-relative (api.md 6), so the
+    window origin is added once, here.
+    """
+    if offset == 0.0:
+        return
+    for segment in segments:
+        for key in ("start", "end"):
+            value = segment.get(key)
+            if isinstance(value, (int, float)):
+                segment[key] = float(value) + offset
+        for word in segment.get("words") or []:
+            for key in ("start", "end"):
+                value = word.get(key)
+                if isinstance(value, (int, float)):
+                    word[key] = float(value) + offset
+
+
+def _shift_mapping(value: Any, offset: float) -> None:
+    """Add ``offset`` to every nested ``start``/``end`` stable-ts mapping.
+
+    ``ori_dict`` and ``nonspeech_sections`` carry their own timestamps; a ranged
+    alignment decodes only the window, so those stay window-relative unless they
+    are shifted like the segments (api.md 6).
+    """
+    if offset == 0.0:
+        return
+    if isinstance(value, dict):
+        for key in ("start", "end"):
+            item = value.get(key)
+            if isinstance(item, (int, float)) and not isinstance(item, bool):
+                value[key] = float(item) + offset
+        for item in value.values():
+            _shift_mapping(item, offset)
+    elif isinstance(value, list):
+        for item in value:
+            _shift_mapping(item, offset)
 
 
 def _check_alignment(data: dict[str, Any]) -> None:
@@ -438,8 +567,14 @@ def align(
         raise TaskCancelled()
     report(0.0, 1.0, "align")
     try:
+        # fast_mode is a keyword-only option of stable_whisper.alignment.align;
+        # api.md 8.3 promises the service forwards it (word grouping).
         result = model.align(
-            pcm, text.strip(), language=language, remove_instant_words=False
+            pcm,
+            text.strip(),
+            language=language,
+            remove_instant_words=False,
+            fast_mode=bool(fast_mode),
         )
     except Exception as exc:  # noqa: BLE001 - stable-ts raises broadly
         raise TaskError("align-failed", f"alignment failed: {exc}") from exc
@@ -449,7 +584,12 @@ def align(
         raise TaskError("align-failed", "alignment returned nothing", {"placed": 0})
     data = _num(result.to_dict())
     _check_alignment(data)
-    _attach_syllables(data.get("segments") or [], language, target, scope)
+    _shift_times(data.get("segments") or [], start_sec)
+    _shift_mapping(data.get("ori_dict") or {}, start_sec)
+    _shift_mapping(data.get("nonspeech_sections") or [], start_sec)
+    _attach_syllables(
+        data.get("segments") or [], language, target, scope, cancel=cancel
+    )
     data["language"] = data.get("language") or language
     report(1.0, 1.0, "annotate")
     return data

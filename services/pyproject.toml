@@ -12,4 +12,13 @@ dependencies = [
     "hanja",
     "pypinyin",
     "romanizer",
+    # romanizer's ko engine imports korean-romanizer. Without the extra the ko
+    # romaji path silently falls back to anyascii instead of Revised Romanization.
+    "korean-romanizer>=0.25",
 ] # av is excluded; it is built by custom scripts under LGPL
+
+[project.optional-dependencies]
+# Test-only tooling. services/tests/test_sources.py imports soundfile, and the
+# service itself never imports pytest. scripts/python.mjs installs this group
+# right after [project].dependencies; pass --prod to skip it.
+dev = ["pytest>=8", "soundfile>=0.13"]

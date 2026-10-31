@@ -123,6 +123,14 @@ def _engine(exe: str, text: str, language: str) -> str:
             encoding="utf-8",
             errors="replace",
         )
+    except subprocess.TimeoutExpired as exc:
+        # TimeoutExpired is a SubprocessError, not an OSError: without this it
+        # escapes the ipa-unavailable mapping and surfaces as internal-error.
+        raise AnnotationError(
+            "ipa-unavailable",
+            "espeak-ng did not finish within 30 seconds",
+            {"language": language, "reason": "timeout"},
+        ) from exc
     except OSError as exc:
         raise AnnotationError(
             "ipa-unavailable",

@@ -230,18 +230,37 @@ def _ja_units(text: str, target: str) -> list[dict[str, Any]]:
             {"target": target, "allowed": ["hiragana", "katakana", "romaji"]},
         )
     units: list[dict[str, Any]] = []
-    offset = 0
+    text_cursor = 0
     for word in _tagger()(text):
         surface = word.surface
         if not surface:
             continue
+        found = text.find(surface, text_cursor)
+        if found < 0:
+            # A token surface the text does not contain from here on would make
+            # every later offset wrong; keep the running cursor and every unit
+            # after it would follow, so refuse instead.
+            raise AnnotationError(
+                "annotation-anchor-mismatch",
+                f"surface {surface!r} not found in the text after {text_cursor}",
+                {
+                    "items": [
+                        {
+                            "text": text,
+                            "surface": surface,
+                            "index": text_cursor,
+                        }
+                    ]
+                },
+            )
+        text_cursor = found + len(surface)
         feature = word.feature
         reading = getattr(feature, "kana", None) or ""
         reading = to_hiragana(reading)
         runs = _runs(surface)
         cursor = 0
         for position, (kind, run_text, start) in enumerate(runs):
-            base = offset + start
+            base = found + start
             if kind == "kana":
                 moras = split_mora(run_text)
                 rendered = _render_kana(moras, target)
@@ -258,8 +277,8 @@ def _ja_units(text: str, target: str) -> list[dict[str, Any]]:
                     mora_offset += len(mora)
                 if reading:
                     for char in to_hiragana(run_text):
-                        found = reading.find(char, cursor)
-                        if found < 0:
+                        hit = reading.find(char, cursor)
+                        if hit < 0:
                             raise AnnotationError(
                                 "annotation-anchor-mismatch",
                                 f"surface kana {char!r} not found in reading {reading!r}",
@@ -274,15 +293,15 @@ def _ja_units(text: str, target: str) -> list[dict[str, Any]]:
                                     ]
                                 },
                             )
-                        cursor = found + 1
+                        cursor = hit + 1
                 continue
             if kind == "kanji":
                 following = runs[position + 1] if position + 1 < len(runs) else None
                 slice_text = ""
                 if following is not None and following[0] == "kana" and reading:
                     anchor = to_hiragana(following[1][0])
-                    found = reading.find(anchor, cursor)
-                    if found < 0:
+                    hit = reading.find(anchor, cursor)
+                    if hit < 0:
                         raise AnnotationError(
                             "annotation-anchor-mismatch",
                             f"surface kana {anchor!r} not found in reading {reading!r}",
@@ -297,8 +316,8 @@ def _ja_units(text: str, target: str) -> list[dict[str, Any]]:
                                 ]
                             },
                         )
-                    slice_text = reading[cursor:found]
-                    cursor = found
+                    slice_text = reading[cursor:hit]
+                    cursor = hit
                 elif reading:
                     slice_text = reading[cursor:]
                     cursor = len(reading)
@@ -318,7 +337,6 @@ def _ja_units(text: str, target: str) -> list[dict[str, Any]]:
             units.append(
                 {"text": run_text, "category": category, "offset": base, "syllables": [run_text]}
             )
-        offset += len(surface)
     return units
 
 
@@ -395,68 +413,80 @@ def _ko_units(text: str, target: str) -> list[dict[str, Any]]:
     from romanizer import Romanizer
 
     romanizer = Romanizer(mode="text")
-    units: list[dict[str, Any]] = []
+    # Kiwi tokenises a verb ending as an overlapping pair of tokens whose forms
+    # are not the text's own characters (a bare final-consonant jamo plus the
+    # rest). Walk the text instead and borrow the morpheme of the token that
+    # covers each index (api.md 9.6 morpheme field).
+    morphemes: dict[int, dict[str, Any]] = {}
     for token in _kiwi().tokenize(text):
-        form = token.form
-        start_index = len(units)
-        index = 0
-        while index < len(form):
-            ch = form[index]
-            offset = token.start + index
-            if is_hangul_syllable(ch):
-                syllables = (
-                    [ch] if target == "hangul" else [_romanize_ko(romanizer, ch)]
-                )
-                units.append(
-                    {"text": ch, "category": "hangul", "offset": offset, "syllables": syllables}
-                )
-                index += 1
-            elif is_hangul_jamo(ch):
-                units.append(
-                    {"text": ch, "category": "other", "offset": offset, "syllables": []}
-                )
-                index += 1
-            elif is_kanji(ch):
-                hangul = hanja.translate(ch, "substitution")
-                syllables = (
-                    [hangul]
-                    if target == "hangul"
-                    else [_romanize_ko(romanizer, hangul)]
-                )
-                units.append(
-                    {"text": ch, "category": "hanja", "offset": offset, "syllables": syllables}
-                )
-                index += 1
-            elif is_digit(ch):
-                end = index
-                while end < len(form) and is_digit(form[end]):
-                    end += 1
-                run = form[index:end]
-                units.append(
-                    {"text": run, "category": "digit", "offset": offset, "syllables": [run]}
-                )
-                index = end
-            elif is_letter(ch):
-                end = index
-                while end < len(form) and is_letter(form[end]):
-                    end += 1
-                run = form[index:end]
-                units.append(
-                    {"text": run, "category": "latin", "offset": offset, "syllables": [run]}
-                )
-                index = end
-            else:
-                units.append(
-                    {"text": ch, "category": "symbol", "offset": offset, "syllables": [ch]}
-                )
-                index += 1
         tag = getattr(token, "tag", None)
-        if tag:
-            # Keep the Kiwi morpheme so the editor can trace a unit back to
-            # its token (api.md 9.6 morpheme field).
-            morpheme = {"tag": str(tag), "lemma": getattr(token, "lemma", None) or form}
-            for unit in units[start_index:]:
-                unit["morpheme"] = morpheme
+        if not tag:
+            continue
+        form = getattr(token, "form", "") or ""
+        length = getattr(token, "len", None)
+        if not isinstance(length, int) or length <= 0:
+            length = len(form)
+        morpheme = {
+            "tag": str(tag),
+            "lemma": getattr(token, "lemma", None) or form,
+        }
+        for position in range(token.start, min(token.start + length, len(text))):
+            morphemes.setdefault(position, morpheme)
+
+    units: list[dict[str, Any]] = []
+    index = 0
+    while index < len(text):
+        ch = text[index]
+        if ch.isspace():
+            index += 1
+            continue
+        start = index
+        if is_hangul_syllable(ch):
+            syllables = [ch] if target == "hangul" else [_romanize_ko(romanizer, ch)]
+            units.append(
+                {"text": ch, "category": "hangul", "offset": index, "syllables": syllables}
+            )
+            index += 1
+        elif is_hangul_jamo(ch):
+            units.append(
+                {"text": ch, "category": "other", "offset": index, "syllables": []}
+            )
+            index += 1
+        elif is_kanji(ch):
+            hangul = hanja.translate(ch, "substitution")
+            syllables = (
+                [hangul] if target == "hangul" else [_romanize_ko(romanizer, hangul)]
+            )
+            units.append(
+                {"text": ch, "category": "hanja", "offset": index, "syllables": syllables}
+            )
+            index += 1
+        elif is_digit(ch):
+            end = index
+            while end < len(text) and is_digit(text[end]):
+                end += 1
+            run = text[index:end]
+            units.append(
+                {"text": run, "category": "digit", "offset": index, "syllables": [run]}
+            )
+            index = end
+        elif is_letter(ch):
+            end = index
+            while end < len(text) and is_letter(text[end]):
+                end += 1
+            run = text[index:end]
+            units.append(
+                {"text": run, "category": "latin", "offset": index, "syllables": [run]}
+            )
+            index = end
+        else:
+            units.append(
+                {"text": ch, "category": "symbol", "offset": index, "syllables": [ch]}
+            )
+            index += 1
+        morpheme = morphemes.get(start)
+        if morpheme is not None:
+            units[-1]["morpheme"] = morpheme
     return units
 
 
@@ -474,13 +504,22 @@ def _romanizer() -> Any:
     return _WESTERN
 
 
+_KO_ENGINE_WARNED = False
+
+
 def _romanize_ko(romanizer: Any, text: str) -> str:
-    output = romanizer.romanize(text, "ko")
-    if output == text and any(ord(ch) > 127 for ch in text):
-        # romanizer has a single fallback policy: keep the surface and report
-        # nothing. Log it so a silently untransliterated unit is traceable.
-        _log.warning("romanizer kept the surface spelling of %r (ko)", text)
-    return output
+    global _KO_ENGINE_WARNED
+    analysis = romanizer.analyze(text, "ko")
+    if not _KO_ENGINE_WARNED and any(
+        not segment.supported for segment in analysis.segments
+    ):
+        # romanizer has a single fallback policy: keep going and report nothing.
+        # The fallback is anyascii, not Revised Romanization, so a missing extra
+        # must be traceable. Warn once, not once per unit.
+        _KO_ENGINE_WARNED = True
+        _log.warning("romanizer has no ko engine; used the anyascii fallback")
+    # korean-romanizer title-cases every syllable; mode="text" must not.
+    return analysis.output.lower()
 
 
 def _west_units(text: str, language: str, target: str) -> list[dict[str, Any]]:
@@ -512,7 +551,7 @@ def _west_units(text: str, language: str, target: str) -> list[dict[str, Any]]:
             index = end
             continue
         index += 1
-    # One espeak-ng subprocess per request, not one per word (api.md 10.2).
+    # One espeak-ng subprocess per request, not one per word (api.md 9.4.1).
     phonemes: list[list[str]] = []
     if target == "ipa" and words:
         from . import espeak
@@ -537,7 +576,7 @@ def _west_units(text: str, language: str, target: str) -> list[dict[str, Any]]:
                     "romanizer kept the surface spelling of %r (%s)", word, language
                 )
             # The syllable is the written word: romanizing again would drop
-            # diacritics (schon/naive), which the doc forbids (api.md 10.1).
+            # diacritics (schon/naive), which the doc forbids (api.md 9.4).
             rendered.append([word])
     units: list[dict[str, Any]] = []
     for position, (start, end) in enumerate(words):

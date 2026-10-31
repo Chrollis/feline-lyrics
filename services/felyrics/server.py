@@ -218,7 +218,12 @@ class BackendService:
             header = request.headers.get("Authorization", "")
             if header.lower().startswith("bearer "):
                 token = header[7:].strip()
-        return bool(token) and hmac.compare_digest(token, self.token)
+        if not token:
+            return False
+        # compare_digest raises TypeError on two non-ASCII str, and any escaping
+        # exception would fail the upgrade with 1011 instead of api.md 4.1's
+        # 4401/unauthorized, so compare UTF-8 bytes.
+        return hmac.compare_digest(token.encode("utf-8"), self.token.encode("utf-8"))
 
     async def handler(self, connection: ServerConnection) -> None:
         if not self._authorized(connection):
@@ -452,7 +457,16 @@ class BackendService:
         self._media[source.id] = source
         while len(self._media) > MAX_OPEN_SOURCES:
             _, evicted = self._media.popitem(last=False)
-            evicted.close()
+            # Close on a media worker, not inline: Source.close takes the same
+            # lock a media thread can hold for a whole range read, so closing
+            # here would block the event loop behind that read (and vice versa).
+            # The new source is already registered; an eviction failure is not
+            # the caller's error, so log it and keep the LRU bounded.
+            try:
+                await self._run(evicted.close)
+            except Exception:  # noqa: BLE001 - reported, request still succeeds
+                traceback.print_exc(file=sys.stderr)
+            self.log("source-close", source_id=evicted.id, evicted=True)
         self.log("source-open", source_id=source.id, path=path)
         return self._source_view(source)
 
@@ -555,15 +569,26 @@ class BackendService:
 
         if count == 0:
             data = b""
+            delivered = 0
         else:
             pcm = await self._run(audio.read, start_sample, count)
+            delivered = 0 if pcm is None else int(pcm.shape[1])
+            if delivered != count:
+                # The container duration promised more samples than the decoder
+                # could produce. Acking the requested count would make the
+                # renderer allocate a buffer nobody can fill.
+                raise sources.SourceError(
+                    "source-decode-failed",
+                    f"decoded {delivered} of {count} samples at {start_sample}",
+                    source_id=source.id,
+                )
             data = await self._run(encode_flac, pcm)
 
         packets = max(1, math.ceil(len(data) / MAX_PAYLOAD_BYTES))
         ack = {
             "req_id": msg_id,
             "start_sample": start_sample,
-            "count": count,
+            "count": delivered,
             "bytes": len(data),
             "packets": packets,
         }
@@ -592,7 +617,7 @@ class BackendService:
             source_id=source.id,
             kind="audio",
             start_sample=start_sample,
-            count=count,
+            count=delivered,
             bytes=len(data),
         )
 
