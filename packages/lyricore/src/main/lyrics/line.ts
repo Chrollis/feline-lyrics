@@ -19,9 +19,17 @@ import {
 import {
     NO_OVERLAY,
     assertOverlay,
+    retainAnnotationsFor,
+    runTextCells,
     spliceOverlay,
     spliceSpan,
+    type AnnotationStyleRun,
+    type BlockStyleRun,
+    type InsertedObject,
     type LineOverlay,
+    type OverlayContext,
+    type RunStyleRun,
+    type StyleRun,
 } from './overlay.js';
 
 export interface LyricsLine {
@@ -59,6 +67,29 @@ export function textToLyricsLine(text: string): LyricsLine {
  */
 export function overlayOf(line: LyricsLine): LineOverlay {
     return line.overlay ?? NO_OVERLAY;
+}
+
+/**
+ * A group lookup shaped for `OverlayContext`, over a record that may be either
+ * the line's own groups or the groups a splice is about to produce.
+ *
+ * `Object.hasOwn` because a group is named by the user: `constructor` and
+ * `toString` are legal names, and a lookup that walks the prototype would hand
+ * back a function instead of a run list.
+ */
+export function lookupRuns(
+    groups: Readonly<Record<string, readonly SegRun[]>>,
+): (group: string) => readonly SegRun[] | null {
+    return (group) =>
+        Object.hasOwn(groups, group) ? (groups[group] ?? []) : null;
+}
+
+/** What the overlay of one line has to be checked against. */
+export function overlayContextOf(line: LyricsLine): OverlayContext {
+    return {
+        body: line.baseStream.cells.length - 1,
+        runsOf: lookupRuns(line.groups),
+    };
 }
 
 /** The parts of a line a rebuild may replace; an absent part is kept as it is. */
@@ -281,15 +312,22 @@ export function spliceLine(
         ...insertedCells,
         ...line.baseStream.cells.slice(removedEnd),
     ];
+    // The groups are spliced first: the overlay's run-keyed spaces are checked
+    // against where the runs END UP, not where they were.
+    const groups = spliceGroups(line.groups, removed, insertedCells.length);
     const overlay = spliceOverlay(
         overlayOf(line),
+        line.groups,
         removed,
         insertedCells.length,
     );
-    assertOverlay(overlay, cells.length - 1);
+    assertOverlay(overlay, {
+        body: cells.length - 1,
+        runsOf: lookupRuns(groups),
+    });
     return rebuild(line, {
         baseStream: { cells },
-        groups: spliceGroups(line.groups, removed, insertedCells.length),
+        groups,
         overlay,
     });
 }
@@ -409,8 +447,22 @@ export function withPiece(
         pieces[slot.pieceIndex] = piece;
     }
     const nextRuns = runs.slice();
-    nextRuns[slot.runIndex] = { ...run, pieces };
-    return assertAnnotationLine(withRuns(line, slot.group, nextRuns));
+    const nextRun = { ...run, pieces };
+    nextRuns[slot.runIndex] = nextRun;
+    // The run keeps its cells but not its text, so an annotation that reached
+    // past the reading that is left has nothing to paint any more.
+    const overlay = overlayOf(line);
+    const annotations = retainAnnotationsFor(
+        overlay.annotations,
+        slot.group,
+        run.offset,
+        runTextCells(nextRun),
+    );
+    const kept =
+        annotations === overlay.annotations
+            ? line
+            : rebuild(line, { overlay: { ...overlay, annotations } });
+    return assertAnnotationLine(withRuns(kept, slot.group, nextRuns));
 }
 
 /** The line with one piece's text replaced; the check the piece carries is kept. */
@@ -505,15 +557,61 @@ export function withOverlay(
     line: LyricsLine,
     overlay: LineOverlay,
 ): LyricsLine {
-    assertOverlay(overlay, line.baseStream.cells.length - 1);
+    assertOverlay(overlay, overlayContextOf(line));
     // The tolerance read, not the raw field: a line built by hand has no
     // `overlay` key, and the fast path must not throw on it.
     const current = overlayOf(line);
     if (
         current.styles === overlay.styles &&
-        current.inserted === overlay.inserted
+        current.inserted === overlay.inserted &&
+        current.blocks === overlay.blocks &&
+        current.runStyles === overlay.runStyles &&
+        current.annotations === overlay.annotations
     ) {
         return line;
     }
     return rebuild(line, { overlay });
+}
+
+/**
+ * One space at a time.
+ *
+ * Each setter takes an array that is already valid for its space and replaces
+ * only that array, so the other four keep their identity - and a call that
+ * changes nothing still returns the line itself, exactly like `withOverlay`.
+ * The check itself stays in `withOverlay`: there is one gate, not five.
+ */
+export function withStyles(
+    line: LyricsLine,
+    styles: readonly StyleRun[],
+): LyricsLine {
+    return withOverlay(line, { ...overlayOf(line), styles });
+}
+
+export function withInserted(
+    line: LyricsLine,
+    inserted: readonly InsertedObject[],
+): LyricsLine {
+    return withOverlay(line, { ...overlayOf(line), inserted });
+}
+
+export function withBlocks(
+    line: LyricsLine,
+    blocks: readonly BlockStyleRun[],
+): LyricsLine {
+    return withOverlay(line, { ...overlayOf(line), blocks });
+}
+
+export function withRunStyles(
+    line: LyricsLine,
+    runStyles: readonly RunStyleRun[],
+): LyricsLine {
+    return withOverlay(line, { ...overlayOf(line), runStyles });
+}
+
+export function withAnnotations(
+    line: LyricsLine,
+    annotations: readonly AnnotationStyleRun[],
+): LyricsLine {
+    return withOverlay(line, { ...overlayOf(line), annotations });
 }

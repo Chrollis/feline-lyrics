@@ -4,7 +4,7 @@ import { editLineText } from '../../src/main/lyrics/interpolate.js';
 import {
     spliceLine,
     textToLyricsLine,
-    withOverlay,
+    withOverlay as withOverlayAll,
 } from '../../src/main/lyrics/line.js';
 import {
     assertLyrics,
@@ -13,6 +13,17 @@ import {
 } from '../../src/main/lyrics/lyrics.js';
 import { emptyMeta } from '../../src/main/lyrics/meta.js';
 import { mergeLines, splitLine } from '../../src/main/lyrics/structure.js';
+
+// These cases place objects on cells; the three group-keyed spaces stay empty,
+// so the wrapper keeps each test about the thing it names.
+function withOverlay(line, partial) {
+    return withOverlayAll(line, {
+        blocks: [],
+        runStyles: [],
+        annotations: [],
+        ...partial,
+    });
+}
 
 function marker(offset, id) {
     return {
@@ -40,6 +51,9 @@ function unsound(text, overlay) {
 const OUT_OF_BODY = {
     styles: [{ offset: 9, length: 1, styleId: 'A' }],
     inserted: [],
+    blocks: [],
+    runStyles: [],
+    annotations: [],
 };
 
 describe('inserted object ids are unique per document', () => {

@@ -5,31 +5,46 @@ import {
     META_KEYS,
     type LyricsFile,
 } from '../lyrics/file.js';
-import { overlayOf, rebuild, type LyricsLine } from '../lyrics/line.js';
+import {
+    overlayContextOf,
+    overlayOf,
+    rebuild,
+    type LyricsLine,
+} from '../lyrics/line.js';
 import { NO_ANIMATIONS, type Lyrics } from '../lyrics/lyrics.js';
 import {
     assertOverlay,
+    EMPTY_ANNOTATIONS,
+    EMPTY_BLOCK_STYLES,
     EMPTY_INSERTED_OBJECTS,
+    EMPTY_RUN_STYLES,
     EMPTY_STYLE_RUNS,
     mergeAdjacentStyleRuns,
     NO_OVERLAY,
     overlayProblem,
+    type AnnotationStyleRun,
+    type BlockStyleRun,
     type ImageContent,
     type InsertContent,
     type InsertedObject,
     type LineOverlay,
+    type RunStyleRun,
     type StyleRun,
     type TextContent,
 } from '../lyrics/overlay.js';
 import {
     assertStyleBook,
     emptyStyleBook,
+    isStyleSpace,
     styleBookProblem,
     styleDefProblem,
     styleIds,
+    styleSpace,
     type StyleBook,
     type StyleDef,
+    type StyleSpace,
 } from '../lyrics/stylebook.js';
+import { contentProblem, type StyleContent } from '../lyrics/stylecontent.js';
 import { MIGRATIONS } from './migrate.js';
 
 /** What a project file calls itself. One id, one version for the whole file. */
@@ -62,16 +77,40 @@ export interface StyleBookFile {
 
 export interface StyleDefFile {
     readonly basedOn?: string;
-    readonly fields?: Readonly<Record<string, string>>;
+    readonly space?: StyleSpace;
+    readonly content?: StyleContent;
 }
 
 /** One line's overlay. `{}` is the canonical "nothing here" entry. */
 export interface OverlayEntryFile {
     readonly styles?: readonly StyleRunFile[];
     readonly inserted?: readonly InsertedObjectFile[];
+    readonly blocks?: readonly BlockStyleFile[];
+    readonly runStyles?: readonly RunStyleFile[];
+    readonly annotations?: readonly AnnotationStyleFile[];
 }
 
 export interface StyleRunFile {
+    readonly offset: number;
+    readonly length: number;
+    readonly styleId: string;
+}
+
+/** `from` is the entry's identity, so it is written even when it is null. */
+export interface BlockStyleFile {
+    readonly from: string | null;
+    readonly styleId: string;
+}
+
+export interface RunStyleFile {
+    readonly group: string;
+    readonly offset: number;
+    readonly styleId: string;
+}
+
+export interface AnnotationStyleFile {
+    readonly group: string;
+    readonly runOffset: number;
     readonly offset: number;
     readonly length: number;
     readonly styleId: string;
@@ -133,9 +172,24 @@ const RUN_KEYS = ['offset', 'length', 'pieces'] as const;
 const PIECE_KEYS = ['check', 'text', 'spans'] as const;
 const CHECK_KEYS = ['time', 'type'] as const;
 const STYLE_BOOK_KEYS = ['defs'] as const;
-const STYLE_DEF_KEYS = ['basedOn', 'fields'] as const;
-const OVERLAY_ENTRY_KEYS = ['styles', 'inserted'] as const;
+const STYLE_DEF_KEYS = ['basedOn', 'space', 'content'] as const;
+const OVERLAY_ENTRY_KEYS = [
+    'styles',
+    'inserted',
+    'blocks',
+    'runStyles',
+    'annotations',
+] as const;
 const STYLE_RUN_KEYS = ['offset', 'length', 'styleId'] as const;
+const BLOCK_STYLE_KEYS = ['from', 'styleId'] as const;
+const RUN_STYLE_KEYS = ['group', 'offset', 'styleId'] as const;
+const ANNOTATION_KEYS = [
+    'group',
+    'runOffset',
+    'offset',
+    'length',
+    'styleId',
+] as const;
 const INSERTED_KEYS = ['id', 'kind', 'anchor', 'content', 'time'] as const;
 const TEXT_CONTENT_KEYS = ['type', 'lines', 'styleId'] as const;
 const IMAGE_CONTENT_KEYS = ['type', 'src', 'wipedSrc', 'scale'] as const;
@@ -290,14 +344,26 @@ function readStyleBook(value: unknown): StyleBook {
             def.basedOn === undefined
                 ? null
                 : stringAt(def.basedOn, `${path}.basedOn`);
-        const fields =
-            def.fields === undefined
+        const space =
+            def.space === undefined
+                ? undefined
+                : styleSpaceAt(def.space, `${path}.space`);
+        const content =
+            def.content === undefined
                 ? {}
-                : readFields(def.fields, `${path}.fields`);
+                : readStyleContent(
+                      def.content,
+                      space ?? 'character',
+                      `${path}.content`,
+                  );
         // An id shaped like `__proto__` has to stay an ordinary key, so it is
         // defined rather than assigned.
         Object.defineProperty(defs, id, {
-            value: { basedOn: basedOn === '' ? null : basedOn, fields },
+            value: {
+                basedOn: basedOn === '' ? null : basedOn,
+                ...(space === undefined ? {} : { space }),
+                content,
+            },
             enumerable: true,
             writable: true,
             configurable: true,
@@ -319,21 +385,34 @@ function readStyleBook(value: unknown): StyleBook {
     return book2;
 }
 
-function readFields(value: unknown, path: string): Record<string, string> {
-    const fields = recordAt(value, path);
-    const out: Record<string, string> = {};
-    for (const [key, fieldValue] of Object.entries(fields)) {
-        // Defined rather than assigned: a field named `__proto__` must reach
-        // `styleFieldsProblem`, which rejects the leading underscore, instead of
-        // vanishing through the setter on the way in.
-        Object.defineProperty(out, key, {
-            value: stringAt(fieldValue, `${path}.${key}`),
-            enumerable: true,
-            writable: true,
-            configurable: true,
-        });
+function styleSpaceAt(value: unknown, path: string): StyleSpace {
+    if (!isStyleSpace(value)) {
+        fail(
+            path,
+            `is ${JSON.stringify(value)}, not 'character', 'run' or 'paragraph'`,
+        );
     }
-    return out;
+    return value;
+}
+
+/**
+ * The content of one definition, checked against the space it belongs to.
+ *
+ * The JSON is closed: a key the space does not have, a value of the wrong type,
+ * a gradient with one stop - all of them stop the load with the leaf path
+ * (`styleBook.defs.chorus.content.fill.normal.color`).
+ */
+function readStyleContent(
+    value: unknown,
+    space: StyleSpace,
+    path: string,
+): StyleContent {
+    const content = recordAt(value, path);
+    const problem = contentProblem(space, content);
+    if (problem !== null) {
+        fail(path, problem);
+    }
+    return content as StyleContent;
 }
 
 function readOverlays(
@@ -374,8 +453,33 @@ function readOverlayEntry(
             : arrayAt(entry.inserted, `${path}.inserted`).map((object, index) =>
                   readInsertedFile(object, `${path}.inserted[${index}]`),
               );
-    const body = line.baseStream.cells.length - 1;
-    const problem = overlayProblem({ styles, inserted }, body);
+    const blocks =
+        entry.blocks === undefined
+            ? EMPTY_BLOCK_STYLES
+            : arrayAt(entry.blocks, `${path}.blocks`).map((item, index) =>
+                  readBlockStyleFile(item, `${path}.blocks[${index}]`),
+              );
+    const runStyles =
+        entry.runStyles === undefined
+            ? EMPTY_RUN_STYLES
+            : arrayAt(entry.runStyles, `${path}.runStyles`).map((item, index) =>
+                  readRunStyleFile(item, `${path}.runStyles[${index}]`),
+              );
+    const annotations =
+        entry.annotations === undefined
+            ? EMPTY_ANNOTATIONS
+            : arrayAt(entry.annotations, `${path}.annotations`).map(
+                  (item, index) =>
+                      readAnnotationFile(item, `${path}.annotations[${index}]`),
+              );
+    const candidate: LineOverlay = {
+        styles,
+        inserted,
+        blocks,
+        runStyles,
+        annotations,
+    };
+    const problem = overlayProblem(candidate, overlayContextOf(line));
     if (problem !== null) {
         // `overlayProblem` words its path as `overlay.styles[0]`; inside an
         // entry the entry's own index is the root, so drop the prefix.
@@ -384,7 +488,39 @@ function readOverlayEntry(
     // Adjacent runs that name the same style are one run, and a reader must
     // accept what it would otherwise have to reject. Overlap was ruled out
     // above, so merging cannot lose anything.
-    return { styles: mergeAdjacentStyleRuns(styles), inserted };
+    return { ...candidate, styles: mergeAdjacentStyleRuns(styles) };
+}
+
+function readBlockStyleFile(value: unknown, path: string): BlockStyleRun {
+    const entry = recordAt(value, path);
+    closedKeys(entry, BLOCK_STYLE_KEYS, path);
+    // `from` is the entry's identity, so an absent one is a rejection even
+    // though `null` is a legal value: the two would otherwise mean one thing.
+    const from =
+        entry.from === null ? null : stringAt(entry.from, `${path}.from`);
+    return { from, styleId: filledStringAt(entry.styleId, `${path}.styleId`) };
+}
+
+function readRunStyleFile(value: unknown, path: string): RunStyleRun {
+    const entry = recordAt(value, path);
+    closedKeys(entry, RUN_STYLE_KEYS, path);
+    return {
+        group: filledStringAt(entry.group, `${path}.group`),
+        offset: integerAt(entry.offset, `${path}.offset`, 0),
+        styleId: filledStringAt(entry.styleId, `${path}.styleId`),
+    };
+}
+
+function readAnnotationFile(value: unknown, path: string): AnnotationStyleRun {
+    const entry = recordAt(value, path);
+    closedKeys(entry, ANNOTATION_KEYS, path);
+    return {
+        group: filledStringAt(entry.group, `${path}.group`),
+        runOffset: integerAt(entry.runOffset, `${path}.runOffset`, 0),
+        offset: integerAt(entry.offset, `${path}.offset`, 0),
+        length: integerAt(entry.length, `${path}.length`, 1),
+        styleId: filledStringAt(entry.styleId, `${path}.styleId`),
+    };
 }
 
 function readStyleRunFile(value: unknown, path: string): StyleRun {
@@ -621,6 +757,27 @@ export function lyricsToProject(lyrics: Lyrics): ProjectFile {
     };
 }
 
+/**
+ * The content as it goes to disk: object keys sorted, arrays kept as they are.
+ *
+ * Two documents with equal content have to produce equal bytes even though
+ * their records were built in different orders, which is the same promise the
+ * rest of the writer keeps by sorting ids, style runs and inserted objects.
+ */
+function canonicalValue(value: unknown): unknown {
+    if (Array.isArray(value)) {
+        return value.map((entry) => canonicalValue(entry));
+    }
+    if (typeof value === 'object' && value !== null) {
+        const out: Record<string, unknown> = {};
+        for (const key of Object.keys(value).sort()) {
+            out[key] = canonicalValue((value as Record<string, unknown>)[key]);
+        }
+        return out;
+    }
+    return value;
+}
+
 function writeDefs(book: StyleBook): Record<string, StyleDefFile> {
     const defs: Record<string, StyleDefFile> = {};
     for (const id of styleIds(book)) {
@@ -628,16 +785,12 @@ function writeDefs(book: StyleBook): Record<string, StyleDefFile> {
         if (def === undefined) {
             continue;
         }
-        const fields = Object.keys(def.fields).sort();
+        const content = canonicalValue(def.content) as StyleContent;
+        const space = styleSpace(def);
         const file: StyleDefFile = {
             ...(def.basedOn === null ? {} : { basedOn: def.basedOn }),
-            ...(fields.length === 0
-                ? {}
-                : {
-                      fields: Object.fromEntries(
-                          fields.map((key) => [key, def.fields[key] ?? '']),
-                      ),
-                  }),
+            ...(space === 'character' ? {} : { space }),
+            ...(Object.keys(content).length === 0 ? {} : { content }),
         };
         Object.defineProperty(defs, id, {
             value: file,
@@ -651,18 +804,48 @@ function writeDefs(book: StyleBook): Record<string, StyleDefFile> {
 
 function writeOverlayEntry(line: LyricsLine): OverlayEntryFile {
     const overlay = overlayOf(line);
-    assertOverlay(overlay, line.baseStream.cells.length - 1);
+    assertOverlay(overlay, overlayContextOf(line));
     const styles = mergeAdjacentStyleRuns(overlay.styles).map(writeStyleRun);
     const inserted = overlay.inserted
         .slice()
         .sort((left, right) => left.anchor.offset - right.anchor.offset)
         .map(writeInserted);
-    if (styles.length === 0 && inserted.length === 0) {
+    const blocks = overlay.blocks.map(writeBlockStyle);
+    const runStyles = overlay.runStyles.map(writeRunStyle);
+    const annotations = overlay.annotations.map(writeAnnotation);
+    if (
+        styles.length === 0 &&
+        inserted.length === 0 &&
+        blocks.length === 0 &&
+        runStyles.length === 0 &&
+        annotations.length === 0
+    ) {
         return {};
     }
     return {
         ...(styles.length === 0 ? {} : { styles }),
         ...(inserted.length === 0 ? {} : { inserted }),
+        ...(blocks.length === 0 ? {} : { blocks }),
+        ...(runStyles.length === 0 ? {} : { runStyles }),
+        ...(annotations.length === 0 ? {} : { annotations }),
+    };
+}
+
+function writeBlockStyle(entry: BlockStyleRun): BlockStyleFile {
+    return { from: entry.from, styleId: entry.styleId };
+}
+
+function writeRunStyle(entry: RunStyleRun): RunStyleFile {
+    return { group: entry.group, offset: entry.offset, styleId: entry.styleId };
+}
+
+function writeAnnotation(entry: AnnotationStyleRun): AnnotationStyleFile {
+    return {
+        group: entry.group,
+        runOffset: entry.runOffset,
+        offset: entry.offset,
+        length: entry.length,
+        styleId: entry.styleId,
     };
 }
 

@@ -6,14 +6,15 @@ import {
     emptyLyricsLine,
     isValidLyricsLine,
     lyricsLineToText,
+    overlayContextOf,
     overlayOf,
 } from './line.js';
 import type { OverlayProblem } from './overlay.js';
 import { overlayProblem } from './overlay.js';
 import type { LyricsMeta } from './meta.js';
 import { emptyMeta, isSameMeta, isValidMeta } from './meta.js';
-import type { StyleBook } from './stylebook.js';
-import { emptyStyleBook } from './stylebook.js';
+import type { StyleBook, StyleSpace } from './stylebook.js';
+import { emptyStyleBook, styleDefAt, styleSpace } from './stylebook.js';
 
 /**
  * Where the encapsulation lives for a document, not just for a line.
@@ -174,13 +175,80 @@ function firstOverlayProblem(
 ): { lineIndex: number; problem: OverlayProblem } | null {
     for (let lineIndex = 0; lineIndex < lyrics.lines.length; lineIndex += 1) {
         const line = lyrics.lines[lineIndex];
-        const problem = overlayProblem(
-            overlayOf(line),
-            line.baseStream.cells.length - 1,
-        );
+        const problem = overlayProblem(overlayOf(line), overlayContextOf(line));
         if (problem !== null) {
             return { lineIndex, problem };
         }
+    }
+    return null;
+}
+
+/**
+ * The first style id used on the wrong layer, or null.
+ *
+ * A missing definition is not this function's business - the renderer reports
+ * it once per id as a `style-orphan` issue and keeps the document. A
+ * definition that EXISTS but belongs to another space is a different thing: the
+ * document says "this is a run style" and then uses it on characters, and no
+ * renderer can honour both. That one is an error.
+ */
+export function styleUseProblem(
+    book: StyleBook,
+    line: LyricsLine,
+): {
+    code:
+        | 'invalid-style-run'
+        | 'invalid-block-style'
+        | 'invalid-run-style'
+        | 'invalid-annotation-style';
+    message: string;
+} | null {
+    const overlay = overlayOf(line);
+    type Use = [
+        code:
+            | 'invalid-style-run'
+            | 'invalid-block-style'
+            | 'invalid-run-style'
+            | 'invalid-annotation-style',
+        space: StyleSpace,
+        styleId: string,
+        where: string,
+    ];
+    const uses: Use[] = [
+        ...overlay.styles.map((run): Use => [
+            'invalid-style-run',
+            'character',
+            run.styleId,
+            `styles[${run.offset}]`,
+        ]),
+        ...overlay.annotations.map((run): Use => [
+            'invalid-annotation-style',
+            'character',
+            run.styleId,
+            `annotations[${run.group}:${run.runOffset}]`,
+        ]),
+        ...overlay.runStyles.map((run): Use => [
+            'invalid-run-style',
+            'run',
+            run.styleId,
+            `runStyles[${run.group}:${run.offset}]`,
+        ]),
+        ...overlay.blocks.map((block, index): Use => [
+            'invalid-block-style',
+            'paragraph',
+            block.styleId,
+            `blocks[${index}]`,
+        ]),
+    ];
+    for (const [code, space, styleId, where] of uses) {
+        const def = styleDefAt(book, styleId);
+        if (def === null || styleSpace(def) === space) {
+            continue;
+        }
+        return {
+            code,
+            message: `${where} uses the ${styleSpace(def)} style "${styleId}" on the ${space} layer`,
+        };
     }
     return null;
 }
@@ -193,6 +261,13 @@ export function isValidLyrics(lyrics: Lyrics): boolean {
         return false;
     }
     if (firstOverlayProblem(lyrics) !== null) {
+        return false;
+    }
+    if (
+        lyrics.lines.some(
+            (line) => styleUseProblem(lyrics.styleBook, line) !== null,
+        )
+    ) {
         return false;
     }
     return duplicateInsertedId(lyrics) === null;
@@ -220,6 +295,22 @@ export function assertLyrics(lyrics: Lyrics): void {
         }
         const duplicate = duplicateInsertedId(lyrics);
         if (duplicate === null) {
+            for (let at = 0; at < lyrics.lines.length; at += 1) {
+                const problem = styleUseProblem(
+                    lyrics.styleBook,
+                    lyrics.lines[at],
+                );
+                if (problem !== null) {
+                    throw new LyricoreError(
+                        problem.code,
+                        `line ${at}: ${problem.message}`,
+                        {
+                            expected: 'a style used on the layer it belongs to',
+                            actual: problem.code,
+                        },
+                    );
+                }
+            }
             return;
         }
         throw new LyricoreError(

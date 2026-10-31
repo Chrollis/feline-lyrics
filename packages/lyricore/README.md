@@ -110,11 +110,14 @@ code instead of writing a shape the invariants reject.
 ## Style and inserted objects
 
 ```js
-import { withOverlay, withStyle, resolveStyle } from '@felyrics/lyricore';
+import { withOverlay, withStyle, withAnnotations, withBlocks, withRunStyles, resolveStyle } from '@felyrics/lyricore';
 
 const painted = withOverlay(line, {
     styles: [{ offset: 0, length: 3, styleId: 'chorus' }],
     inserted: [],
+    blocks: [],
+    runStyles: [],
+    annotations: [],
 });
 ```
 
@@ -122,6 +125,20 @@ const painted = withOverlay(line, {
   overlap; the writer merges two adjacent runs that name the same id into one.
   Typing at the end of a painted run extends the paint; typing at its start does
   not.
+- The three group-keyed spaces address what the cell space cannot: `runStyles`
+  holds a point at one run's first cell (`{ group, offset, styleId }`) and follows
+  that run through every edit; `annotations` paints cells of a run's own text
+  (`{ group, runOffset, offset, length, styleId }`, counted in cells of that run's
+  concatenated piece text) and is dropped when the run no longer covers them;
+  `blocks` names the soft break that starts a display block (`{ from, styleId }`,
+  `null` for the first block) and is dropped with the break. `withStyles`,
+  `withInserted`, `withRunStyles`, `withAnnotations` and `withBlocks` replace one
+  array each and keep the rest.
+- Splitting a line keeps a run style on both halves of a run that straddles the
+  cut, cuts annotations where the reading is cut, and gives the right line's first
+  block a copy of the style that covers the cut. Merging shifts the tail's
+  entries by the junction; a head run style that lands exactly on the junction is
+  dropped, because after the merge a different run starts there.
 - A style id is a name, not a description: the definition lives in
   `Lyrics.styleBook`, which inherits through `basedOn` and resolves with
   `resolveStyle`. A line may name a style the book does not define; that is a
@@ -133,6 +150,26 @@ const painted = withOverlay(line, {
   applies the same rules to a book built elsewhere. The project reader runs
   them again on load and reports a failure under `invalid-project-file`, like
   every other shape error.
+- A definition also names its SPACE: `character` (the default - the base text and
+  a run's reading), `run` (one run's layout) or `paragraph` (one display block's
+  layout). A `basedOn` whose parent sits in another space is refused, because the
+  two resolve through different coordinate systems; `styleSpace` reads the field
+  and an absent one means `character`. Using a style on the wrong layer is an
+  error too: `styleUseProblem` reports it as `invalid-run-style`,
+  `invalid-annotation-style` or `invalid-block-style`, and `assertLyrics` throws
+  it. A missing definition stays a dangling reference, not an error.
+- A definition's `content` is typed by its space and closed: the keys are the
+  ones the space has (`CONTENT_KEYS`), a key from another space is refused, and a
+  value of the wrong shape stops the load with the leaf path. An absent field is
+  inherited from `basedOn`; a present one replaces the inherited value WHOLE, so
+  an object inside a content is a complete statement, never merged field by
+  field. `null` means "explicitly nothing" and only `outline` and `shadow` take
+  it - `fill` is never null (use a transparent colour) and nothing inside an
+  object is optional. `resolveStyle` resolves from the complete built-in default
+  (`defaultContent`): 48 px, weight 400, white, no outline, no shadow, and a
+  `fill.active` without a `wipe` switches hard rather than sweeping. A colour is
+  `#rrggbb` or `#rrggbbaa`; an `image` fill is refused, because the resource
+  system does not exist yet.
 - An `InsertedObject` anchors to a span of the body. A zero-width anchor is a
   point: a soft break that splits the line into display blocks without splitting
   the lyric. A width-bearing anchor binds the cells it covers and survives an
@@ -223,7 +260,7 @@ const { lyrics: back, issues } = readProjectJson(text); // read
     "format": "felyrics/lyrics-project",
     "version": 1,
     "lyrics": { "format": "felyrics/lyrics", "version": 1, "meta": {}, "lines": [] },
-    "styleBook": { "defs": { "chorus": { "fields": { "color": "0xffcc00" } } } },
+    "styleBook": { "defs": { "chorus": { "content": { "fill": { "normal": { "kind": "solid", "color": "#ffcc00" } } } } } },
     "animations": [{ "kind": "fade", "target": "line:0" }]
 }
 ```
@@ -231,6 +268,18 @@ const { lyrics: back, issues } = readProjectJson(text); // read
 A document with painted lines also writes `overlay`, one entry per line, so two
 lines with the first one painted look like
 `"overlay": [{ "styles": [{ "offset": 0, "length": 3, "styleId": "chorus" }] }, {}]`.
+An entry writes the five arrays in the order `styles`, `inserted`, `blocks`,
+`runStyles`, `annotations`, each only when it is not empty:
+
+```json
+{
+    "styles": [{ "offset": 0, "length": 3, "styleId": "chorus" }],
+    "inserted": [{ "id": "m1", "kind": "soft-break", "anchor": [3, 0], "content": null }],
+    "blocks": [{ "from": null, "styleId": "verse" }, { "from": "m1", "styleId": "chorus" }],
+    "runStyles": [{ "group": "ruby", "offset": 0, "styleId": "reading" }],
+    "annotations": [{ "group": "ruby", "runOffset": 0, "offset": 0, "length": 3, "styleId": "soft" }]
+}
+```
 
 - `lyrics` is the shape `lyricsToExport` produces, and the same reader reads it.
   The project adds nothing to it: the style book, the overlay and the animation
@@ -240,13 +289,16 @@ lines with the first one painted look like
 - A SECTION is omitted when it is empty: `overlay` when there are no lines,
   `styleBook` when there are no definitions, `animations` when the list is empty.
   Inside a section, a value that is empty is omitted too - a definition with no
-  parent writes no `basedOn`, an entry with no paint writes no `styles`, an object
+  parent writes no `basedOn`, a definition in the default `character` space writes
+  no `space`, a definition with no content writes no `content`, an entry with no
+  paint writes no `styles`, an object
   with no content writes no `content`, and a marker without a pinned span writes
   no `time`.
 - Reading is strict about keys. An unknown key in the lyrics block, in the style
   book or in an overlay entry is an error with a path, not a value silently
-  dropped on the next save. Every rejection is a `LyricoreError` with code
-  `invalid-project-file`.
+  dropped on the next save. A block entry must carry `from` (written as `null`
+  for the first block, never omitted). Every rejection is a `LyricoreError` with
+  code `invalid-project-file`.
 - A style id a line uses but the book does not define is reported once per id in
   `issues` as `style-orphan` and kept; the document still loads.
 - Writing is canonical: a document written twice produces the same bytes, and

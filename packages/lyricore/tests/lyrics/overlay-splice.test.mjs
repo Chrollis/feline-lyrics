@@ -3,9 +3,22 @@ import { describe, it } from 'node:test';
 import {
     NO_OVERLAY,
     joinOverlay,
-    splitOverlay,
-    spliceOverlay,
+    splitOverlay as splitOverlayAll,
+    spliceOverlay as spliceOverlayAll,
 } from '../../src/main/lyrics/overlay.js';
+
+// The three group-keyed spaces are empty in every case below, so one empty
+// group map serves them all; the wrappers keep the call sites about the one
+// thing each test is checking.
+const GROUPS = {};
+
+function spliceOverlay(overlay, removed, inserted) {
+    return spliceOverlayAll(overlay, GROUPS, removed, inserted);
+}
+
+function splitOverlay(overlay, at) {
+    return splitOverlayAll(overlay, at, []);
+}
 
 function style(offset, length, styleId = 'A') {
     return { offset, length, styleId };
@@ -30,7 +43,7 @@ function image(offset, length, id = 'img') {
 }
 
 function overlay(styles = [], inserted = []) {
-    return { styles, inserted };
+    return { styles, inserted, blocks: [], runStyles: [], annotations: [] };
 }
 
 // The seven rows of the survival matrix in 10-overlay-spec.md section 4, on a

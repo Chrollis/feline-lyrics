@@ -1,19 +1,37 @@
 import { LyricoreError } from '../errors.js';
 
+import {
+    contentProblem,
+    defaultContent,
+    isStyleSpace,
+    mergeContent,
+    type StyleContent,
+    type StyleSpace,
+} from './stylecontent.js';
+
+export { STYLE_SPACES, isStyleSpace } from './stylecontent.js';
+export type { StyleSpace } from './stylecontent.js';
+
 /**
- * One style definition: an optional parent and a bag of opaque properties.
+ * One style definition: an optional parent, the space it belongs to and the
+ * content it paints with.
  *
- * The values are strings because lyricore owns no renderer and therefore has no
- * grammar to check them against. `color: '#ff0000'`, `weight: '700'` and
- * `scale: '0.75em'` are all just data here; a renderer decides what they mean.
- * The bag is open on purpose - adding a property must not touch this package -
- * while the key set is closed where it lives in a document, which is the same
- * split the lyric metadata uses.
+ * The content is a partial value of one space (see `stylecontent.ts`): a field
+ * it carries replaces the inherited one whole, a field it omits is inherited.
+ * The key set is closed per space, so a typo is refused at write time instead
+ * of reaching a renderer that would silently ignore it.
  */
 export interface StyleDef {
     /** The style this one inherits from, or null for a root definition. */
     readonly basedOn: string | null;
-    readonly fields: Readonly<Record<string, string>>;
+    /** Which kind of style this is. Absent means 'character'. */
+    readonly space?: StyleSpace;
+    readonly content: StyleContent;
+}
+
+/** The space a definition belongs to. An absent field means `'character'`. */
+export function styleSpace(def: StyleDef): StyleSpace {
+    return def.space ?? 'character';
 }
 
 /** Every definition a document may name, keyed by style id. */
@@ -23,9 +41,6 @@ export interface StyleBook {
 
 /** The id grammar shared by the book keys and `StyleRun.styleId`. */
 export const STYLE_ID_PATTERN = /^[A-Za-z0-9_-]{1,32}$/;
-
-/** A property name: letters, digits, dash, underscore. Not a path, not CSS. */
-const FIELD_PATTERN = /^[A-Za-z][A-Za-z0-9_-]{0,31}$/;
 
 /** How deep an inheritance chain may go before it is called a mistake. */
 const MAX_DEPTH = 32;
@@ -84,24 +99,15 @@ export function styleInheritors(
  * loops or runs away throws instead: rendering unstyled is the worse outcome,
  * and a cycle is a bug worth stopping on.
  */
-export function resolveStyle(
-    book: StyleBook,
-    id: string,
-): Readonly<Record<string, string>> | null {
+export function resolveStyle(book: StyleBook, id: string): StyleContent | null {
     if (!Object.hasOwn(book.defs, id)) {
         return null;
     }
-    const fields: Record<string, string> = {};
+    let content = defaultContent(styleSpace(book.defs[id]));
     for (const ancestor of styleChain(book, id)) {
-        const def = book.defs[ancestor];
-        for (const key of Object.keys(def.fields)) {
-            const value = def.fields[key];
-            if (value !== '') {
-                fields[key] = value;
-            }
-        }
+        content = mergeContent(content, book.defs[ancestor].content);
     }
-    return Object.freeze(fields);
+    return Object.freeze(content);
 }
 
 /**
@@ -122,6 +128,14 @@ export function withStyle(
             'invalid-style-def',
             `style id ${JSON.stringify(id)} is not 1-32 of A-Z a-z 0-9 _ -`,
             { expected: 'a style id', actual: id },
+        );
+    }
+    const declared: unknown = def.space;
+    if (declared !== undefined && !isStyleSpace(declared)) {
+        throw new LyricoreError(
+            'invalid-style-def',
+            `style ${JSON.stringify(id)} has the space ${JSON.stringify(declared)}, which is not ${describeSpaces()}`,
+            { expected: 'a style space', actual: JSON.stringify(declared) },
         );
     }
     if (def.basedOn !== null) {
@@ -149,11 +163,19 @@ export function withStyle(
                 },
             );
         }
+        const parent = book.defs[def.basedOn];
+        if (styleSpace(parent) !== styleSpace(def)) {
+            throw new LyricoreError(
+                'invalid-style-def',
+                `the ${styleSpace(def)} style ${JSON.stringify(id)} inherits from the ${styleSpace(parent)} style ${JSON.stringify(def.basedOn)}`,
+                { expected: 'a parent in the same space', actual: def.basedOn },
+            );
+        }
     }
-    const problem = styleFieldsProblem(id, def);
+    const problem = styleContentProblem(id, def);
     if (problem !== null) {
         throw new LyricoreError('invalid-style-def', problem, {
-            expected: 'a definition with string fields',
+            expected: 'a definition whose content fits its space',
             actual: id,
         });
     }
@@ -161,7 +183,8 @@ export function withStyle(
     if (
         current !== null &&
         current.basedOn === def.basedOn &&
-        sameFields(current.fields, def.fields)
+        styleSpace(current) === styleSpace(def) &&
+        sameContent(current.content, def.content)
     ) {
         return book;
     }
@@ -207,6 +230,10 @@ export function styleDefProblem(book: StyleBook, id: string): string | null {
     if (def === null) {
         return `style ${JSON.stringify(id)} has no definition`;
     }
+    const declared: unknown = def.space;
+    if (declared !== undefined && !isStyleSpace(declared)) {
+        return `style ${JSON.stringify(id)} has the space ${JSON.stringify(declared)}, which is not ${describeSpaces()}`;
+    }
     if (def.basedOn !== null) {
         if (!STYLE_ID_PATTERN.test(def.basedOn)) {
             return `style ${JSON.stringify(id)} inherits from ${JSON.stringify(def.basedOn)}, which is not a style id`;
@@ -217,8 +244,12 @@ export function styleDefProblem(book: StyleBook, id: string): string | null {
         if (!Object.hasOwn(book.defs, def.basedOn)) {
             return `style ${JSON.stringify(id)} inherits from the unknown style ${JSON.stringify(def.basedOn)}`;
         }
+        const parent = styleDefAt(book, def.basedOn);
+        if (parent !== null && styleSpace(parent) !== styleSpace(def)) {
+            return `the ${styleSpace(def)} style ${JSON.stringify(id)} inherits from the ${styleSpace(parent)} style ${JSON.stringify(def.basedOn)}`;
+        }
     }
-    return styleFieldsProblem(id, def);
+    return styleContentProblem(id, def);
 }
 
 /**
@@ -302,40 +333,83 @@ function styleChain(book: StyleBook, id: string): readonly string[] {
     return chain.reverse();
 }
 
-function styleFieldsProblem(id: string, def: StyleDef): string | null {
-    if (!isRecord(def.fields)) {
-        return `style ${JSON.stringify(id)} has no fields record`;
+function styleContentProblem(id: string, def: StyleDef): string | null {
+    const space = styleSpace(def);
+    if (!isStyleSpace(space)) {
+        return `style ${JSON.stringify(id)} has the space ${JSON.stringify(space)}, which is not ${describeSpaces()}`;
     }
-    for (const key of Object.keys(def.fields)) {
-        if (!FIELD_PATTERN.test(key)) {
-            return `style ${JSON.stringify(id)} has the field ${JSON.stringify(key)}, which is not a property name`;
-        }
-        const value = def.fields[key];
-        if (typeof value !== 'string') {
-            return `style ${JSON.stringify(id)} field ${JSON.stringify(key)} is not a string`;
-        }
-    }
-    return null;
+    const problem = contentProblem(space, def.content);
+    return problem === null ? null : `style ${JSON.stringify(id)}: ${problem}`;
 }
 
-function sameFields(
-    left: Readonly<Record<string, string>>,
-    right: Readonly<Record<string, string>>,
-): boolean {
-    const keys = Object.keys(left);
-    if (keys.length !== Object.keys(right).length) {
-        return false;
+/**
+ * Structural equality over the JSON values a content is made of.
+ *
+ * The identity fast path needs value equality, not reference equality: a caller
+ * builds a fresh object every time, and writing the same style again should not
+ * grow the document.
+ */
+function sameContent(left: unknown, right: unknown): boolean {
+    if (left === right) {
+        return true;
     }
-    return keys.every(
-        (key) => Object.hasOwn(right, key) && left[key] === right[key],
-    );
+    if (Array.isArray(left)) {
+        if (!Array.isArray(right) || left.length !== right.length) {
+            return false;
+        }
+        return left.every((value, index) => sameContent(value, right[index]));
+    }
+    if (isRecord(left)) {
+        if (!isRecord(right)) {
+            return false;
+        }
+        const keys = Object.keys(left);
+        if (keys.length !== Object.keys(right).length) {
+            return false;
+        }
+        return keys.every(
+            (key) =>
+                Object.hasOwn(right, key) && sameContent(left[key], right[key]),
+        );
+    }
+    return false;
+}
+
+/**
+ * A frozen deep copy of a content.
+ *
+ * The copy matters: the caller keeps its literal, and the book must not change
+ * under it. The keys are already validated against the space's closed set, so a
+ * plain assignment cannot walk into `__proto__` here.
+ */
+function freezeContent(value: unknown): unknown {
+    if (Array.isArray(value)) {
+        return Object.freeze(value.map((entry) => freezeContent(entry)));
+    }
+    if (isRecord(value)) {
+        const copy: Record<string, unknown> = {};
+        for (const key of Object.keys(value)) {
+            copy[key] = freezeContent(value[key]);
+        }
+        return Object.freeze(copy);
+    }
+    return value;
 }
 
 function freezeStyleDef(def: StyleDef): StyleDef {
+    // `'character'` is the absent value, so it is not stored: one definition
+    // has one shape in memory and the writer has nothing to normalise.
+    const space = styleSpace(def);
     return Object.freeze({
         basedOn: def.basedOn,
-        fields: Object.freeze({ ...def.fields }),
+        ...(space === 'character' ? {} : { space }),
+        content: freezeContent(def.content) as StyleContent,
     });
+}
+
+/** The three space names, for an error message. */
+function describeSpaces(): string {
+    return "'character', 'run' or 'paragraph'";
 }
 
 function defineStyle(

@@ -35,7 +35,13 @@ function line(text, groups = {}) {
     return {
         baseStream,
         groups: complete,
-        overlay: { styles: [], inserted: [] },
+        overlay: {
+            styles: [],
+            inserted: [],
+            blocks: [],
+            runStyles: [],
+            annotations: [],
+        },
     };
 }
 

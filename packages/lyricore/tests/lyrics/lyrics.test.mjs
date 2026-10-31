@@ -69,7 +69,13 @@ describe('lyrics', () => {
                 {
                     baseStream: { cells: [] },
                     groups: {},
-                    overlay: { styles: [], inserted: [] },
+                    overlay: {
+                        styles: [],
+                        inserted: [],
+                        blocks: [],
+                        runStyles: [],
+                        annotations: [],
+                    },
                 },
             ],
         };

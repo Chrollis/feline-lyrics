@@ -56,7 +56,13 @@ function timed() {
                 // The export format does not carry the overlay, so a read
                 // gives the empty one back: this fixture states that on
                 // purpose.
-                overlay: { styles: [], inserted: [] },
+                overlay: {
+                    styles: [],
+                    inserted: [],
+                    blocks: [],
+                    runStyles: [],
+                    annotations: [],
+                },
             },
         ],
         // The same holds for the two document-level layers: a lyrics export
@@ -122,7 +128,13 @@ describe('the lyrics export', () => {
                             },
                         ],
                     },
-                    overlay: { styles: [], inserted: [] },
+                    overlay: {
+                        styles: [],
+                        inserted: [],
+                        blocks: [],
+                        runStyles: [],
+                        annotations: [],
+                    },
                 },
             ],
             styleBook: { defs: {} },
@@ -153,7 +165,13 @@ describe('the lyrics export', () => {
                 {
                     baseStream: stream([cell('あ'), cell('\n')]),
                     groups: {},
-                    overlay: { styles: [], inserted: [] },
+                    overlay: {
+                        styles: [],
+                        inserted: [],
+                        blocks: [],
+                        runStyles: [],
+                        annotations: [],
+                    },
                 },
             ],
         });
@@ -163,7 +181,13 @@ describe('the lyrics export', () => {
 
     it('never writes the overlay into the frozen lyrics export', () => {
         const lyrics = timed();
-        assert.deepEqual(lyrics.lines[0].overlay, { styles: [], inserted: [] });
+        assert.deepEqual(lyrics.lines[0].overlay, {
+            styles: [],
+            inserted: [],
+            blocks: [],
+            runStyles: [],
+            annotations: [],
+        });
         const exported = lyricsToExport(lyrics);
         assert.equal(
             Object.hasOwn(exported.lines[0], 'overlay'),

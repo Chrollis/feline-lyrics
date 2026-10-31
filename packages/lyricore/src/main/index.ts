@@ -45,11 +45,16 @@ export {
     terminalRun,
 } from './lyrics/seg-run.js';
 export type {
+    AnnotationStyleRun,
+    BlockStyleRun,
     CellSpan,
     ImageContent,
     InsertContent,
     InsertedObject,
     LineOverlay,
+    OverlayContext,
+    RunCut,
+    RunStyleRun,
     StyleRun,
     TextContent,
 } from './lyrics/overlay.js';
@@ -66,12 +71,17 @@ export {
     spliceGroups,
     spliceLine,
     textToLyricsLine,
+    withAnnotations,
+    withBlocks,
     withCheck,
     withGroup,
+    withInserted,
     withOverlay,
     withPiece,
     withPieceText,
     withRun,
+    withRunStyles,
+    withStyles,
 } from './lyrics/line.js';
 export type { CheckTarget } from './lyrics/interpolate.js';
 export {
@@ -99,14 +109,17 @@ export {
     isValidLyrics,
     lyricsOf,
     lyricsToText,
+    styleUseProblem,
     textToLyrics,
     withMeta,
 } from './lyrics/lyrics.js';
-export type { StyleBook, StyleDef } from './lyrics/stylebook.js';
+export type { StyleBook, StyleDef, StyleSpace } from './lyrics/stylebook.js';
 export {
     STYLE_ID_PATTERN,
+    STYLE_SPACES,
     assertStyleBook,
     emptyStyleBook,
+    isStyleSpace,
     isValidStyleBook,
     removeStyle,
     resolveStyle,
@@ -116,8 +129,34 @@ export {
     styleDepth,
     styleIds,
     styleInheritors,
+    styleSpace,
     withStyle,
 } from './lyrics/stylebook.js';
+export type {
+    CharacterContent,
+    Color,
+    DualFill,
+    Fill,
+    FillStop,
+    FontFamilies,
+    Outline,
+    ParagraphContent,
+    RunContent,
+    Shadow,
+    StyleContent,
+    Wipe,
+    WipeDirection,
+    WipeTransition,
+} from './lyrics/stylecontent.js';
+export {
+    CONTENT_KEYS,
+    assertContent,
+    contentKeys,
+    contentProblem,
+    defaultContent,
+    isValidContent,
+    mergeContent,
+} from './lyrics/stylecontent.js';
 export { lineSpan, pieceStart, runStart } from './lyrics/views.js';
 export type {
     CellTimeFile,
@@ -179,6 +218,8 @@ export {
     splitLines,
 } from './io/text.js';
 export type {
+    AnnotationStyleFile,
+    BlockStyleFile,
     ImageContentFile,
     InsertContentFile,
     InsertedObjectFile,
@@ -186,6 +227,7 @@ export type {
     ProjectFile,
     ProjectIssue,
     ProjectRead,
+    RunStyleFile,
     StyleBookFile,
     StyleDefFile,
     StyleRunFile,

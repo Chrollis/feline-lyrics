@@ -5,12 +5,19 @@ import {
     assertLyricsLine,
     assertTerminalRuns,
     emptyLyricsLine,
+    lookupRuns,
+    overlayContextOf,
     overlayOf,
     putGroup,
     rebuild,
     type LyricsLine,
 } from './line.js';
-import { assertOverlay, joinOverlay, splitOverlay } from './overlay.js';
+import {
+    assertOverlay,
+    joinOverlay,
+    splitOverlay,
+    type RunCut,
+} from './overlay.js';
 import type { Lyrics } from './lyrics.js';
 import {
     isTerminalRun,
@@ -111,9 +118,11 @@ function splitGroups(
 ): readonly [
     Record<string, readonly SegRun[]>,
     Record<string, readonly SegRun[]>,
+    readonly RunCut[],
 ] {
     const head: Record<string, readonly SegRun[]> = {};
     const tail: Record<string, readonly SegRun[]> = {};
+    const cuts: RunCut[] = [];
     for (const [name, runs] of Object.entries(groups)) {
         const left: SegRun[] = [];
         const right: SegRun[] = [];
@@ -139,12 +148,29 @@ function splitGroups(
                 pieces: leftPieces,
             });
             right.push({ offset: 0, length: end - at, pieces: rightPieces });
+            // The character counts describe the two halves AS BUILT, so the
+            // annotation split can never disagree with `cutPieces`.
+            const textLength = textCells(leftPieces);
+            cuts.push({
+                group: name,
+                runOffset: start,
+                textLength,
+                chars: textLength + textCells(rightPieces),
+            });
         }
         left.push(terminalRun(at));
         putGroup(head, name, left);
         putGroup(tail, name, right);
     }
-    return [head, tail];
+    return [head, tail, cuts];
+}
+
+function textCells(pieces: readonly SegPiece[]): number {
+    let total = 0;
+    for (const piece of pieces) {
+        total += piece.text.cells.length;
+    }
+    return total;
 }
 
 /**
@@ -164,10 +190,16 @@ export function splitLine(
     const breakCell = cells[cells.length - 1];
     const leftCells: CharCell[] = cells.slice(0, at);
     leftCells.push({ text: breakCell.text, span: null });
-    const [leftGroups, rightGroups] = splitGroups(line.groups, at);
-    const [leftOverlay, rightOverlay] = splitOverlay(overlayOf(line), at);
-    assertOverlay(leftOverlay, leftCells.length - 1);
-    assertOverlay(rightOverlay, cells.length - at - 1);
+    const [leftGroups, rightGroups, cuts] = splitGroups(line.groups, at);
+    const [leftOverlay, rightOverlay] = splitOverlay(overlayOf(line), at, cuts);
+    assertOverlay(leftOverlay, {
+        body: leftCells.length - 1,
+        runsOf: lookupRuns(leftGroups),
+    });
+    assertOverlay(rightOverlay, {
+        body: cells.length - at - 1,
+        runsOf: lookupRuns(rightGroups),
+    });
     const left: LyricsLine = rebuild(line, {
         baseStream: { cells: leftCells },
         groups: leftGroups,
@@ -267,7 +299,10 @@ export function mergeLines(first: LyricsLine, second: LyricsLine): LyricsLine {
         }
     }
     const overlay = joinOverlay(overlayOf(first), overlayOf(second), junction);
-    assertOverlay(overlay, cells.length - 1);
+    assertOverlay(overlay, {
+        body: cells.length - 1,
+        runsOf: lookupRuns(groups),
+    });
     const merged: LyricsLine = rebuild(emptyLyricsLine({ cells }), {
         groups,
         overlay,
@@ -301,7 +336,7 @@ export function insertLine(
     // normalised here rather than trusted: the document must not gain a line
     // that `overlayOf` has to invent an overlay for.
     const overlay = overlayOf(line);
-    assertOverlay(overlay, line.baseStream.cells.length - 1);
+    assertOverlay(overlay, overlayContextOf(line));
     const carried = rebuild(emptyLyricsLine(line.baseStream), {
         groups: line.groups,
         overlay,

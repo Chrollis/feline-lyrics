@@ -24,7 +24,13 @@ function line(text, groups = {}) {
     return {
         baseStream: textToStream(text),
         groups,
-        overlay: { styles: [], inserted: [] },
+        overlay: {
+            styles: [],
+            inserted: [],
+            blocks: [],
+            runStyles: [],
+            annotations: [],
+        },
     };
 }
 

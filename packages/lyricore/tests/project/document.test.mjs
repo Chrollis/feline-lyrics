@@ -2,10 +2,35 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import { importTagText } from '../../src/main/io/tagtext.js';
 import { lyricsToExportJson } from '../../src/main/lyrics/file.js';
-import { withOverlay } from '../../src/main/lyrics/line.js';
-import { NO_ANIMATIONS, textToLyrics } from '../../src/main/lyrics/lyrics.js';
-import { emptyStyleBook, withStyle } from '../../src/main/lyrics/stylebook.js';
 import {
+    withAnnotations,
+    withBlocks,
+    withInserted,
+    withOverlay as withOverlayAll,
+    withRunStyles,
+    withStyles,
+} from '../../src/main/lyrics/line.js';
+
+// The fixture paints cells and places one object; the three group-keyed spaces
+// stay empty.
+const NONE = [];
+
+function withOverlay(line, partial) {
+    return withOverlayAll(line, {
+        blocks: NONE,
+        runStyles: NONE,
+        annotations: NONE,
+        ...partial,
+    });
+}
+import { NO_ANIMATIONS, textToLyrics } from '../../src/main/lyrics/lyrics.js';
+import {
+    emptyStyleBook,
+    styleSpace,
+    withStyle,
+} from '../../src/main/lyrics/stylebook.js';
+import {
+    PROJECT_VERSION,
     lyricsToProject,
     lyricsToProjectJson,
     projectToLyrics,
@@ -22,14 +47,18 @@ function marker(id, offset, kind = 'soft-break') {
     return { id, kind, anchor: { offset, length: 0 }, content: null };
 }
 
+function fill(color) {
+    return { normal: { kind: 'solid', color } };
+}
+
 function book() {
     const base = withStyle(emptyStyleBook(), 'chorus', {
         basedOn: null,
-        fields: { color: '0xffcc00' },
+        content: { fill: fill('#ffcc00') },
     });
     return withStyle(base, 'chorus-hot', {
         basedOn: 'chorus',
-        fields: { color: '0xff5500' },
+        content: { fill: fill('#ff5500') },
     });
 }
 
@@ -82,7 +111,7 @@ describe('the project document', () => {
             'animations',
         ]);
         assert.equal(value.format, PROJECT_FORMAT);
-        assert.equal(value.version, 1);
+        assert.equal(value.version, PROJECT_VERSION);
         assert.equal(value.lyrics.format, 'felyrics/lyrics');
         assert.equal(value.overlay.length, value.lyrics.lines.length);
     });
@@ -99,8 +128,8 @@ describe('the project document', () => {
 
     it('rejects a field name only the prototype could hold', () => {
         rejects((value) => {
-            value.styleBook.defs.chorus.fields = { ['__proto__']: 'x' };
-        }, 'not a property name');
+            value.styleBook.defs.chorus.content = { ['__proto__']: 'x' };
+        }, 'is not a field of a character style');
     });
 
     it('round-trips a write back into the same text', () => {
@@ -120,7 +149,7 @@ describe('the project document', () => {
         assert.deepEqual(line.overlay.inserted, [marker('m1', 1)]);
         assert.deepEqual(read.lyrics.styleBook.defs['chorus'], {
             basedOn: null,
-            fields: { color: '0xffcc00' },
+            content: { fill: fill('#ffcc00') },
         });
         assert.deepEqual(read.lyrics.animations, [
             { id: 'a1', script: 'fade' },
@@ -170,8 +199,49 @@ describe('the project document', () => {
 
     it('rejects a file written by a newer version', () => {
         rejects((value) => {
-            value.version = 2;
+            value.version = PROJECT_VERSION + 1;
         }, /newer version/);
+    });
+
+    it('writes a space only when it is not a character style', () => {
+        const runBook = withStyle(book(), 'ruby-a', {
+            basedOn: null,
+            space: 'run',
+            content: {},
+        });
+        const value = JSON.parse(
+            lyricsToProjectJson({ ...fixture(), styleBook: runBook }),
+        );
+        assert.equal(value.styleBook.defs['ruby-a'].space, 'run');
+        // A character style has no such key: absent is the v1 spelling, and a
+        // writer that emitted it would make the key look meaningful.
+        assert.equal(
+            Object.hasOwn(value.styleBook.defs.chorus, 'space'),
+            false,
+        );
+    });
+
+    it('reads an absent space as a character style', () => {
+        const read = projectToLyrics(parsed());
+        assert.equal(
+            styleSpace(read.lyrics.styleBook.defs.chorus),
+            'character',
+        );
+    });
+
+    it('rejects a space it does not know', () => {
+        rejects((value) => {
+            value.styleBook.defs.chorus.space = 'glyph';
+        }, /space/);
+    });
+
+    it('rejects a style that inherits across spaces', () => {
+        rejects((value) => {
+            // The content has to fit the new space, or the reader stops on that
+            // first and this test would prove the wrong rule.
+            value.styleBook.defs['chorus-hot'].content = {};
+            value.styleBook.defs['chorus-hot'].space = 'paragraph';
+        }, /inherits from the character style/);
     });
 
     it('rejects an unknown key at every depth', () => {
@@ -316,8 +386,8 @@ describe('the project document', () => {
             value.styleBook.defs.chorus.basedOn = 'chorus-hot';
         }, /styleBook/);
         rejects((value) => {
-            value.styleBook.defs.chorus.fields = { color: 7 };
-        }, /styleBook\.defs\.chorus\.fields/);
+            value.styleBook.defs.chorus.content = { sizePx: 'big' };
+        }, /styleBook\.defs\.chorus\.content/);
     });
 
     it('rejects an inserted object that breaks the id grammar or duplicates', () => {
@@ -579,9 +649,9 @@ describe('the project document, edge by edge', () => {
     it('writes the definitions in id order', () => {
         const base = textToLyrics('a\n');
         const book2 = withStyle(
-            withStyle(emptyStyleBook(), 'zzz', { basedOn: null, fields: {} }),
+            withStyle(emptyStyleBook(), 'zzz', { basedOn: null, content: {} }),
             'aaa',
-            { basedOn: null, fields: {} },
+            { basedOn: null, content: {} },
         );
         const value = JSON.parse(
             lyricsToProjectJson({ ...base, styleBook: book2 }),
@@ -596,7 +666,7 @@ describe('the project document, edge by edge', () => {
         const broken = {
             ...base,
             styleBook: {
-                defs: { a: { basedOn: 'missing', fields: { color: 'x' } } },
+                defs: { a: { basedOn: 'missing', content: {} } },
             },
         };
         const invalid = (error) => error.code === 'invalid-style-book';
@@ -643,6 +713,108 @@ describe('the project document, edge by edge', () => {
         assert.deepEqual(
             projectToLyrics(value).lyrics.lines[0].overlay.inserted[0].time,
             { start: 0, duration: 0 },
+        );
+    });
+});
+
+describe('the project entry carries the group-keyed spaces', () => {
+    function groupBook() {
+        let book = emptyStyleBook();
+        book = withStyle(book, 'layout', {
+            basedOn: null,
+            space: 'run',
+            content: {},
+        });
+        book = withStyle(book, 'soft', { basedOn: null, content: {} });
+        book = withStyle(book, 'first', {
+            basedOn: null,
+            space: 'paragraph',
+            content: {},
+        });
+        book = withStyle(book, 'second', {
+            basedOn: null,
+            space: 'paragraph',
+            content: {},
+        });
+        return book;
+    }
+
+    /** One line with a ruby run, a painted cell, a break and both block styles. */
+    function groupScript() {
+        const { lyrics } = importTagText('[00:01:00]{明日|あした}\n');
+        let line = lyrics.lines[0];
+        line = withStyles(line, [style(0, 1, 'soft')]);
+        line = withRunStyles(line, [
+            { group: 'ruby', offset: 0, styleId: 'layout' },
+        ]);
+        line = withAnnotations(line, [
+            {
+                group: 'ruby',
+                runOffset: 0,
+                offset: 0,
+                length: 2,
+                styleId: 'soft',
+            },
+        ]);
+        line = withInserted(line, [marker('br1', 1)]);
+        line = withBlocks(line, [
+            { from: null, styleId: 'first' },
+            { from: 'br1', styleId: 'second' },
+        ]);
+        return {
+            meta: lyrics.meta,
+            lines: [line],
+            styleBook: groupBook(),
+            animations: NO_ANIMATIONS,
+        };
+    }
+
+    function valueOf() {
+        return JSON.parse(lyricsToProjectJson(groupScript()));
+    }
+
+    it('writes all three spaces and reads them back', () => {
+        const back = projectToLyrics(valueOf());
+        assert.deepEqual(back.lyrics, groupScript());
+        assert.deepEqual(back.issues, []);
+    });
+
+    it('writes the entry keys in the canonical order', () => {
+        assert.deepEqual(Object.keys(valueOf().overlay[0]), [
+            'styles',
+            'inserted',
+            'blocks',
+            'runStyles',
+            'annotations',
+        ]);
+    });
+
+    it('writes the first block with a null from', () => {
+        assert.deepEqual(valueOf().overlay[0].blocks, [
+            { from: null, styleId: 'first' },
+            { from: 'br1', styleId: 'second' },
+        ]);
+    });
+
+    it('rejects a block with no from', () => {
+        const value = valueOf();
+        delete value.overlay[0].blocks[0].from;
+        assert.throws(
+            () => projectToLyrics(value),
+            (error) =>
+                error.code === 'invalid-project-file' &&
+                error.message.includes('from'),
+        );
+    });
+
+    it('rejects a run style naming a group the line does not have', () => {
+        const value = valueOf();
+        value.overlay[0].runStyles[0].group = 'word';
+        assert.throws(
+            () => projectToLyrics(value),
+            (error) =>
+                error.code === 'invalid-project-file' &&
+                error.message.includes('names no group on this line'),
         );
     });
 });

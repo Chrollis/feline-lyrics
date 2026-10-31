@@ -3,6 +3,7 @@ import type { CharCell } from './char.js';
 import { textToStream } from './char.js';
 import {
     assertLyricsLine,
+    lookupRuns,
     overlayOf,
     rebuild,
     spliceGroups,
@@ -10,7 +11,12 @@ import {
     withCheck,
     type LyricsLine,
 } from './line.js';
-import { assertOverlay, spliceOverlay } from './overlay.js';
+import {
+    assertOverlay,
+    spliceOverlay,
+    type LineOverlay,
+    type RunStyleRun,
+} from './overlay.js';
 import type { Lyrics } from './lyrics.js';
 import type { CheckPoint, SegPiece, SegRun } from './seg-run.js';
 import { isTime, isValidSpan, TIME_MAX, type TimeSpan } from './time.js';
@@ -724,12 +730,51 @@ function foldClusters(
         };
         next.splice(index + 1, 1);
         cells = next;
-        groups = spliceGroups(groups, [index + 1, index + 2], 0);
-        overlay = spliceOverlay(overlay, [index + 1, index + 2], 0);
+        // The fused cell keeps the left cell's style. An entry whose run
+        // STARTS on the cell being fused away has nowhere else to sit, so it
+        // moves to the fused cell - unless that cell's own run is already
+        // styled, in which case the left one wins and the right one is gone.
+        const before = groups;
+        groups = spliceGroups(before, [index + 1, index + 2], 0);
+        overlay = spliceOverlay(
+            foldRunStyles(overlay, index),
+            before,
+            [index + 1, index + 2],
+            0,
+        );
     }
     if (cells === line.baseStream.cells) {
         return line;
     }
-    assertOverlay(overlay, cells.length - 1);
+    assertOverlay(overlay, {
+        body: cells.length - 1,
+        runsOf: lookupRuns(groups),
+    });
     return rebuild(line, { baseStream: { cells }, groups, overlay });
+}
+
+function foldRunStyles(overlay: LineOverlay, index: number): LineOverlay {
+    const entries = overlay.runStyles;
+    if (!entries.some((entry) => entry.offset === index + 1)) {
+        return overlay;
+    }
+    const taken = new Set<string>();
+    for (const entry of entries) {
+        if (entry.offset === index) {
+            taken.add(entry.group);
+        }
+    }
+    const next: RunStyleRun[] = [];
+    for (const entry of entries) {
+        if (entry.offset !== index + 1) {
+            next.push(entry);
+            continue;
+        }
+        if (taken.has(entry.group)) {
+            continue;
+        }
+        taken.add(entry.group);
+        next.push({ ...entry, offset: index });
+    }
+    return { ...overlay, runStyles: next };
 }

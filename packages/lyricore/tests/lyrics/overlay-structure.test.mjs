@@ -4,10 +4,21 @@ import { editLineText } from '../../src/main/lyrics/interpolate.js';
 import {
     overlayOf,
     textToLyricsLine,
-    withOverlay,
+    withOverlay as withOverlayAll,
 } from '../../src/main/lyrics/line.js';
 import { mergeLines, splitLine } from '../../src/main/lyrics/structure.js';
 import { emptyMeta } from '../../src/main/lyrics/meta.js';
+
+// These cases paint cells and place objects; the three group-keyed spaces stay
+// empty, so the wrapper keeps each test about the thing it names.
+function withOverlay(line, partial) {
+    return withOverlayAll(line, {
+        blocks: [],
+        runStyles: [],
+        annotations: [],
+        ...partial,
+    });
+}
 
 function style(offset, length, styleId = 'A') {
     return { offset, length, styleId };

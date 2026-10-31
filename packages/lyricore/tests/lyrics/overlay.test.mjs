@@ -5,9 +5,9 @@ import {
     EMPTY_INSERTED_OBJECTS,
     EMPTY_STYLE_RUNS,
     NO_OVERLAY,
-    assertOverlay,
+    assertOverlay as assertOverlayAll,
     mergeAdjacentStyleRuns,
-    overlayProblem,
+    overlayProblem as overlayProblemAll,
     spliceInserted,
     spliceSpan,
     spliceStyleRuns,
@@ -16,6 +16,13 @@ import {
 } from '../../src/main/lyrics/overlay.js';
 
 const BODY = 5;
+
+// These cases have no groups, so the context is the body alone.
+const contextOf = (body) => ({ body, runsOf: () => null });
+const overlayProblem = (overlay, body) =>
+    overlayProblemAll(overlay, contextOf(body));
+const assertOverlay = (overlay, body) =>
+    assertOverlayAll(overlay, contextOf(body));
 
 function style(offset, length, styleId = 'a') {
     return { offset, length, styleId };

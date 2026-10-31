@@ -14,6 +14,9 @@ export type LyricoreErrorCode =
     | 'invalid-lyrics-file'
     | 'invalid-style-run'
     | 'invalid-inserted-object'
+    | 'invalid-block-style'
+    | 'invalid-run-style'
+    | 'invalid-annotation-style'
     | 'invalid-style-def'
     | 'invalid-style-book'
     | 'invalid-project-file';

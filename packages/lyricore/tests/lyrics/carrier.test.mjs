@@ -8,11 +8,25 @@ import {
     textToLyricsLine,
     withCheck,
     withGroup,
-    withOverlay,
+    withOverlay as withOverlayAll,
 } from '../../src/main/lyrics/line.js';
 import { textToLyrics } from '../../src/main/lyrics/lyrics.js';
 import { NO_OVERLAY } from '../../src/main/lyrics/overlay.js';
 import { mergeLines, splitLine } from '../../src/main/lyrics/structure.js';
+
+// These cases paint cells and place objects; the three group-keyed spaces stay
+// empty. The arrays are shared so the identity fast path can still see "the
+// same overlay" across two calls.
+const NONE = [];
+
+function withOverlay(line, partial) {
+    return withOverlayAll(line, {
+        blocks: NONE,
+        runStyles: NONE,
+        annotations: NONE,
+        ...partial,
+    });
+}
 
 function style(offset, length, styleId = 'hl') {
     return { offset, length, styleId };
