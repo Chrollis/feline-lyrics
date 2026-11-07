@@ -1,0 +1,20 @@
+# Reference
+/reference/
+/tests/
+
+# Cache
+/cache/
+__pycache__
+pytest-cache-files-*
+
+# Output
+/output/
+**/out/**
+
+# Environment
+/python/
+/models/
+
+# Node
+node_modules
+dist
