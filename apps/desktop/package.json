@@ -1,21 +1,21 @@
 {
-  "name": "@felyrics/desktop",
-  "version": "0.0.0",
-  "private": true,
-  "description": "Electron shell for felyrics.",
-  "license": "MPL-2.0",
-  "main": "./out/main/index.js",
-  "scripts": {
-    "dev": "electron-vite dev",
-    "build": "electron-vite build",
-    "preview": "electron-vite preview",
-    "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p src/renderer/tsconfig.json"
-  },
-  "devDependencies": {
-    "@types/node": "^26.6.6",
-    "electron": "^45.2.3",
-    "electron-vite": "^6.0.0",
-    "typescript": "^7.0.2",
-    "vite": "^8.3.6"
-  }
+    "name": "@felyrics/desktop",
+    "version": "0.0.0",
+    "private": true,
+    "description": "Electron shell for felyrics.",
+    "license": "MPL-2.0",
+    "main": "./out/main/index.js",
+    "scripts": {
+        "dev": "electron-vite dev",
+        "build": "electron-vite build",
+        "preview": "electron-vite preview",
+        "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p src/renderer/tsconfig.json"
+    },
+    "devDependencies": {
+        "@types/node": "^26.6.6",
+        "electron": "^45.2.3",
+        "electron-vite": "^6.0.0",
+        "typescript": "^7.0.2",
+        "vite": "^8.3.6"
+    }
 }
