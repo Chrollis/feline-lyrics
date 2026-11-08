@@ -1,4 +1,4 @@
-import { app, BrowserWindow } from 'electron';
+import { app, BrowserWindow, ipcMain } from 'electron';
 import { join } from 'node:path';
 
 function createWindow(): void {
@@ -41,3 +41,5 @@ app.on('window-all-closed', () => {
         app.quit();
     }
 });
+
+ipcMain.handle('ping', () => 'pong');
