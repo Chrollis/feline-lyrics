@@ -1,5 +1,5 @@
-import { contextBridge } from 'electron';
+import { contextBridge, ipcRenderer } from 'electron';
 
 contextBridge.exposeInMainWorld('felyrics', {
-    ping: () => 'pong',
+    ping: () => ipcRenderer.invoke('ping'),
 });
