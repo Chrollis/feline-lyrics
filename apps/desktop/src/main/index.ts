@@ -7,7 +7,7 @@ function createWindow(): void {
         height: 640,
         show: false,
         webPreferences: {
-            preload: join(__dirname, '../preload/index.js'),
+            preload: join(import.meta.dirname, '../preload/index.cjs'),
             contextIsolation: true,
             nodeIntegration: false,
             sandbox: true,
@@ -22,7 +22,7 @@ function createWindow(): void {
     if (rendererUrl) {
         void win.loadURL(rendererUrl);
     } else {
-        void win.loadFile(join(__dirname, '../renderer/index.html'));
+        void win.loadFile(join(import.meta.dirname, '../renderer/index.html'));
     }
 }
 
