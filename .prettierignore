@@ -1,0 +1,11 @@
+node_modules/
+out/
+dist/
+reference/
+cache/
+output/
+python/
+__pycache__/
+package-lock.json
+*.svg
+*.md
