@@ -4,6 +4,7 @@
     "private": true,
     "description": "Electron shell for felyrics.",
     "license": "MPL-2.0",
+    "type": "module",
     "main": "./out/main/index.js",
     "scripts": {
         "dev": "electron-vite dev",
