@@ -1,12 +1,15 @@
 {
-    "python-envs.defaultEnvManager": "ms-python.python:system",
-    "editor.defaultFormatter": "esbenp.prettier-vscode",
-    "prettier.requireConfig": true,
-    "editor.tabSize": 4,
-    "editor.detectIndentation": false,
-    "files.eol": "\n",
-    "files.insertFinalNewline": true,
-    "[json]": {
-        "editor.defaultFormatter": "vscode.json-language-features"
-    }
+  "python-envs.defaultEnvManager": "ms-python.python:system",
+  "editor.defaultFormatter": "esbenp.prettier-vscode",
+  "prettier.requireConfig": true,
+  "editor.tabSize": 2,
+  "[python]": {
+    "editor.tabSize": 4
+  },
+  "editor.detectIndentation": false,
+  "files.eol": "\n",
+  "files.insertFinalNewline": true,
+  "[json]": {
+    "editor.defaultFormatter": "vscode.json-language-features"
+  }
 }

@@ -5,11 +5,11 @@ import { App } from './App';
 const container = document.getElementById('root');
 
 if (!container) {
-    throw new Error('index.html is missing the #root container.');
+  throw new Error('index.html is missing the #root container.');
 }
 
 createRoot(container).render(
-    <StrictMode>
-        <App />
-    </StrictMode>,
+  <StrictMode>
+    <App />
+  </StrictMode>,
 );

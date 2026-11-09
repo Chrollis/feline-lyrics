@@ -6,39 +6,39 @@ import globals from 'globals';
 import tseslint from 'typescript-eslint';
 
 export default defineConfig(
-    globalIgnores([
-        '**/node_modules/**',
-        '**/out/**',
-        '**/dist/**',
-        'reference/**',
-        'docs/**',
-        'cache/**',
-        'output/**',
-        'python/**',
-        '**/__pycache__/**',
-    ]),
-    js.configs.recommended,
-    tseslint.configs.recommended,
-    {
-        files: [
-            '**/*.{js,mjs,cjs}',
-            'apps/desktop/src/main/**/*.{ts,tsx}',
-            'apps/desktop/src/preload/**/*.{ts,tsx}',
-            'packages/**/*.{ts,tsx}',
-        ],
-        languageOptions: {
-            globals: globals.node,
-        },
+  globalIgnores([
+    '**/node_modules/**',
+    '**/out/**',
+    '**/dist/**',
+    'reference/**',
+    'docs/**',
+    'cache/**',
+    'output/**',
+    'python/**',
+    '**/__pycache__/**',
+  ]),
+  js.configs.recommended,
+  tseslint.configs.recommended,
+  {
+    files: [
+      '**/*.{js,mjs,cjs}',
+      'apps/desktop/src/main/**/*.{ts,tsx}',
+      'apps/desktop/src/preload/**/*.{ts,tsx}',
+      'packages/**/*.{ts,tsx}',
+    ],
+    languageOptions: {
+      globals: globals.node,
     },
-    {
-        files: ['apps/desktop/src/renderer/**/*.{ts,tsx}'],
-        ...reactHooks.configs.flat['recommended-latest'],
+  },
+  {
+    files: ['apps/desktop/src/renderer/**/*.{ts,tsx}'],
+    ...reactHooks.configs.flat['recommended-latest'],
+  },
+  {
+    files: ['apps/desktop/src/renderer/**/*.{ts,tsx}'],
+    languageOptions: {
+      globals: globals.browser,
     },
-    {
-        files: ['apps/desktop/src/renderer/**/*.{ts,tsx}'],
-        languageOptions: {
-            globals: globals.browser,
-        },
-    },
-    prettierConfig,
+  },
+  prettierConfig,
 );
