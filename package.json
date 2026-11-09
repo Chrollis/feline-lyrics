@@ -1,34 +1,34 @@
 {
-    "name": "felyrics",
-    "version": "0.0.0",
-    "private": true,
-    "description": "Feline-lyrics, lyrics timing and karaoke video composition.",
-    "license": "MPL-2.0",
-    "type": "module",
-    "packageManager": "npm@12.2.0",
-    "engines": {
-        "node": ">=22.18.0"
-    },
-    "workspaces": [
-        "apps/*",
-        "packages/*"
-    ],
-    "scripts": {
-        "dev": "npm run dev -w @felyrics/desktop",
-        "build": "npm run build -w @felyrics/desktop",
-        "preview": "npm run preview -w @felyrics/desktop",
-        "typecheck": "npm run typecheck --workspaces --if-present",
-        "lint": "eslint .",
-        "format": "prettier --write .",
-        "format:check": "prettier --check ."
-    },
-    "devDependencies": {
-        "@eslint/js": "^10.0.1",
-        "eslint": "^10.14.0",
-        "eslint-config-prettier": "^10.1.8",
-        "eslint-plugin-react-hooks": "^7.1.1",
-        "globals": "^17.14.0",
-        "prettier": "^3.9.10",
-        "typescript-eslint": "^8.72.1"
-    }
+  "name": "felyrics",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Feline-lyrics, lyrics timing and karaoke video composition.",
+  "license": "MPL-2.0",
+  "type": "module",
+  "packageManager": "npm@12.2.0",
+  "engines": {
+    "node": ">=22.18.0"
+  },
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "npm run dev -w @felyrics/desktop",
+    "build": "npm run build -w @felyrics/desktop",
+    "preview": "npm run preview -w @felyrics/desktop",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "lint": "eslint .",
+    "format": "prettier --write .",
+    "format:check": "prettier --check ."
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "eslint": "^10.14.0",
+    "eslint-config-prettier": "^10.1.8",
+    "eslint-plugin-react-hooks": "^7.1.1",
+    "globals": "^17.14.0",
+    "prettier": "^3.9.10",
+    "typescript-eslint": "^8.72.1"
+  }
 }
