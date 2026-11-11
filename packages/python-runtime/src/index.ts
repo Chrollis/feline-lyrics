@@ -1,1 +1,2 @@
-export const PACKAGE_NAME = '@felyrics/python-runtime';
+export { buildEnv, type EnvDirs } from './env.js';
+export { runtimePaths, type RuntimePaths } from './paths.js';
