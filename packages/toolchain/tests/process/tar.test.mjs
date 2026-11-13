@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
-import { findTar, requireTar } from '../out/index.js';
+import { findTar, requireTar } from '../../out/index.js';
 
 function fakeSpawn(available) {
   const calls = [];

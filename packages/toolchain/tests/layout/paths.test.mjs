@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { join } from 'node:path';
 import { test } from 'node:test';
-import { runtimePaths } from '../out/index.js';
+import { runtimePaths } from '../../out/index.js';
 
 test('derives every path from the repository root', () => {
   const root = join('C:', 'repo');

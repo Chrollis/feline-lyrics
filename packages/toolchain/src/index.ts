@@ -1,6 +1,7 @@
-export { download, type DownloadOptions } from './download.js';
-export { buildEnv, type EnvDirs } from './env.js';
-export { runtimePaths, type RuntimePaths } from './paths.js';
+export { buildEnv, type EnvDirs } from './layout/env.js';
+export { runtimePaths, type RuntimePaths } from './layout/paths.js';
+export { findTar, requireTar } from './process/tar.js';
+export { download, type DownloadOptions } from './python/download.js';
 export {
   MIN_DOWNLOAD_BYTES,
   PBS_DOWNLOAD_URL,
@@ -8,5 +9,4 @@ export {
   PBS_PYTHON_VERSION,
   PBS_RELEASE_TAG,
   PIP_INDEX_URL,
-} from './target.js';
-export { findTar, requireTar } from './tar.js';
+} from './python/target.js';
