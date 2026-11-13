@@ -93,3 +93,11 @@ The agent is a pair programmer, not a code generator.
   and by its dependencies, never by a directory name.
 - Only `apps/desktop` splits by process (`src/main`, `src/preload`,
   `src/renderer`), because Electron has exactly those three.
+
+## 8. Working memory
+
+- `memories/MEMORY.md` records the state, the decisions, the dead ends and the next
+  step. Read it before touching this repository, and update it before ending a
+  session.
+- Keep it short. It holds only what code and `git log` cannot tell you: not a
+  changelog, not a file index.
