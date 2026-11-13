@@ -25,7 +25,7 @@ Rules:
   backend, its stdio protocol and ffmpeg are not written yet.
 - `process/zip.ts` reads the central directory first, rejects any name that
   could escape the destination, and only then lets node-stream-zip write.
-  27 tests pass.
+  30 tests pass.
 - Paths are inputs: the toolchain takes `{ cacheDir, servicesDir, backendRoot }`
   from the caller and derives the rest, so the CLI and the app can disagree
   about where things live without the library knowing.
@@ -58,6 +58,14 @@ Rules:
 - 2026-11 execa runs long commands (`uv python install` takes minutes) so the
   Electron main process never blocks. The long-lived Python service will still
   use `child_process.spawn`, which is what an interactive stdio session needs.
+- 2026-11 uv 0.13.8's frozen list does include CPython 3.12.15: installing it
+  through the USTC mirror took about 80 seconds for 21 MB. uv and the Python
+  builds come from the USTC mirror, packages from Tsinghua. Pass
+  `--no-bin --no-registry` to `uv python install` so it never writes to
+  `~/.local/bin` or the Windows registry.
+- 2026-11 the uv assets are a per-platform table, not one constant: uv ships a
+  different file per OS and arch, and only the zip form is unpacked today, so
+  `TARGETS` lists all six rows while `SUPPORTED_TARGETS` stays `win32-x64`.
 
 ## Dead ends
 
