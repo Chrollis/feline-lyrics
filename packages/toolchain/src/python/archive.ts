@@ -1,17 +1,12 @@
 import { spawnSync } from 'node:child_process';
 import { mkdirSync } from 'node:fs';
 
+import { ToolchainError } from '../errors.js';
+
 // One line per member and the runtime archive holds a few thousand files.
 const MAX_LISTING_BYTES = 16 * 1024 * 1024;
 
 const DRIVE_LETTER = /^[a-z]:/i;
-
-/**
- * The archive itself is at fault: tar exited non-zero or a member name tried to
- * escape. provision() drops the cached file on this error, because the next run
- * decides whether to download by the file's existence alone.
- */
-export class UnusableArchiveError extends Error {}
 
 function toPosix(entry: string): string {
   return entry.replace(/\\/g, '/');
@@ -91,8 +86,10 @@ export function listArchive(
   const result = runTar(tar, ['-tf', archive], spawn, MAX_LISTING_BYTES);
 
   if (result.status !== 0) {
-    throw new UnusableArchiveError(
+    throw new ToolchainError(
+      'archive/unusable',
       `tar -tf could not list the archive (exit ${result.status})${stderrDetail(result)}`,
+      { archive, status: result.status },
     );
   }
 
@@ -119,8 +116,10 @@ export function extract(
     const reason = unsafeReason(entry);
 
     if (reason !== null) {
-      throw new UnusableArchiveError(
+      throw new ToolchainError(
+        'archive/unsafe-entry',
         `refusing to extract the archive: entry "${entry}" is ${reason}`,
+        { archive, entry, reason },
       );
     }
   }
@@ -131,8 +130,10 @@ export function extract(
   const result = runTar(tar, ['-xf', archive, '-C', destDir], spawn);
 
   if (result.status !== 0) {
-    throw new UnusableArchiveError(
+    throw new ToolchainError(
+      'archive/unusable',
       `tar -xf could not extract the archive (exit ${result.status})${stderrDetail(result)}`,
+      { archive, status: result.status },
     );
   }
 

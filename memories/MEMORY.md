@@ -21,8 +21,10 @@ Rules:
 - The main process is ESM (`"type": "module"`); the preload is CJS
   (`index.cjs`), because a sandboxed preload cannot be ESM.
 - `packages/toolchain` holds provisioning only, grouped by domain: `layout/`
-  (paths, env), `process/` (tar), `python/` (target, download). The Python
-  backend, its stdio protocol and ffmpeg are not written yet.
+  (paths, env), `process/` (tar), `python/` (target, download, archive). The
+  Python backend, its stdio protocol and ffmpeg are not written yet.
+- `python/archive.ts` lists the members first, rejects any name that could
+  escape the destination, and only then lets tar write. 29 tests pass.
 
 ## Decisions
 
@@ -36,6 +38,13 @@ Rules:
   `cache/` is reusable input, scratch work goes to the OS temp directory.
 - Sources are grouped by domain, not by layer, so a helper shared by two tools
   (tar) has one obvious home instead of an "utils" drawer.
+- Failures we expect and branch on carry a `ToolchainError` code
+  (`domain/reason`) and structured `context`; unexpected ones (spawn ENOENT,
+  killed process) stay native, so "the archive is at fault" is a code prefix,
+  not a class.
+- 2026-11 av no longer needs an lgpl FFmpeg: the backend is not shipped with
+  the app, so a GPL build is fine and `pip install av` replaces the planned
+  lgpl shared build plus `pip wheel av --ffmpeg-dir`.
 
 ## Dead ends
 
@@ -48,7 +57,6 @@ Rules:
 
 ## Next
 
-- `python/archive.ts`: list the archive entries first, then extract, so a
-  traversal attempt is visible before any byte is written. Tests use a fake
-  runner plus one real `tar` run.
-- Then readiness markers, the provisioning entry, and `scripts/python.mjs`.
+- Readiness markers, the provisioning entry, and `scripts/python.mjs`.
+- Discuss the cross-platform Python acquisition ladder (uv may replace most of
+  it) before writing `provision()`.

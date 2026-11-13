@@ -13,7 +13,7 @@ import { join } from 'node:path';
 import { test } from 'node:test';
 
 import {
-  UnusableArchiveError,
+  ToolchainError,
   extract,
   findTar,
   listArchive,
@@ -86,7 +86,9 @@ test('reports a listing tar could not produce', () => {
 
   const error = catchError(() => listArchive('tar', 'missing.tar.gz', spawn));
 
-  assert.ok(error instanceof UnusableArchiveError);
+  assert.ok(error instanceof ToolchainError);
+  assert.equal(error.code, 'archive/unusable');
+  assert.equal(error.context.archive, 'missing.tar.gz');
   assert.match(
     error.message,
     /tar -tf could not list the archive \(exit 2\): tar: could not open/,
@@ -104,7 +106,7 @@ test('surfaces a failed spawn instead of a listing', () => {
   const error = catchError(() => listArchive('tar', 'x.tar.gz', spawn));
 
   assert.match(error.message, /spawn tar ENOENT/);
-  assert.ok(!(error instanceof UnusableArchiveError));
+  assert.ok(!(error instanceof ToolchainError));
 });
 
 test('surfaces a killed tar instead of a listing', () => {
@@ -113,7 +115,7 @@ test('surfaces a killed tar instead of a listing', () => {
   const error = catchError(() => listArchive('tar', 'x.tar.gz', spawn));
 
   assert.match(error.message, /killed by SIGKILL/);
-  assert.ok(!(error instanceof UnusableArchiveError));
+  assert.ok(!(error instanceof ToolchainError));
 });
 
 test('lists every entry before extracting', () => {
@@ -154,7 +156,9 @@ for (const [entry, pattern] of UNSAFE_ENTRIES) {
         extract('tar', 'runtime.tar.gz', dest, spawn),
       );
 
-      assert.ok(error instanceof UnusableArchiveError);
+      assert.ok(error instanceof ToolchainError);
+      assert.equal(error.code, 'archive/unsafe-entry');
+      assert.equal(error.context.entry, entry);
       assert.match(error.message, pattern);
       assert.deepEqual(extractions(calls), []);
       assert.equal(existsSync(dest), false);
@@ -183,7 +187,9 @@ test('reports an unusable archive when tar cannot extract it', () => {
       extract('tar', 'runtime.tar.gz', dest, spawn),
     );
 
-    assert.ok(error instanceof UnusableArchiveError);
+    assert.ok(error instanceof ToolchainError);
+    assert.equal(error.code, 'archive/unusable');
+    assert.equal(error.context.status, 2);
     assert.match(
       error.message,
       /tar -xf could not extract the archive \(exit 2\): tar: write error/,

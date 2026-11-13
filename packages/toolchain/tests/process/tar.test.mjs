@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
-import { findTar, requireTar } from '../../out/index.js';
+import { ToolchainError, findTar, requireTar } from '../../out/index.js';
 
 function fakeSpawn(available) {
   const calls = [];
@@ -36,5 +36,9 @@ test('tries every candidate before giving up', () => {
 test('requireTar explains what is missing', () => {
   const { spawn } = fakeSpawn([]);
 
-  assert.throws(() => requireTar(spawn), /no tar executable found/);
+  assert.throws(
+    () => requireTar(spawn),
+    (error) =>
+      error instanceof ToolchainError && error.code === 'tar/not-found',
+  );
 });
