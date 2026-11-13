@@ -15,10 +15,15 @@ export { download, type DownloadOptions } from './python/download.js';
 export {
   MIN_DOWNLOAD_BYTES,
   PACKAGE_INDEX_URL,
+  PYTHON_INSTALL_MIRROR,
   PYTHON_VERSION,
-  UV_DOWNLOAD_URL,
-  UV_FILENAME,
+  SUPPORTED_TARGETS,
+  TARGETS,
+  UV_DOWNLOAD_BASE,
   UV_VERSION,
+  uvDownloadUrl,
+  type PlatformTarget,
+  type TargetKey,
 } from './python/target.js';
 export {
   extractZip,
