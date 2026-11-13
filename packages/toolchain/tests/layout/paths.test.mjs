@@ -10,7 +10,6 @@ test('derives every path from the repository root', () => {
   assert.equal(paths.runtimeDir, join(root, 'python'));
   assert.equal(paths.pythonExe, join(root, 'python', 'python.exe'));
   assert.equal(paths.cacheDir, join(root, 'cache'));
-  assert.equal(paths.tempDir, join(root, 'cache', 'temp'));
   assert.equal(paths.pipCacheDir, join(root, 'cache', 'pip'));
   assert.equal(paths.servicesDir, join(root, 'services'));
 });
