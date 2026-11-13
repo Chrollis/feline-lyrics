@@ -2,7 +2,7 @@
   "name": "@felyrics/toolchain",
   "version": "0.0.0",
   "private": true,
-  "description": "Provisioning and invocation of external tools: Python, tar and ffmpeg.",
+  "description": "Provisioning and invocation of external tools: Python, zip archives and ffmpeg.",
   "license": "MPL-2.0",
   "type": "module",
   "main": "./out/index.js",
@@ -26,5 +26,9 @@
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "pretest": "npm run build",
     "test": "node --test \"tests/**/*.test.mjs\""
+  },
+  "dependencies": {
+    "execa": "^10.2.1",
+    "node-stream-zip": "^1.16.0"
   }
 }
