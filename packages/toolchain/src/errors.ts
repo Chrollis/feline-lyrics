@@ -1,9 +1,11 @@
-export type ToolchainErrorCode = 'archive/unusable' | 'archive/unsafe-entry';
+export type ToolchainErrorCode =
+  'archive/unusable' | 'archive/unsafe-entry' | 'target/unsupported';
 
 export interface ToolchainErrorContext {
   readonly archive?: string;
   readonly entry?: string;
   readonly reason?: string;
+  readonly target?: string;
 }
 
 /**
