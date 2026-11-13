@@ -21,11 +21,14 @@ Rules:
 - The main process is ESM (`"type": "module"`); the preload is CJS
   (`index.cjs`), because a sandboxed preload cannot be ESM.
 - `packages/toolchain` holds provisioning only, grouped by domain: `layout/`
-  (paths, env), `process/` (zip), `python/` (target, download). The Python
-  backend, its stdio protocol and ffmpeg are not written yet.
+  (paths, env), `process/` (zip), `python/` (target, download, ready). The
+  Python backend, its stdio protocol and ffmpeg are not written yet.
 - `process/zip.ts` reads the central directory first, rejects any name that
   could escape the destination, and only then lets node-stream-zip write.
-  30 tests pass.
+- `python/ready.ts` answers one question: did a full provisioning run finish and
+  is the result untouched? It compares the `.ready` JSON marker and the two
+  files underneath it; the marker is written last, so a partial run is never
+  ready. 37 tests pass.
 - Paths are inputs: the toolchain takes `{ cacheDir, servicesDir, backendRoot }`
   from the caller and derives the rest, so the CLI and the app can disagree
   about where things live without the library knowing.
@@ -66,6 +69,10 @@ Rules:
 - 2026-11 the uv assets are a per-platform table, not one constant: uv ships a
   different file per OS and arch, and only the zip form is unpacked today, so
   `TARGETS` lists all six rows while `SUPPORTED_TARGETS` stays `win32-x64`.
+- 2026-11 readiness is a marker, not an existence check: files can exist in a
+  half-finished state, and a version can change under an existing directory.
+  Comparing the marker's `uv`, `python` and absolute `services` is the cheap
+  question; whether the interpreter actually runs is `--doctor`'s job.
 
 ## Dead ends
 
@@ -77,12 +84,17 @@ Rules:
 - 2026-11 The stall-timeout test hung forever. The fake fetch ignored the abort
   signal, so the read never rejected. Lesson: a timeout must reject on its own
   rather than trust the callee to honour it.
+- 2026-11 `.prettierignore` patterns follow gitignore rules: `python/` also
+  matches `packages/toolchain/src/python/`, so those sources went unformatted
+  for weeks. A pattern for a repo-root directory needs the leading `/`.
+- 2026-11 "generated asynchronous activity after the test ended" in `node:test`
+  always means the same thing: an async function was called and its promise was
+  dropped. The test was already marked done, then the late rejection surfaced
+  against the whole file. Track down the missing `await`, do not retry the test.
 
 ## Next
 
-- Provisioning: download the uv zip, extract it with `extractZip`, run
-  `uv python install`, create the venv, install the dependencies the services
-  declare, then write the marker last. The `.pth` holds the absolute
-  `servicesDir`; pip.ini is replaced by `UV_DEFAULT_INDEX`; the marker records
-  both versions and is the only "already provisioned" signal.
+- Next: `python/uv.ts` -- download the uv zip from the USTC mirror, extract it
+  with `extractZip`, run `uv python install --no-bin --no-registry`, create the
+  venv. Then `provision()` chains those and writes `.pth` and the marker last.
 - Then `scripts/python.mjs`: `--setup`, `--doctor`, and argument passthrough.
