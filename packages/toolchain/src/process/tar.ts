@@ -1,6 +1,8 @@
 import { spawnSync } from 'node:child_process';
 import { join } from 'node:path';
 
+import { ToolchainError } from '../errors.js';
+
 function tarCandidates(): string[] {
   const candidates = ['tar'];
 
@@ -31,7 +33,8 @@ export function requireTar(spawn: typeof spawnSync = spawnSync): string {
   const found = findTar(spawn);
 
   if (found === null) {
-    throw new Error(
+    throw new ToolchainError(
+      'tar/not-found',
       'no tar executable found; Windows 10 1803+ ships bsdtar in System32',
     );
   }

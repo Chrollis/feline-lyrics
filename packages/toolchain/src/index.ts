@@ -1,3 +1,8 @@
+export {
+  ToolchainError,
+  type ToolchainErrorCode,
+  type ToolchainErrorContext,
+} from './errors.js';
 export { buildEnv, type EnvDirs } from './layout/env.js';
 export { runtimePaths, type RuntimePaths } from './layout/paths.js';
 export { findTar, requireTar } from './process/tar.js';
@@ -10,8 +15,4 @@ export {
   PBS_RELEASE_TAG,
   PIP_INDEX_URL,
 } from './python/target.js';
-export {
-  UnusableArchiveError,
-  extract,
-  listArchive,
-} from './python/archive.js';
+export { extract, listArchive } from './python/archive.js';
