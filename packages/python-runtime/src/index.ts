@@ -9,3 +9,4 @@ export {
   PBS_RELEASE_TAG,
   PIP_INDEX_URL,
 } from './target.js';
+export { findTar, requireTar } from './tar.js';
