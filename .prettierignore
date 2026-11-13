@@ -1,10 +1,10 @@
 node_modules/
 out/
 dist/
-reference/
-cache/
-output/
-python/
+/reference/
+/cache/
+/output/
+/python/
 __pycache__/
 package-lock.json
 *.svg
