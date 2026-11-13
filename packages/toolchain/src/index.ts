@@ -10,3 +10,8 @@ export {
   PBS_RELEASE_TAG,
   PIP_INDEX_URL,
 } from './python/target.js';
+export {
+  UnusableArchiveError,
+  extract,
+  listArchive,
+} from './python/archive.js';
