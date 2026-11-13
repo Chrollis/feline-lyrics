@@ -61,8 +61,7 @@ export const UV_DOWNLOAD_BASE =
 export const PYTHON_INSTALL_MIRROR =
   'https://mirrors.ustc.edu.cn/github-release/astral-sh/python-build-standalone';
 
-export const PACKAGE_INDEX_URL =
-  'https://pypi.tuna.tsinghua.edu.cn/simple';
+export const PACKAGE_INDEX_URL = 'https://pypi.tuna.tsinghua.edu.cn/simple';
 
 export const MIN_DOWNLOAD_BYTES = 1024 ** 2;
 
