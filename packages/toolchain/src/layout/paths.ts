@@ -5,7 +5,6 @@ export interface RuntimePaths {
   readonly runtimeDir: string;
   readonly pythonExe: string;
   readonly cacheDir: string;
-  readonly tempDir: string;
   readonly pipCacheDir: string;
   readonly servicesDir: string;
 }
@@ -19,7 +18,6 @@ export function runtimePaths(root: string): RuntimePaths {
     runtimeDir,
     pythonExe: join(runtimeDir, 'python.exe'),
     cacheDir,
-    tempDir: join(cacheDir, 'temp'),
     pipCacheDir: join(cacheDir, 'pip'),
     servicesDir: join(root, 'services'),
   };
