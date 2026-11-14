@@ -21,14 +21,17 @@ Rules:
 - The main process is ESM (`"type": "module"`); the preload is CJS
   (`index.cjs`), because a sandboxed preload cannot be ESM.
 - `packages/toolchain` holds provisioning only, grouped by domain: `layout/`
-  (paths, env), `process/` (zip), `python/` (target, download, ready). The
+  (paths, env), `process/` (zip), `python/` (target, download, ready, uv). The
   Python backend, its stdio protocol and ffmpeg are not written yet.
 - `process/zip.ts` reads the central directory first, rejects any name that
   could escape the destination, and only then lets node-stream-zip write.
 - `python/ready.ts` answers one question: did a full provisioning run finish and
   is the result untouched? It compares the `.ready` JSON marker and the two
   files underneath it; the marker is written last, so a partial run is never
-  ready. 37 tests pass.
+  ready.
+- `python/uv.ts` is the only place that runs uv: download the zip from the
+  cached copy, unpack `uv.exe`, install the pinned interpreter, rebuild the
+  venv, install packages. 54 tests pass.
 - Paths are inputs: the toolchain takes `{ cacheDir, servicesDir, backendRoot }`
   from the caller and derives the rest, so the CLI and the app can disagree
   about where things live without the library knowing.
@@ -73,6 +76,10 @@ Rules:
   half-finished state, and a version can change under an existing directory.
   Comparing the marker's `uv`, `python` and absolute `services` is the cheap
   question; whether the interpreter actually runs is `--doctor`'s job.
+- 2026-11 uv runs with an injected environment, never the inherited one: every
+  `UV_*` and `PIP_*` variable is dropped first, so a machine with its own uv
+  0.11 (this one has it in PATH) cannot pick the interpreter or the index. The
+  backend's own `uv.exe` is the only uv the toolchain calls.
 
 ## Dead ends
 
@@ -91,10 +98,18 @@ Rules:
   always means the same thing: an async function was called and its promise was
   dropped. The test was already marked done, then the late rejection surfaced
   against the whole file. Track down the missing `await`, do not retry the test.
+- 2026-11 On Windows, spawning a missing executable does NOT reject with
+  `ENOENT`, even with execa: it resolves with `failed: true` and `exitCode: 1`,
+  because the OS loader runs and fails. Detect it by checking the file exists
+  before spawning; do not wait for `exitCode === undefined`.
+- 2026-11 stdout chunks are bytes, not characters: `chunk.toString()` turns one
+  UTF-8 character split across two chunks into two U+FFFD. Decode with
+  `StringDecoder` (or `TextDecoder` with `{ stream: true }`) and flush at the
+  end. A test that writes a character in two `write()` calls catches it.
 
 ## Next
 
-- Next: `python/uv.ts` -- download the uv zip from the USTC mirror, extract it
-  with `extractZip`, run `uv python install --no-bin --no-registry`, create the
-  venv. Then `provision()` chains those and writes `.pth` and the marker last.
+- Next: `provision()` -- download uv, install the interpreter, rebuild the venv,
+  write the `.pth` with the absolute `servicesDir`, install the declared
+  packages, then write the marker last.
 - Then `scripts/python.mjs`: `--setup`, `--doctor`, and argument passthrough.

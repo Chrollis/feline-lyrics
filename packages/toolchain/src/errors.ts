@@ -1,11 +1,19 @@
 export type ToolchainErrorCode =
-  'archive/unusable' | 'archive/unsafe-entry' | 'target/unsupported';
+  | 'archive/unusable'
+  | 'archive/unsafe-entry'
+  | 'target/unsupported'
+  | 'uv/missing-binary'
+  | 'uv/install-failed'
+  | 'uv/venv-failed'
+  | 'uv/packages-failed';
 
 export interface ToolchainErrorContext {
   readonly archive?: string;
   readonly entry?: string;
   readonly reason?: string;
   readonly target?: string;
+  readonly command?: string;
+  readonly status?: number;
 }
 
 /**
