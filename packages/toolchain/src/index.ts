@@ -3,7 +3,12 @@ export {
   type ToolchainErrorCode,
   type ToolchainErrorContext,
 } from './errors.js';
-export { buildEnv, type EnvDirs } from './layout/env.js';
+export {
+  buildEnv,
+  buildUvEnv,
+  type EnvDirs,
+  type UvEnvDirs,
+} from './layout/env.js';
 export {
   backendPaths,
   cachePaths,
@@ -40,3 +45,17 @@ export {
   writeReadyMarker,
   type ReadyMarker,
 } from './python/ready.js';
+export {
+  createVenv,
+  downloadUv,
+  installPackages,
+  installPython,
+  uvArchivePath,
+  uvEnv,
+  runUv,
+  type DownloadUvOptions,
+  type RunUv,
+  type UvContext,
+  type UvResult,
+  type UvRunOptions,
+} from './python/uv.js';
