@@ -34,15 +34,15 @@ the past -- state, decisions, dead ends -- lives in `memories/MEMORY.md`.
 ## 3. `reference/` is the human's area, with three roles
 
 - The roles are recorded in `memories/MEMORY.md`; do not infer them from names.
-- Do not read, search, grep or glob under `reference/` unless the human names an
-  exact path in the current request. Then read that path and nothing beside it.
-  The one standing exception is `reference/learning/syntax-log.md`, which the
-  agent maintains under section 2.
+- `ideas/` and `learning/` are the agent's working area: read and write them
+  freely. Everything else under `reference/` is gated.
+- Do not read, search, grep or glob under the gated part unless the human names
+  an exact path in the current request. Then read that path and nothing beside it.
 - A named path is evidence about the past, never a template: copy nothing -- no
   code, naming, layout or dependency -- from it unless asked. The predecessor
   exists so this repository can regain control, not to be copied from.
-- Writes stay out of `reference/` except `learning/syntax-log.md`. The tree is
-  gitignored, so the log is not versioned.
+- `reference/` is gitignored, so the idea notes and the syntax log are not
+  versioned.
 
 ## 4. Language and encoding
 
