@@ -26,10 +26,13 @@ export {
   TARGETS,
   UV_DOWNLOAD_BASE,
   UV_VERSION,
+  currentTarget,
   uvDownloadUrl,
   type PlatformTarget,
   type TargetKey,
 } from './python/target.js';
+export { PTH_FILENAME, writePth } from './python/pth.js';
+export { provision, type ProvisionOptions } from './python/provision.js';
 export {
   extractZip,
   listEntries,
