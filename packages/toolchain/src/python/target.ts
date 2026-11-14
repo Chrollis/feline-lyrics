@@ -1,6 +1,8 @@
 // uv ships one archive per platform, so the filename is data, not a constant.
 // Only Windows x64 is supported for now; the other rows keep a port from having
 // to rediscover the asset names.
+import { ToolchainError } from '../errors.js';
+
 export type TargetKey =
   | 'win32-x64'
   | 'win32-arm64'
@@ -67,4 +69,22 @@ export const MIN_DOWNLOAD_BYTES = 1024 ** 2;
 
 export function uvDownloadUrl(filename: string): string {
   return `${UV_DOWNLOAD_BASE}/${UV_VERSION}/${filename}`;
+}
+
+/**
+ * The target this process runs on. `SUPPORTED_TARGETS` is checked first, so a
+ * table row we know the filename of does not silently start running.
+ */
+export function currentTarget(): PlatformTarget {
+  const key = `${process.platform}-${process.arch}`;
+
+  if (!SUPPORTED_TARGETS.includes(key as TargetKey)) {
+    throw new ToolchainError(
+      'target/unsupported',
+      `the toolchain has no uv asset for ${key}`,
+      { target: key },
+    );
+  }
+
+  return TARGETS[key as TargetKey];
 }

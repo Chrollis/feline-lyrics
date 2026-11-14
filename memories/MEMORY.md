@@ -32,6 +32,10 @@ Rules:
 - `python/uv.ts` is the only place that runs uv: download the zip from the
   cached copy, unpack `uv.exe`, install the pinned interpreter, rebuild the
   venv, install packages.
+- `python/provision.ts` is the only entry point that builds a backend:
+  `downloadUv`, `installPython`, `createVenv`, `writePth`, `installPackages`,
+  then the marker. `pth.ts` writes one absolute line into the venv's
+  site-packages, because a relative path would follow the working directory.
 - Paths are inputs: the toolchain takes `{ cacheDir, servicesDir, backendRoot }`
   from the caller and derives the rest, so the CLI and the app can disagree
   about where things live without the library knowing.
@@ -118,7 +122,6 @@ Rules:
 
 ## Next
 
-- Next: `provision()` -- download uv, install the interpreter, rebuild the venv,
-  write the `.pth` with the absolute `servicesDir`, install the declared
-  packages, then write the marker last.
-- Then `scripts/python.mjs`: `--setup`, `--doctor`, and argument passthrough.
+- Next: `scripts/python.mjs` -- `--setup` runs `provision()`, `--doctor`
+  checks without writing, every other argument goes to the backend interpreter.
+- Then the stdio service under `services/felyrics/` (one JSON line in, one out).
