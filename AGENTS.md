@@ -13,7 +13,13 @@ the past -- state, decisions, dead ends -- lives in `memories/MEMORY.md`.
 - Write only the files the plan named. A drive-by fix is a separate step,
   proposed first.
 - Report in five lines: what changed, what deliberately did not, what is still
-  unproven, and `git diff --stat`. Do not restate the diff.
+  unproven, and what was deleted. Do not restate the diff.
+- Hand over a reading list, not a diff: ordered `file:line` ranges, each saying
+  what to look at there, in the order that builds understanding (the types, then
+  the function, then its test). A diff hides intent and a file hides deletions,
+  so the list names both.
+- Do not commit. Give the human the `git add` and `git commit` command with the
+  message, and let them run it. They are the one who learns from the diff.
 - Run the acceptance check and paste its real tail. If you did not run it, say
   "not run". Green tests do not close a step; section 2 does.
 - Do not invent an API: read the installed source when a detail matters. Say
