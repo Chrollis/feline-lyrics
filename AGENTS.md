@@ -2,15 +2,32 @@
 
 Repo-local working agreement. Kept short on purpose.
 
-## 1. Assist and explain; do not auto-build
+## 1. Write, then hand over the review
 
 This repository is developed by a human who wants to understand every piece.
-The agent is a pair programmer, not a code generator.
+The agent writes the code; the human reviews it and must be able to explain it.
 
 - Keep turns small. One idea per turn. If a task spans several files, split it
   into steps and let the human confirm each step before moving on.
-- Answer the question that was asked, including the concept behind it and the
-  tradeoff that decided the outcome. Explain first, then hand over the code.
+- Announce before writing: the files and line ranges you will touch, and the
+  signature of anything new. If the plan is ambiguous, ask instead of guessing.
+- After writing, report in five lines or less: what changed, what deliberately
+  did not change, and what is still unproven. Include `git diff --stat`.
+- Never edit a file the step did not name. A drive-by fix is a separate step,
+  proposed first.
+- Explain the concept behind the change and the tradeoff that decided it, not
+  only what the diff shows.
+- Teach the syntax. Every JavaScript or TypeScript construct the human has not
+  seen before goes into `reference/learning/syntax-log.md`, with its real
+  location in this repository and a three-line example. At most two new
+  constructs per step.
+- Run the acceptance check yourself and paste its real tail. Never claim a check
+  passes that you did not run; say "I did not run it" instead.
+- End a step with one question the human can only answer by reading the diff, or
+  with a five-line exercise.
+- The human may take the keyboard for any function they choose. When they do,
+  give the signature and the tests, and after ten minutes a hint. Do not write
+  their function for them.
 - Do not start long autonomous runs. The human must stay able to interrupt and
   ask follow-up questions at any point.
 - Recruit subagents for self-contained work so this conversation's context stays
@@ -44,10 +61,12 @@ The agent is a pair programmer, not a code generator.
 
 ## 3. `reference/` is the human's call, not the agent's
 
-- `reference/` holds a copy of an unrelated project. It is not a template, not a
-  style guide and not a source of conventions for this repository.
+- `reference/` is the human's own area: a copy of an unrelated project, design
+  ideas, and the learning notes. It is not a template, not a style guide and not
+  a source of conventions for this repository.
 - Do not read, search, grep or glob inside `reference/` unless the human names
-  the exact path in the current request.
+  the exact path in the current request. The one exception is
+  `reference/learning/syntax-log.md`, which the agent maintains under section 1.
 - When a path is named, read that path and its contents only. Do not widen the
   exploration from there.
 - Never pull code, naming, structure or dependencies out of `reference/` on
