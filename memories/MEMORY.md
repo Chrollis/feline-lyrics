@@ -31,10 +31,16 @@ Rules:
   ready.
 - `python/uv.ts` is the only place that runs uv: download the zip from the
   cached copy, unpack `uv.exe`, install the pinned interpreter, rebuild the
-  venv, install packages. 54 tests pass.
+  venv, install packages.
 - Paths are inputs: the toolchain takes `{ cacheDir, servicesDir, backendRoot }`
   from the caller and derives the rest, so the CLI and the app can disagree
   about where things live without the library knowing.
+- `reference/` is gitignored and holds three kinds of thing: `202609/` is this
+  repository's predecessor (the previous AI-built version, same architecture),
+  `202606/` is an earlier Rust + Python attempt, `NicoKaraMaker3/` and
+  `RhythmicaLyrics/` are third-party references. `ideas/` holds designs and
+  `learning/syntax-log.md` is the agent-maintained syntax log, so it is not
+  versioned.
 
 ## Decisions
 
@@ -47,7 +53,10 @@ Rules:
 - Directory roles are lifecycle, not taste: `python/` is an artifact,
   `cache/` is reusable input, scratch work goes to the OS temp directory.
 - Sources are grouped by domain, not by layer, so a helper shared by two tools
-  (tar) has one obvious home instead of an "utils" drawer.
+  has one obvious home instead of an "utils" drawer.
+- 2026-11 `AGENTS.md` is injected into every session, so it carries behaviour
+  only; state, decisions and dead ends live here. A step closes when the human
+  can restate the diff, not when the tests are green.
 - Failures we expect and branch on carry a `ToolchainError` code
   (`domain/reason`) and structured `context`; unexpected ones (spawn ENOENT,
   killed process) stay native, so "the archive is at fault" is a code prefix,

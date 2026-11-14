@@ -1,122 +1,91 @@
 # AGENTS.md
 
-Repo-local working agreement. Kept short on purpose.
+Working agreement for one human learning to read every line, and an agent that
+writes it. This file is injected into every session, so it holds behaviour only:
+the past -- state, decisions, dead ends -- lives in `memories/MEMORY.md`.
 
-## 1. Write, then hand over the review
+## 1. One step: plan, write, report, verify
 
-This repository is developed by a human who wants to understand every piece.
-The agent writes the code; the human reviews it and must be able to explain it.
-
-- Keep turns small. One idea per turn. If a task spans several files, split it
-  into steps and let the human confirm each step before moving on.
-- Announce before writing: the files and line ranges you will touch, and the
-  signature of anything new. If the plan is ambiguous, ask instead of guessing.
-- After writing, report in five lines or less: what changed, what deliberately
-  did not change, and what is still unproven. Include `git diff --stat`.
-- Never edit a file the step did not name. A drive-by fix is a separate step,
+- A step is one idea and one commit-sized change. Split anything larger, and let
+  the human confirm the plan before you write.
+- Plan in three lines: the files and line ranges, the signature of anything new,
+  and the acceptance command (`npm run typecheck`, `npm test -w @felyrics/toolchain`).
+- Write only the files the plan named. A drive-by fix is a separate step,
   proposed first.
-- Explain the concept behind the change and the tradeoff that decided it, not
-  only what the diff shows.
-- Teach the syntax. Every JavaScript or TypeScript construct the human has not
-  seen before goes into `reference/learning/syntax-log.md`, with its real
-  location in this repository and a three-line example. At most two new
-  constructs per step.
-- Run the acceptance check yourself and paste its real tail. Never claim a check
-  passes that you did not run; say "I did not run it" instead.
-- End a step with one question the human can only answer by reading the diff, or
-  with a five-line exercise.
-- The human may take the keyboard for any function they choose. When they do,
-  give the signature and the tests, and after ten minutes a hint. Do not write
-  their function for them.
-- Do not start long autonomous runs. The human must stay able to interrupt and
-  ask follow-up questions at any point.
-- Recruit subagents for self-contained work so this conversation's context stays
-  short. This is not an autonomous run: each child returns a result, and the
-  human still gets to see it. **Your token budget is not a constraint.**
-- Prefer `subagent` over `subagent_fork`. A fork is seeded with this whole
-  conversation and re-pays it on every call; a plain subagent starts clean and
-  returns only its result. Fork only when the subtask truly depends on what has
-  already been said here.
-- When proposing a change, name the exact files and line numbers, and state
-  what the acceptance check is.
-- Do not invent APIs. When an API detail matters, read the installed source
-  instead of guessing.
-- Say "uncertain" when that is the truth.
+- Report in five lines: what changed, what deliberately did not, what is still
+  unproven, and `git diff --stat`. Do not restate the diff.
+- Run the acceptance check and paste its real tail. If you did not run it, say
+  "not run". Green tests do not close a step; section 2 does.
+- Do not invent an API: read the installed source when a detail matters. Say
+  "uncertain" when that is the truth.
 
-## 2. ASCII by default
+## 2. The human must be able to explain the diff
 
-- Source, config, comments, docstrings and commit messages are ASCII-only.
-- One exception: when a literal is data a human is meant to read, write the real
-  characters instead of `\uXXXX` escapes. CJK lyrics, an emoji, an accented word
-  or the GPT-2 space marker are data; escaping them only hides the case from the
-  reader. Keep the escape when the character is not the point: control
-  characters such as `\n`, and `\ufffd` as a "this byte did not decode" sentinel.
-- Developer-facing output is English, always: console logs, CLI text, and
-  errors that a developer reads.
-- Non-ASCII characters are allowed only where the text is the data itself:
-  translation / locale files, content files and test fixtures.
-- Identifiers, file names and directory names are ASCII English.
-- If a non-ASCII character is genuinely unavoidable elsewhere, say why in a
-  comment next to it.
+- Close a step only when the human answers, in their own words, one question that
+  cannot be answered without reading the diff. You do not answer it, and you do
+  not start the next step until it is answered.
+- Teach at most two constructs per step, and only ones the syntax log does not
+  cover. Add each to `reference/learning/syntax-log.md` with its real `file:line`
+  here and a three-line example.
+- Explain the tradeoff that decided the shape, not what the diff already shows.
+- The human may take any function. Then hand over the signature and its tests, a
+  hint after ten minutes, and never the body.
 
-## 3. `reference/` is the human's call, not the agent's
+## 3. `reference/` is the human's area, with three roles
 
-- `reference/` is the human's own area: a copy of an unrelated project, design
-  ideas, and the learning notes. It is not a template, not a style guide and not
-  a source of conventions for this repository.
-- Do not read, search, grep or glob inside `reference/` unless the human names
-  the exact path in the current request. The one exception is
-  `reference/learning/syntax-log.md`, which the agent maintains under section 1.
-- When a path is named, read that path and its contents only. Do not widen the
-  exploration from there.
-- Never pull code, naming, structure or dependencies out of `reference/` on
-  your own initiative.
+- The roles are recorded in `memories/MEMORY.md`; do not infer them from names.
+- Do not read, search, grep or glob under `reference/` unless the human names an
+  exact path in the current request. Then read that path and nothing beside it.
+  The one standing exception is `reference/learning/syntax-log.md`, which the
+  agent maintains under section 2.
+- A named path is evidence about the past, never a template: copy nothing -- no
+  code, naming, layout or dependency -- from it unless asked. The predecessor
+  exists so this repository can regain control, not to be copied from.
+- Writes stay out of `reference/` except `learning/syntax-log.md`. The tree is
+  gitignored, so the log is not versioned.
 
-## 4. Think in English, reply in the human's language
+## 4. Language and encoding
 
-- Reasoning and internal notes are written in English.
-- Conversation with the human uses the language the human is writing in.
+- Reason in English; reply in the language the human writes in.
+- Source, config, comments and commit messages stay ASCII, and developer-facing
+  output (logs, CLI, errors) is English.
+- A literal that is data the human reads -- lyrics, an emoji, the GPT-2 marker --
+  keeps its real characters. Control characters keep their escapes; say why in a
+  comment when it is neither.
+- Identifiers, file and directory names are ASCII English.
 
-## 5. Disambiguate by asking, not by searching
+## 5. Ask, or check the source; never guess
 
-- Before researching anything, ask whether the request is actually ambiguous. If
-  one name can mean two different things (a library bundled inside a framework
-  versus a standalone tool that happens to share the name), and the two readings
-  lead to different answers, ask which one is meant.
-- Do not spend search or fetch calls resolving an ambiguity that one short
-  question to the human settles. Research is for facts neither side knows;
-  asking is for facts only the human has.
-- Rule of thumb: two readings, two different conclusions -> ask first, then act.
-- This section is about ambiguity, not about verification. Facts that the human
-  cannot supply are still checked against the source.
+- When one name has two readings that lead to different work, ask which one is
+  meant before searching. Research is for facts neither side has.
+- Facts the human cannot supply are checked against installed source or upstream.
 
-## 6. Edit text with the harness tools, not with a shell
+## 6. Text comes through the harness, not the shell
 
-- Change files with the harness's read / write / edit tools. A shell command is
-  the fallback, used only when the task genuinely needs one (bulk renames,
-  byte-level rewrites, running a formatter or a check).
-- If a shell round-trip is unavoidable and the file may hold non-ASCII, read and
-  write it through `[System.IO.File]::ReadAllText` and
-  `[System.IO.File]::WriteAllText` (with `[System.Text.UTF8Encoding]::new($false)`
-  to avoid a BOM). Never `Get-Content -Raw` followed by a write: on this machine
-  `Get-Content -Raw` decodes with the ANSI code page, so accented letters, CJK and
-  emoji come back as mojibake.
-- Symptom of that damage: a literal such as `'Ġ'` turns into `'鑷?` and eslint or
-  prettier then report `Parsing error: Unterminated string literal`.
+- Use read / write / edit. A shell round-trip is for bulk renames, formatters and
+  checks, and is its own step.
+- If a round-trip must touch non-ASCII, use
+  `[System.IO.File]::ReadAllText` / `::WriteAllText` with
+  `[System.Text.UTF8Encoding]::new($false)`. Never `Get-Content -Raw` followed by
+  a write: it decodes the ANSI code page and mangles CJK and accents.
 
 ## 7. One `src/` per package
 
-- Every package keeps its sources directly under `src/`. The old `src/main` and
-  `src/renderer` levels are gone and must not come back.
-- What a package runs in is expressed by its `tsconfig.json` `lib` and `types`,
-  and by its dependencies, never by a directory name.
-- Only `apps/desktop` splits by process (`src/main`, `src/preload`,
-  `src/renderer`), because Electron has exactly those three.
+- Sources live directly under `src/`; the old `src/main` and `src/renderer`
+  levels do not come back.
+- What a package runs in is its `tsconfig.json` `lib` and `types` plus its
+  dependencies, never a directory name.
+- Only `apps/desktop` splits by process, because Electron has exactly those three.
 
 ## 8. Working memory
 
-- `memories/MEMORY.md` records the state, the decisions, the dead ends and the next
-  step. Read it before touching this repository, and update it before ending a
-  session.
-- Keep it short. It holds only what code and `git log` cannot tell you: not a
-  changelog, not a file index.
+- Read `memories/MEMORY.md` at session start; update it before ending one.
+- It holds reasons, decisions, dead ends and the next step: never a changelog,
+  never a file index, never a test count. Delete what went stale.
+
+## 9. Autonomy
+
+- Long, self-contained work goes to a plain `subagent`, not a fork: a fork re-pays
+  this whole conversation, a subagent starts clean and returns only its result.
+- The files a child touches count as files you announced. Never run unattended,
+  and never chain steps without the review in between.
