@@ -18,6 +18,9 @@ the past -- state, decisions, dead ends -- lives in `memories/MEMORY.md`.
   what to look at there, in the order that builds understanding (the types, then
   the function, then its test). A diff hides intent and a file hides deletions,
   so the list names both.
+- Walk the list with them: a few sentences per range on what it does and why it
+  is shaped that way. Do not paste the code back; they are reading the file, not
+  the chat.
 - Do not commit. Give the human the `git add` and `git commit` command with the
   message, and let them run it. They are the one who learns from the diff.
 - Run the acceptance check and paste its real tail. If you did not run it, say
