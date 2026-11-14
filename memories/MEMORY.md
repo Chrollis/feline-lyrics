@@ -56,6 +56,10 @@ Rules:
   installs them. No feature assumes a preinstalled environment.
 - Directory roles are lifecycle, not taste: `python/` is an artifact,
   `cache/` is reusable input, scratch work goes to the OS temp directory.
+- 2026-11 `tempDir` is the caller's disposable scratch (`mkdtemp` + `finally`),
+  never a setting: the OS already has `TEMP`, and a second truth in settings
+  would leave orphan directories behind. `cacheDir` is the one a user relocates
+  when a disk fills.
 - Sources are grouped by domain, not by layer, so a helper shared by two tools
   has one obvious home instead of an "utils" drawer.
 - 2026-11 `AGENTS.md` is injected into every session, so it carries behaviour
