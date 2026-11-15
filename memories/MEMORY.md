@@ -39,6 +39,9 @@ Rules:
 - `python/doctor.ts` answers the other question -- is this backend usable right
   now? It runs both binaries, reads the `.pth` and the marker, and returns a
   report the CLI prints and the app can render; nothing is written.
+- `services/felyrics/` is the backend's first process: `python -m felyrics`
+  answers one JSON line per request on stdio, with `ping` as the only method.
+  The protocol, not the feature, is what exists today.
 - Paths are inputs: the toolchain takes `{ cacheDir, servicesDir, backendRoot }`
   from the caller and derives the rest, so the CLI and the app can disagree
   about where things live without the library knowing.
@@ -106,6 +109,11 @@ Rules:
   is the fast path in China once its cache is warm.
 - 2026-11 `PYTHON_BUILD` pins the pbs build date because uv 0.13.8's manifest
   lists exactly one build for 3.12.15; the date is data, not a preference.
+- 2026-11 stdout on the backend is the protocol channel and nothing else: one
+  JSON object per line, diagnostics on stderr, both streams reconfigured to
+  UTF-8 because Windows consoles default to a legacy code page. A handler that
+  raises answers `internal/error` and logs its traceback to stderr, so one bad
+  request cannot end a session that is meant to run for hours.
 
 ## Dead ends
 
