@@ -20,7 +20,8 @@ export { download, type DownloadOptions } from './python/download.js';
 export {
   MIN_DOWNLOAD_BYTES,
   PACKAGE_INDEX_URL,
-  PYTHON_INSTALL_MIRROR,
+  PYTHON_BUILD,
+  PYTHON_INSTALL_MIRRORS,
   PYTHON_VERSION,
   SUPPORTED_TARGETS,
   TARGETS,
@@ -33,6 +34,15 @@ export {
 } from './python/target.js';
 export { PTH_FILENAME, writePth } from './python/pth.js';
 export { provision, type ProvisionOptions } from './python/provision.js';
+export {
+  doctor,
+  type BinaryRun,
+  type DoctorCheck,
+  type DoctorOptions,
+  type DoctorReport,
+  type RunBinary,
+} from './python/doctor.js';
+export { withTempDir } from './layout/temp.js';
 export {
   extractZip,
   listEntries,
