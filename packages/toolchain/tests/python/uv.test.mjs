@@ -91,6 +91,7 @@ test('drops inherited uv, pip and python settings', () => {
       cacheDir: 'cache',
       pythonInstallDir: 'python',
       installMirror: 'mirror',
+      pythonBuild: '20261021',
       packageIndex: 'index',
     },
     {
@@ -106,6 +107,7 @@ test('drops inherited uv, pip and python settings', () => {
   assert.equal(env.PATH, 'keep');
   assert.equal(env.UV_PYTHON_INSTALL_DIR, 'python');
   assert.equal(env.UV_CACHE_DIR, 'cache');
+  assert.equal(env.UV_PYTHON_CPYTHON_BUILD, '20261021');
   assert.equal('PYTHONPATH' in env, false);
   assert.equal('VIRTUAL_ENV' in env, false);
   assert.equal('PIP_INDEX_URL' in env, false);
@@ -166,6 +168,49 @@ test('reports a killed command without inventing a status', async () => {
 
       return true;
     });
+  });
+});
+
+test('falls through to the next python mirror', async () => {
+  await withRoot(async (ctx) => {
+    const calls = [];
+    let attempt = 0;
+    const run = async (file, args, options) => {
+      calls.push({ file, args, options });
+      attempt += 1;
+
+      return attempt === 1
+        ? { status: 1, stdout: '', stderr: 'error: connection reset' }
+        : { status: 0, stdout: '', stderr: '' };
+    };
+
+    await installPython({ ...ctx, run });
+
+    assert.equal(calls.length, 2);
+    assert.match(calls[0].options.env.UV_PYTHON_INSTALL_MIRROR, /ustc/);
+    assert.match(calls[1].options.env.UV_PYTHON_INSTALL_MIRROR, /github/);
+    assert.equal(calls[0].options.env.UV_PYTHON_CPYTHON_BUILD, '20261021');
+  });
+});
+
+test('throws the last mirror failure when every mirror fails', async () => {
+  await withRoot(async (ctx) => {
+    const run = async () => ({
+      status: 1,
+      stdout: '',
+      stderr: 'error: no such build',
+    });
+
+    await assert.rejects(
+      installPython({ ...ctx, run }, ['a', 'b']),
+      (error) => {
+        assert.equal(error.code, 'uv/install-failed');
+        assert.equal(error.context.status, 1);
+        assert.match(error.message, /no such build/);
+
+        return true;
+      },
+    );
   });
 });
 

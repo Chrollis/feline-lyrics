@@ -50,6 +50,7 @@ export interface UvEnvDirs {
   readonly cacheDir: string;
   readonly pythonInstallDir: string;
   readonly installMirror: string;
+  readonly pythonBuild: string;
   readonly packageIndex: string;
 }
 
@@ -72,6 +73,7 @@ export function buildUvEnv(
   env.UV_CACHE_DIR = dirs.cacheDir;
   env.UV_PYTHON_INSTALL_DIR = dirs.pythonInstallDir;
   env.UV_PYTHON_INSTALL_MIRROR = dirs.installMirror;
+  env.UV_PYTHON_CPYTHON_BUILD = dirs.pythonBuild;
   env.UV_PYTHON_PREFERENCE = 'only-managed';
   env.UV_PYTHON_DOWNLOADS = 'manual';
   env.UV_DEFAULT_INDEX = dirs.packageIndex;

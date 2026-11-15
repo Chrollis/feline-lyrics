@@ -15,9 +15,10 @@ import { extractZip } from '../process/zip.js';
 import { download } from './download.js';
 import {
   MIN_DOWNLOAD_BYTES,
-  PYTHON_VERSION,
-  PYTHON_INSTALL_MIRROR,
   PACKAGE_INDEX_URL,
+  PYTHON_BUILD,
+  PYTHON_INSTALL_MIRRORS,
+  PYTHON_VERSION,
   UV_VERSION,
   uvDownloadUrl,
   type PlatformTarget,
@@ -144,22 +145,29 @@ function failure(
   );
 }
 
-function runOptions(ctx: UvContext): UvRunOptions {
+function runOptions(
+  ctx: UvContext,
+  installMirror: string = PYTHON_INSTALL_MIRRORS[0],
+): UvRunOptions {
   return {
-    env: uvEnv(ctx),
+    env: uvEnv(ctx, installMirror),
     ...(ctx.onOutput ? { onOutput: ctx.onOutput } : {}),
     ...(ctx.signal ? { signal: ctx.signal } : {}),
   };
 }
 
-export function uvEnv(ctx: UvContext): NodeJS.ProcessEnv {
+export function uvEnv(
+  ctx: UvContext,
+  installMirror: string = PYTHON_INSTALL_MIRRORS[0],
+): NodeJS.ProcessEnv {
   const backend = backendPaths(ctx.paths.backendRoot);
 
   return buildUvEnv({
     tempDir: ctx.tempDir,
     cacheDir: cachePaths(ctx.paths.cacheDir).uv,
     pythonInstallDir: backend.pythonDir,
-    installMirror: PYTHON_INSTALL_MIRROR,
+    installMirror,
+    pythonBuild: PYTHON_BUILD,
     packageIndex: PACKAGE_INDEX_URL,
   });
 }
@@ -235,7 +243,10 @@ export async function downloadUv(
   return backend.uvExe;
 }
 
-export async function installPython(ctx: UvContext): Promise<void> {
+export async function installPython(
+  ctx: UvContext,
+  mirrors: readonly string[] = PYTHON_INSTALL_MIRRORS,
+): Promise<void> {
   const backend = backendPaths(ctx.paths.backendRoot);
   const run = ctx.run ?? runUv;
   const args = [
@@ -245,12 +256,30 @@ export async function installPython(ctx: UvContext): Promise<void> {
     '--no-bin',
     '--no-registry',
   ];
+  let last: ToolchainError | undefined;
 
-  const result = await run(backend.uvExe, args, runOptions(ctx));
+  // A mirror caches GitHub releases rather than duplicating them, so a fresh tag
+  // can be missing for days. Falling through costs one failed attempt and gets
+  // the same file from the next host, not a different install.
+  for (const mirror of mirrors) {
+    const result = await run(backend.uvExe, args, runOptions(ctx, mirror));
 
-  if (result.status !== 0) {
-    throw failure('uv/install-failed', 'python install', result);
+    if (result.status === 0) {
+      return;
+    }
+
+    last = failure('uv/install-failed', 'python install', result);
   }
+
+  if (last === undefined) {
+    throw new ToolchainError(
+      'uv/install-failed',
+      'no python mirror is configured',
+      { command: 'uv python install' },
+    );
+  }
+
+  throw last;
 }
 
 /**
