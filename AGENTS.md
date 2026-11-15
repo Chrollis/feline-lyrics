@@ -21,6 +21,10 @@ the past -- state, decisions, dead ends -- lives in `memories/MEMORY.md`.
 - Walk the list with them: a few sentences per range on what it does and why it
   is shaped that way. Do not paste the code back; they are reading the file, not
   the chat.
+- Write every path as a link the harness can open:
+  `[apps/desktop/src/main/index.ts:17-19](apps/desktop/src/main/index.ts#L17-L19)`,
+  and a range ends `#L24-L30`. A bare path makes the human search for the file
+  that was just named.
 - Do not commit. Give the human the `git add` and `git commit` command with the
   message, and let them run it. They are the one who learns from the diff.
 - Run the acceptance check and paste its real tail. If you did not run it, say
