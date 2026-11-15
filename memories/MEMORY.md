@@ -36,6 +36,9 @@ Rules:
   `downloadUv`, `installPython`, `createVenv`, `writePth`, `installPackages`,
   then the marker. `pth.ts` writes one absolute line into the venv's
   site-packages, because a relative path would follow the working directory.
+- `python/doctor.ts` answers the other question -- is this backend usable right
+  now? It runs both binaries, reads the `.pth` and the marker, and returns a
+  report the CLI prints and the app can render; nothing is written.
 - Paths are inputs: the toolchain takes `{ cacheDir, servicesDir, backendRoot }`
   from the caller and derives the rest, so the CLI and the app can disagree
   about where things live without the library knowing.
@@ -97,6 +100,12 @@ Rules:
   `UV_*` and `PIP_*` variable is dropped first, so a machine with its own uv
   0.11 (this one has it in PATH) cannot pick the interpreter or the index. The
   backend's own `uv.exe` is the only uv the toolchain calls.
+- 2026-11 python builds come from a mirror list, USTC first and GitHub second:
+  a brand-new pbs tag can time out on the mirror while GitHub serves it (the
+  20261021 asset did exactly that, 14 s on GitHub). USTC stays first because it
+  is the fast path in China once its cache is warm.
+- 2026-11 `PYTHON_BUILD` pins the pbs build date because uv 0.13.8's manifest
+  lists exactly one build for 3.12.15; the date is data, not a preference.
 
 ## Dead ends
 
