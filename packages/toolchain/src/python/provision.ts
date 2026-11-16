@@ -3,6 +3,7 @@ import { resolve } from 'node:path';
 import type { ToolchainPaths } from '../layout/paths.js';
 import { backendPaths } from '../layout/paths.js';
 import { writePth } from './pth.js';
+import { requirementsFingerprint } from './requirements.js';
 import { isReady, writeReadyMarker, type ReadyMarker } from './ready.js';
 import {
   PYTHON_VERSION,
@@ -47,10 +48,12 @@ export async function provision(
   options: ProvisionOptions,
 ): Promise<ReadyMarker> {
   const backend = backendPaths(options.paths.backendRoot);
+  const requirements = options.requirements ?? [];
   const marker: ReadyMarker = {
     uv: UV_VERSION,
     python: PYTHON_VERSION,
     services: resolve(options.paths.servicesDir),
+    requirements: requirementsFingerprint(requirements),
   };
 
   if (!options.force && (await isReady(backend, marker))) {
@@ -71,7 +74,7 @@ export async function provision(
   await installPython(ctx);
   await createVenv(ctx);
   writePth(options.paths, backend);
-  await installPackages(ctx, options.requirements ?? []);
+  await installPackages(ctx, requirements);
   await writeReadyMarker(backend, marker);
 
   return marker;

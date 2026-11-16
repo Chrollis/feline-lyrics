@@ -97,6 +97,7 @@ test('provisions in the order that leaves the marker last', async () => {
       uv: marker.uv,
       python: marker.python,
       services: marker.services,
+      requirements: 'av==15.0.0',
     });
     assert.equal(
       readFileSync(join(backend.sitePackages, PTH_FILENAME), 'utf8'),

@@ -25,3 +25,15 @@ export function readRequirements(servicesDir: string): string[] {
 export function requirementModule(requirement: string): string {
   return requirement.split(/[<>=!~[ ;]/)[0] ?? requirement;
 }
+
+/**
+ * The marker's view of the requirement list: the installed set is only valid for
+ * the list it was installed from, so a changed file must invalidate the marker.
+ * Plain joined text rather than a hash -- it is short and a human can read the
+ * difference straight out of `.ready`.
+ */
+export function requirementsFingerprint(
+  requirements: readonly string[],
+): string {
+  return requirements.join('\n');
+}

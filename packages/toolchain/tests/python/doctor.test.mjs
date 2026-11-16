@@ -41,6 +41,7 @@ async function withBackend(fn) {
     uv: UV_VERSION,
     python: PYTHON_VERSION,
     services: resolve(toolchain.servicesDir),
+    requirements: 'av==19.0.2\nnumpy==2.5.5',
   });
 
   try {
@@ -170,6 +171,7 @@ test('fails when the marker records another services directory', async () => {
       uv: UV_VERSION,
       python: PYTHON_VERSION,
       services: 'C:\\elsewhere',
+      requirements: 'av==19.0.2\nnumpy==2.5.5',
     });
 
     const report = await doctor(toolchain, { run: fakeRun().run });
