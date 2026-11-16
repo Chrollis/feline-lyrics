@@ -129,7 +129,12 @@ Rules:
 
 - 2026-11 Electron exited at startup with `0x80000003` and printed nothing.
   The cause was the workspace directory carrying a Low integrity label, not
-  the Electron version. Check with `icacls <dir> | findstr Mandatory`.
+  the Electron version. Check with `icacls . | findstr Mandatory`; repair it with
+  `npm run unblock` (removes the sandbox deny ACEs and sets the label to Medium).
+- 2026-11 `ELECTRON_RUN_AS_NODE=1` in the harness shell makes `electron` run as
+  plain node, so the main bundle dies on `does not provide an export named
+  'BrowserWindow'`. Unset it before `npm run dev`; the human's own terminal does
+  not have it.
 - 2026-11 `npm install` failed in the sandbox with EPERM writing the default
   npm cache under AppData; passing `--cache` inside the temp directory fixed it.
 - 2026-11 The stall-timeout test hung forever. The fake fetch ignored the abort
