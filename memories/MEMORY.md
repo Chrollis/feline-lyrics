@@ -112,6 +112,11 @@ Rules:
 - 2026-11 execa runs long commands (`uv python install` takes minutes) so the
   Electron main process never blocks. The long-lived Python service will still
   use `child_process.spawn`, which is what an interactive stdio session needs.
+- 2026-11 the root `npm run build` builds the toolchain first, through npm's
+  `prebuild` hook, because the desktop main bundle keeps `@felyrics/toolchain`
+  external: a stale `packages/toolchain/out` is then silently shipped and its old
+  code runs. `dev` deliberately has no `predev`, so a fast restart does not
+  rebuild the toolchain.
 - 2026-11 uv 0.13.8's frozen list does include CPython 3.12.15: installing it
   through the USTC mirror took about 80 seconds for 21 MB. uv and the Python
   builds come from the USTC mirror, packages from Tsinghua. Pass
