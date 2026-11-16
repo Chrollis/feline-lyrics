@@ -37,6 +37,7 @@ export {
   REQUIREMENTS_FILENAME,
   readRequirements,
   requirementModule,
+  requirementsFingerprint,
 } from './python/requirements.js';
 export { provision, type ProvisionOptions } from './python/provision.js';
 export {

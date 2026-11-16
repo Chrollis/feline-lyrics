@@ -10,6 +10,7 @@ import {
   readRequirements,
   REQUIREMENTS_FILENAME,
   requirementModule,
+  requirementsFingerprint,
 } from './requirements.js';
 import { PYTHON_VERSION, UV_VERSION } from './target.js';
 
@@ -139,6 +140,7 @@ export async function doctor(
   const services = resolve(toolchain.servicesDir);
   const run = options.run ?? runBinary;
   const checks: DoctorCheck[] = [];
+  let requirements: readonly string[] = [];
 
   checks.push(
     checkVersion('uv', backend.uvExe, ['--version'], UV_VERSION, run),
@@ -152,16 +154,12 @@ export async function doctor(
   );
 
   if (options.requirements) {
-    checks.push(checkDependencies(backend, options.requirements, run));
+    requirements = options.requirements;
+    checks.push(checkDependencies(backend, requirements, run));
   } else {
     try {
-      checks.push(
-        checkDependencies(
-          backend,
-          readRequirements(toolchain.servicesDir),
-          run,
-        ),
-      );
+      requirements = readRequirements(toolchain.servicesDir);
+      checks.push(checkDependencies(backend, requirements, run));
     } catch {
       checks.push({
         label: 'dependencies',
@@ -190,6 +188,7 @@ export async function doctor(
     uv: UV_VERSION,
     python: PYTHON_VERSION,
     services,
+    requirements: requirementsFingerprint(requirements),
   });
 
   checks.push({

@@ -16,6 +16,7 @@ const MARKER = {
   uv: '0.13.8',
   python: '3.12.15',
   services: 'C:\\app\\services',
+  requirements: 'av==19.0.2\nnumpy==2.5.5',
 };
 
 async function withBackend(fn) {
@@ -80,6 +81,14 @@ test('rejects a different services directory', async () => {
       markerMatches({ ...MARKER, services: 'D:\\other\\services' }, MARKER),
       false,
     );
+  });
+});
+
+test('rejects a different requirements set', async () => {
+  await withBackend(async (paths) => {
+    await writeReadyMarker(paths, { ...MARKER, requirements: 'av==19.0.1' });
+
+    assert.equal(await isReady(paths, MARKER), false);
   });
 });
 

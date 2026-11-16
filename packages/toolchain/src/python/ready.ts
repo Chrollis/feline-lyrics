@@ -13,6 +13,12 @@ export interface ReadyMarker {
   readonly python: string;
   /** The services directory the .pth points at, as an absolute path. */
   readonly services: string;
+  /**
+   * The requirement lines the venv was built from. Editing requirements.txt
+   * must invalidate the marker, or `--setup` would keep short-circuiting while
+   * the venv stays behind.
+   */
+  readonly requirements: string;
 }
 
 function isReadyMarker(value: unknown): value is ReadyMarker {
@@ -25,7 +31,8 @@ function isReadyMarker(value: unknown): value is ReadyMarker {
   return (
     typeof record.uv === 'string' &&
     typeof record.python === 'string' &&
-    typeof record.services === 'string'
+    typeof record.services === 'string' &&
+    typeof record.requirements === 'string'
   );
 }
 
@@ -57,7 +64,8 @@ export function markerMatches(
     marker !== null &&
     marker.uv === expected.uv &&
     marker.python === expected.python &&
-    marker.services === expected.services
+    marker.services === expected.services &&
+    marker.requirements === expected.requirements
   );
 }
 
