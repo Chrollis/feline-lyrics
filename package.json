@@ -21,6 +21,7 @@
     "typecheck": "npm run typecheck --workspaces --if-present",
     "lint": "eslint .",
     "format": "prettier --write .",
+    "unblock": "node scripts/unblock.mjs",
     "format:check": "prettier --check ."
   },
   "devDependencies": {
