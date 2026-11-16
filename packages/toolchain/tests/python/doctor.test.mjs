@@ -9,6 +9,7 @@ import {
   doctor,
   PTH_FILENAME,
   PYTHON_VERSION,
+  REQUIREMENTS_FILENAME,
   UV_VERSION,
   writeReadyMarker,
 } from '../../out/index.js';
@@ -22,6 +23,11 @@ async function withBackend(fn) {
   };
   const backend = backendPaths(toolchain.backendRoot);
 
+  mkdirSync(toolchain.servicesDir, { recursive: true });
+  writeFileSync(
+    join(toolchain.servicesDir, REQUIREMENTS_FILENAME),
+    'av==19.0.2\nnumpy==2.5.5\n',
+  );
   mkdirSync(dirname(backend.uvExe), { recursive: true });
   mkdirSync(dirname(backend.venvPython), { recursive: true });
   writeFileSync(backend.uvExe, '');
@@ -75,12 +81,49 @@ test('reports every check when the backend is healthy', async () => {
     assert.equal(report.ok, true);
     assert.deepEqual(
       report.checks.map((check) => check.label),
-      ['uv', 'python', 'pth', 'marker'],
+      ['uv', 'python', 'dependencies', 'pth', 'marker'],
     );
+    assert.deepEqual(byLabel(report, 'dependencies'), {
+      label: 'dependencies',
+      ok: true,
+      detail: 'av, numpy',
+    });
     assert.deepEqual(byLabel(report, 'marker'), {
       label: 'marker',
       ok: true,
       detail: 'matches',
+    });
+  });
+});
+
+test('fails when a declared dependency cannot be imported', async () => {
+  await withBackend(async (toolchain) => {
+    const { run: version } = fakeRun();
+    const run = (file, args) =>
+      args[0] === '-c'
+        ? { status: 1, output: "ModuleNotFoundError: No module named 'av'" }
+        : version(file, args);
+
+    const report = await doctor(toolchain, { run });
+    const dependencies = byLabel(report, 'dependencies');
+
+    assert.equal(report.ok, false);
+    assert.equal(dependencies.ok, false);
+    assert.match(dependencies.detail, /No module named 'av'/);
+  });
+});
+
+test('accepts a backend with nothing to import', async () => {
+  await withBackend(async (toolchain) => {
+    const report = await doctor(toolchain, {
+      run: fakeRun().run,
+      requirements: [],
+    });
+
+    assert.deepEqual(byLabel(report, 'dependencies'), {
+      label: 'dependencies',
+      ok: true,
+      detail: 'none declared',
     });
   });
 });

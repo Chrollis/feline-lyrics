@@ -33,6 +33,11 @@ export {
   type TargetKey,
 } from './python/target.js';
 export { PTH_FILENAME, writePth } from './python/pth.js';
+export {
+  REQUIREMENTS_FILENAME,
+  readRequirements,
+  requirementModule,
+} from './python/requirements.js';
 export { provision, type ProvisionOptions } from './python/provision.js';
 export {
   doctor,

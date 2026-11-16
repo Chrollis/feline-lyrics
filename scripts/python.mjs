@@ -44,9 +44,7 @@ async function setup(toolchain) {
     toolchain.provision({
       paths,
       tempDir,
-      // Services declare their requirements; until services/pyproject.toml
-      // exists, there is nothing to install.
-      requirements: [],
+      requirements: toolchain.readRequirements(paths.servicesDir),
       onOutput: (chunk, stream) => {
         (stream === 'stdout' ? process.stdout : process.stderr).write(chunk);
       },
