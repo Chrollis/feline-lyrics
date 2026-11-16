@@ -13,6 +13,9 @@ Rules:
   alone does not.
 - Date the entries that can go stale, and delete them when they do.
 - No code blocks longer than three lines. The code is in the code.
+- When this file passes ~250 lines, move settled entries to
+  `memories/archive/<yyyy-mm>.md` and keep a pointer. This is a working set,
+  not a history.
 
 ## State
 
@@ -64,9 +67,21 @@ Rules:
 - Portable Python (python-build-standalone) instead of the system Python: a
   fresh machine needs no prerequisites, and the version is pinned by us.
 - The Python backend is one long-lived process speaking JSON lines on stdio.
-  Not a web socket, not one process per call.
+  Not a web socket, not one process per call. Since 2026-11 it is one process
+  per venv: core plugins share the main venv's process, a third-party plugin gets
+  its own process, and the host routes a method to whichever process owns it.
 - Plugin-declared dependencies: a feature asks for packages and the toolchain
   installs them. No feature assumes a preinstalled environment.
+- 2026-11 plugins run their frontend code in `utilityProcess` from day one, so
+  their UI is limited to declarative contributions the host renders. Rendering
+  React from a plugin would have made the later move a breaking change for every
+  plugin; a custom panel gets a sandboxed iframe instead.
+- 2026-11 no hot reload for plugins: the host gives each one a `ctx.storage`
+  key-value space and a restart, because in-process state cannot be migrated.
+  Anything in flight is cancelled on restart, so work must be re-entrant or
+  checkpointed.
+- 2026-11 plugins never import each other. Shared capability is a host service
+  (`ctx.services.get`), so load order does not matter and unload has no graph.
 - Directory roles are lifecycle, not taste: `python/` is an artifact,
   `cache/` is reusable input, scratch work goes to the OS temp directory.
 - 2026-11 `tempDir` is the caller's disposable scratch (`mkdtemp` + `finally`),
@@ -161,8 +176,11 @@ Rules:
 
 ## Next
 
-- The plugin system is the next discussion; decisions so far live in
-  `reference/ideas/plugin-system.md` (protocol is the contract, one venv per
-  plugin, install-time prompt).
-- Then the first real backend feature: lyrics parsing, and the timing pipeline
-  after it.
+- The toolchain is one step from done: port audio/video decoding into
+  `services/felyrics/media/` and wire a dependency declaration into `provision`,
+  then leave the toolchain alone.
+- After that, two Python plugins: annotate/tokenize (pure CPU, light) and
+  align/separate (`stable-ts[fw]` CPU + `demucs-infer`/torch with CPU or CUDA,
+  heavy and install-time optional). Nothing is bundled, so the heavy half can be
+  an on-demand install into its own venv.
+- Then the first real feature: lyrics parsing, and the timing pipeline after it.
