@@ -40,6 +40,9 @@ Rules:
   responses with requests, stdout is split into lines only after `StringDecoder`
   decodes a chunk, stderr never reaches the protocol, and a dead process rejects
   whatever is still pending.
+- The Electron main process owns one backend (`apps/desktop/src/main/backend.ts`):
+  spawned on first ping, stopped by closing stdin, paths resolved from the repo in
+  development and from `userData`/`resources` when packaged.
 - `python/doctor.ts` answers the other question -- is this backend usable right
   now? It runs both binaries, reads the `.pth` and the marker, and returns a
   report the CLI prints and the app can render; nothing is written.
@@ -153,8 +156,8 @@ Rules:
 
 ## Next
 
-- Wire `startService` into the Electron main process: one long-lived backend per
-  app, spawned against `python/venv/Scripts/python.exe`, reached from the
-  renderer through preload and IPC.
+- The plugin system is the next discussion; decisions so far live in
+  `reference/ideas/plugin-system.md` (protocol is the contract, one venv per
+  plugin, install-time prompt).
 - Then the first real backend feature: lyrics parsing, and the timing pipeline
   after it.
