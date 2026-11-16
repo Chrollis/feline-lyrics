@@ -3,9 +3,14 @@ import { existsSync, readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 
 import type { ToolchainPaths } from '../layout/paths.js';
-import { backendPaths } from '../layout/paths.js';
+import { backendPaths, type BackendPaths } from '../layout/paths.js';
 import { PTH_FILENAME } from './pth.js';
 import { isReady, readReadyMarker } from './ready.js';
+import {
+  readRequirements,
+  REQUIREMENTS_FILENAME,
+  requirementModule,
+} from './requirements.js';
 import { PYTHON_VERSION, UV_VERSION } from './target.js';
 
 /** One line of the report: what was checked, whether it held, and why. */
@@ -31,6 +36,8 @@ export type RunBinary = (file: string, args: readonly string[]) => BinaryRun;
 
 export interface DoctorOptions {
   readonly run?: RunBinary;
+  /** Defaults to `services/requirements.txt`; tests pass a list instead. */
+  readonly requirements?: readonly string[];
 }
 
 function runBinary(file: string, args: readonly string[]): BinaryRun {
@@ -80,6 +87,45 @@ function checkVersion(
 }
 
 /**
+ * Importing is the only honest test of "is this installed": `uv pip list` reports
+ * what the metadata claims, while an import runs the code the backend will run.
+ */
+function checkDependencies(
+  backend: BackendPaths,
+  requirements: readonly string[],
+  run: RunBinary,
+): DoctorCheck {
+  const modules = [...new Set(requirements.map(requirementModule))];
+
+  if (modules.length === 0) {
+    return { label: 'dependencies', ok: true, detail: 'none declared' };
+  }
+
+  if (!existsSync(backend.venvPython)) {
+    return {
+      label: 'dependencies',
+      ok: false,
+      detail: `missing ${backend.venvPython}`,
+    };
+  }
+
+  const result = run(backend.venvPython, [
+    '-c',
+    `import ${modules.join(', ')}`,
+  ]);
+
+  if (result.error || result.status !== 0) {
+    return {
+      label: 'dependencies',
+      ok: false,
+      detail: result.output || result.error || 'import failed',
+    };
+  }
+
+  return { label: 'dependencies', ok: true, detail: modules.join(', ') };
+}
+
+/**
  * Answers "can this backend be used right now", not "should it be rebuilt".
  * The marker alone cannot: it is a file, so it can be copied, rolled back or
  * moved with the repository. Running the binaries and reading the `.pth` is the
@@ -104,6 +150,26 @@ export async function doctor(
       run,
     ),
   );
+
+  if (options.requirements) {
+    checks.push(checkDependencies(backend, options.requirements, run));
+  } else {
+    try {
+      checks.push(
+        checkDependencies(
+          backend,
+          readRequirements(toolchain.servicesDir),
+          run,
+        ),
+      );
+    } catch {
+      checks.push({
+        label: 'dependencies',
+        ok: false,
+        detail: `missing ${join(toolchain.servicesDir, REQUIREMENTS_FILENAME)}`,
+      });
+    }
+  }
 
   const pth = join(backend.sitePackages, PTH_FILENAME);
 
