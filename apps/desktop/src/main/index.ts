@@ -1,6 +1,8 @@
 import { app, BrowserWindow, ipcMain } from 'electron';
 import { join } from 'node:path';
 
+import { pingBackend, shutdownBackend } from './backend.js';
+
 function createWindow(): void {
   const win = new BrowserWindow({
     width: 960,
@@ -43,3 +45,13 @@ app.on('window-all-closed', () => {
 });
 
 ipcMain.handle('ping', () => 'pong');
+
+ipcMain.handle('backend:ping', () => pingBackend());
+
+/**
+ * Closing stdin is how the backend learns to stop: its read loop ends on EOF, so
+ * the process exits on its own instead of being killed mid-write.
+ */
+app.on('before-quit', () => {
+  void shutdownBackend();
+});

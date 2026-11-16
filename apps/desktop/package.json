@@ -12,6 +12,9 @@
     "preview": "electron-vite preview",
     "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p src/renderer/tsconfig.json"
   },
+  "dependencies": {
+    "@felyrics/toolchain": "*"
+  },
   "devDependencies": {
     "@types/node": "^26.6.6",
     "@types/react": "^19.3.0",
