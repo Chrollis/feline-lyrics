@@ -36,6 +36,10 @@ Rules:
   `downloadUv`, `installPython`, `createVenv`, `writePth`, `installPackages`,
   then the marker. `pth.ts` writes one absolute line into the venv's
   site-packages, because a relative path would follow the working directory.
+- `python/service.ts` is the protocol client: one spawn, numeric ids pair
+  responses with requests, stdout is split into lines only after `StringDecoder`
+  decodes a chunk, stderr never reaches the protocol, and a dead process rejects
+  whatever is still pending.
 - `python/doctor.ts` answers the other question -- is this backend usable right
   now? It runs both binaries, reads the `.pth` and the marker, and returns a
   report the CLI prints and the app can render; nothing is written.
@@ -75,6 +79,9 @@ Rules:
   (`domain/reason`) and structured `context`; unexpected ones (spawn ENOENT,
   killed process) stay native, so "the archive is at fault" is a code prefix,
   not a class.
+- 2026-11 the service client has no restart policy: a backend that dies is a
+  decision for its owner, so the client rejects the pending requests and names
+  the exit code instead of respawning behind the caller's back.
 - 2026-11 av no longer needs an lgpl FFmpeg: the backend is not shipped with
   the app, so a GPL build is fine and `pip install av` replaces the planned
   lgpl shared build plus `pip wheel av --ffmpeg-dir`.
@@ -140,9 +147,14 @@ Rules:
   UTF-8 character split across two chunks into two U+FFFD. Decode with
   `StringDecoder` (or `TextDecoder` with `{ stream: true }`) and flush at the
   end. A test that writes a character in two `write()` calls catches it.
+- 2026-11 A test that hangs with no output is usually the fixture, not the
+  parser: the fake service answered with JSON but no trailing newline, so the
+  client waited for a line end that never came. Wrong side, on purpose.
 
 ## Next
 
-- Next: `scripts/python.mjs` -- `--setup` runs `provision()`, `--doctor`
-  checks without writing, every other argument goes to the backend interpreter.
-- Then the stdio service under `services/felyrics/` (one JSON line in, one out).
+- Wire `startService` into the Electron main process: one long-lived backend per
+  app, spawned against `python/venv/Scripts/python.exe`, reached from the
+  renderer through preload and IPC.
+- Then the first real backend feature: lyrics parsing, and the timing pipeline
+  after it.

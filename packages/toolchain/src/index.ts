@@ -44,6 +44,12 @@ export {
 } from './python/doctor.js';
 export { withTempDir } from './layout/temp.js';
 export {
+  startService,
+  type ServiceClient,
+  type ServiceMessage,
+  type ServiceOptions,
+} from './python/service.js';
+export {
   extractZip,
   listEntries,
   openZip,
