@@ -159,6 +159,15 @@ Rules:
   top-level `types` was a byte-for-byte duplicate and is gone. `main` stays
   because it is the entry point for tools that predate `exports`, and nothing
   here is published, so removing it would buy nothing.
+- 2026-11 an IPC handler returns a result, never a rejection:
+  `{ ok: true, value } | { ok: false, code, message }` (`asResult` in
+  `apps/desktop/src/main/index.ts`). A rejected handler crosses the boundary as
+  one flattened string, so the `code` that every caller is supposed to branch on
+  disappears exactly at the process edge.
+- 2026-11 the renderer bridge has one declared shape,
+  `apps/desktop/src/preload/api.ts` (`FelyricsApi` + `IpcResult`), imported with
+  `import type` by the preload, the renderer and the main process. Two hand-copied
+  shapes compile on both sides and only fail at runtime as "is not a function".
 
 ## Dead ends
 
