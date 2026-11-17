@@ -3,7 +3,7 @@ import { mkdtemp, readFile, rm, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
-import { download } from '../out/index.js';
+import { download } from '../../out/index.js';
 
 async function withTempDir(fn) {
   const dir = await mkdtemp(join(tmpdir(), 'felyrics-download-'));

@@ -1,8 +1,8 @@
 {
-  "name": "@felyrics/python-runtime",
+  "name": "@felyrics/toolchain",
   "version": "0.0.0",
   "private": true,
-  "description": "Provisioning and stdio client for the bundled Python runtime.",
+  "description": "Provisioning and invocation of external tools: Python, tar and ffmpeg.",
   "license": "MPL-2.0",
   "type": "module",
   "main": "./out/index.js",

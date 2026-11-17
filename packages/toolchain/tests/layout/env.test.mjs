@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { buildEnv } from '../out/index.js';
+import { buildEnv } from '../../out/index.js';
 
 const dirs = { tempDir: 'C:\\tmp', pipCacheDir: 'C:\\pip' };
 
