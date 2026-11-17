@@ -1,21 +1,30 @@
-import { mkdir, open, rename, rm } from 'node:fs/promises';
+import { mkdir, open, rename, rm, type FileHandle } from 'node:fs/promises';
 import { dirname } from 'node:path';
+
+/** Removes a partial file. The caller swallows whatever it throws. */
+export type RemovePartial = (path: string) => Promise<void>;
 
 export interface DownloadOptions {
   readonly url: string;
   readonly dest: string;
+  /**
+   * The floor a body must reach when the server sends no content-length.
+   * Required on purpose: a forgotten floor silently turns the only remaining
+   * integrity check into "more than a few bytes arrived".
+   */
+  readonly minBytes: number;
   readonly fetchImpl?: typeof fetch;
   readonly attempts?: number;
-  readonly minBytes?: number;
   /** Abort when no bytes arrive for this many milliseconds. 0 disables it. */
   readonly idleMs?: number;
   /** Milliseconds to wait before the next attempt, given the failed attempt. */
   readonly retryDelay?: (attempt: number) => number;
   readonly onProgress?: (received: number, total: number | null) => void;
+  /** Replaces the partial-file cleanup; a seam for tests. */
+  readonly removePartial?: RemovePartial;
 }
 
 const DEFAULT_ATTEMPTS = 3;
-const DEFAULT_MIN_BYTES = 1024;
 const DEFAULT_IDLE_MS = 30_000;
 const MAX_BACKOFF_MS = 30_000;
 
@@ -24,9 +33,37 @@ class RetryableError extends Error {}
 const sleep = (ms: number) =>
   new Promise<void>((resolve) => setTimeout(resolve, ms));
 
+const defaultRemovePartial: RemovePartial = (path) => rm(path, { force: true });
+
 function defaultRetryDelay(attempt: number): number {
   const base = Math.min(MAX_BACKOFF_MS, 500 * 2 ** (attempt - 1));
   return base + Math.floor(Math.random() * 250);
+}
+
+/**
+ * The only place that decides "this failure is the transport's, not ours".
+ * Node reports a transport failure as `TypeError: fetch failed` with the
+ * socket error in `cause`; a TypeError without a cause is a bug in the code
+ * that called us, and retrying it would flatten the stack for nothing.
+ */
+async function fetchOnce(
+  fetchImpl: typeof fetch,
+  url: string,
+  signal: AbortSignal,
+): Promise<Response> {
+  try {
+    return await fetchImpl(url, { signal });
+  } catch (error) {
+    if (signal.aborted) {
+      throw new RetryableError('download stalled');
+    }
+    if (error instanceof TypeError && error.cause !== undefined) {
+      throw new RetryableError(`fetch failed: ${String(error)}`, {
+        cause: error,
+      });
+    }
+    throw error;
+  }
 }
 
 interface AttemptOptions {
@@ -38,8 +75,6 @@ interface AttemptOptions {
   readonly onProgress:
     ((received: number, total: number | null) => void) | undefined;
 }
-
-import type { FileHandle } from 'node:fs/promises';
 
 async function attemptDownload(options: AttemptOptions): Promise<number> {
   const part = `${options.dest}.part`;
@@ -71,7 +106,7 @@ async function attemptDownload(options: AttemptOptions): Promise<number> {
   try {
     armStallTimer();
     const response = await Promise.race([
-      options.fetchImpl(options.url, { signal: controller.signal }),
+      fetchOnce(options.fetchImpl, options.url, controller.signal),
       stall,
     ]);
 
@@ -127,7 +162,8 @@ async function attemptDownload(options: AttemptOptions): Promise<number> {
   } finally {
     clearTimeout(stallTimer);
     await reader?.cancel().catch(() => {});
-    await handle?.close();
+    // A close failure here would replace the error on its way out.
+    await handle?.close().catch(() => {});
   }
 }
 
@@ -135,20 +171,26 @@ export async function download(options: DownloadOptions): Promise<number> {
   const {
     url,
     dest,
+    minBytes,
     fetchImpl = fetch,
     attempts = DEFAULT_ATTEMPTS,
-    minBytes = DEFAULT_MIN_BYTES,
     idleMs = DEFAULT_IDLE_MS,
     retryDelay = defaultRetryDelay,
     onProgress,
+    removePartial = defaultRemovePartial,
   } = options;
+
+  if (attempts < 1) {
+    throw new Error('attempts must be at least 1');
+  }
 
   await mkdir(dirname(dest), { recursive: true });
 
   const part = `${dest}.part`;
-  let lastError: unknown = null;
 
-  for (let attempt = 1; attempt <= attempts; attempt += 1) {
+  // The loop is the only exit: it returns the size or throws. A `for (;;)`
+  // keeps that true without a trailing throw nobody can reach.
+  for (let attempt = 1; ; attempt += 1) {
     try {
       return await attemptDownload({
         url,
@@ -159,21 +201,17 @@ export async function download(options: DownloadOptions): Promise<number> {
         onProgress,
       });
     } catch (error) {
-      lastError = error;
-      await rm(part, { force: true });
+      // Cleanup is a courtesy. If it fails, the caller must still see the
+      // download failure that caused it.
+      await removePartial(part).catch(() => {});
 
-      // A fetch network failure surfaces as TypeError; retry it. HTTP 4xx and
-      // programming errors are not worth another attempt.
-      const retryable =
-        error instanceof RetryableError || error instanceof TypeError;
-
-      if (!retryable || attempt === attempts) {
+      // Only `fetchOnce` and the body checks produce RetryableError, so any
+      // other error is ours and a retry would only flatten its stack.
+      if (!(error instanceof RetryableError) || attempt >= attempts) {
         throw error;
       }
 
       await sleep(retryDelay(attempt));
     }
   }
-
-  throw lastError instanceof Error ? lastError : new Error(String(lastError));
 }
