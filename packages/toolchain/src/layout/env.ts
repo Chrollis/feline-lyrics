@@ -41,6 +41,9 @@ export function buildEnv(
   env.PIP_CACHE_DIR = dirs.pipCacheDir;
   env.TEMP = dirs.tempDir;
   env.TMP = dirs.tempDir;
+  // The standard name everywhere but Windows; setting all three keeps one
+  // scratch directory regardless of what the child believes it is running on.
+  env.TMPDIR = dirs.tempDir;
 
   return env;
 }
@@ -79,6 +82,7 @@ export function buildUvEnv(
   env.UV_DEFAULT_INDEX = dirs.packageIndex;
   env.TEMP = dirs.tempDir;
   env.TMP = dirs.tempDir;
+  env.TMPDIR = dirs.tempDir;
 
   return env;
 }
