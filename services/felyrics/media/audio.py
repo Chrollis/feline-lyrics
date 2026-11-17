@@ -125,6 +125,44 @@ def decode(
     return Audio(samples=samples, sample_rate=target_rate, layout=target_layout)
 
 
+def save(audio: Audio, path: str | Path) -> None:
+    """Writes the samples as FLAC, which is lossless and that Chromium plays.
+
+    The samples are float32 in [-1, 1]; FLAC wants integers, so the conversion
+    clips first. Clipping at this point is not lossy for anything the decoder
+    produced -- a float sample outside that range cannot be represented in the
+    source format either -- and it keeps a resampled overshoot from wrapping
+    around into the opposite sign.
+    """
+
+    target = Path(path)
+    target.parent.mkdir(parents=True, exist_ok=True)
+
+    try:
+        with av.open(str(target), "w", format="flac") as output:
+            stream = output.add_stream(
+                "flac", rate=audio.sample_rate, layout=audio.layout
+            )
+            output.mux(stream.encode(_packed(audio)))
+            output.mux(stream.encode(None))
+    except av.FFmpegError as error:
+        raise ServiceError(
+            "media/encode-failed", f"cannot write {target}: {error}"
+        ) from error
+
+
+def _packed(audio: Audio) -> av.AudioFrame:
+    """One frame in FLAC's packed s16 layout: shape (1, frames * channels)."""
+
+    clipped = np.clip(audio.samples, -1.0, 1.0)
+    interleaved = np.round(clipped * 32767.0).astype(np.int16).T
+    samples = np.ascontiguousarray(interleaved).reshape(1, -1)
+    frame = av.AudioFrame.from_ndarray(samples, format="s16", layout=audio.layout)
+    frame.sample_rate = audio.sample_rate
+
+    return frame
+
+
 def _plane(frame: av.AudioFrame) -> np.ndarray:
     """One resampled frame as (channels, frames) float32.
 

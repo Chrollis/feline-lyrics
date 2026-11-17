@@ -50,7 +50,7 @@ async function launch(): Promise<ServiceClient> {
 
   return startService({
     pythonExe: backend.venvPython,
-    args: ['-m', 'felyrics'],
+    args: ['-m', 'felyrics', '--cache', paths.cacheDir],
     cwd: paths.servicesDir,
     onStderr: (line) => {
       console.error('[backend]', line);
