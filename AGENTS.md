@@ -3,7 +3,8 @@
 Working agreement for a human who decides, an agent that builds, and a reviewer
 that looks for what the builder missed. This file is injected into every session,
 so it holds behaviour only: the past -- state, decisions, dead ends -- lives in
-`memories/MEMORY.md`.
+`memories/`: `MEMORY.md` for state and the next step, `decisions.md` for the
+rules in force, `archive/` for what no longer changes the next step.
 
 ## 1. One step: plan, write, verify, report
 
@@ -84,9 +85,12 @@ so it holds behaviour only: the past -- state, decisions, dead ends -- lives in
 
 ## 8. Working memory
 
-- Read `memories/MEMORY.md` at session start; update it before ending one.
-- It holds reasons, decisions, dead ends and the next step: never a changelog,
-  never a file index, never a test count. Delete what went stale.
+- Read `memories/MEMORY.md` at session start, and `memories/decisions.md` before
+  changing a subsystem; update them before ending a session.
+- `MEMORY.md` holds the rules, the current state and the next step;
+  `decisions.md` holds the decisions in force with their reasons; `archive/`
+  holds what no longer changes the next step. Never a changelog, never a file
+  index, never a test count. Delete what went stale.
 
 ## 9. Autonomy and the team
 
