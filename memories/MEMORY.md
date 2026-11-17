@@ -52,9 +52,13 @@ Rules:
   report the CLI prints and the app can render; nothing is written.
 - `services/felyrics/` is the backend: `python -m felyrics` answers one JSON
   object per request on stdio. `server.py` keeps a `METHODS` table that
-  `@method` fills, so `ping`, `media/probe` and `media/decode` register
-  themselves; importing `media.methods` is what registers the last two. The
-  renderer reaches it through `backend:ping`, which returns an `IpcResult`.
+  `@method` fills, so `ping`, `media/probe`, `media/decode`, `video/probe` and
+  `video/frames` register themselves; importing `media.methods` is what
+  registers the rest. The renderer reaches it through `backend:ping`, which
+  returns an `IpcResult`.
+- Media work goes to disk under `<cache>/jobs/<uuid>/` and the protocol answers
+  with paths, not payloads: `<cache>` is user data the OS never collects, so
+  `_job_dir()` deletes the previous job before making the next one.
 - Paths are inputs: the toolchain takes `{ cacheDir, servicesDir, backendRoot }`
   from the caller and derives the rest, so the CLI and the app can disagree
   about where things live without the library knowing.
@@ -80,8 +84,10 @@ Rules:
 
 ## Next
 
-- `media/decode` and `media/probe` work end to end over the protocol; `video.py`
-  and the IPC/preload path for them are next, then the toolchain is done.
+- The four media methods work end to end over the protocol (`media/probe`,
+  `media/decode`, `video/probe`, `video/frames`). Next: put them on the bridge
+  (`FelyricsApi` + `asResult` handlers + a renderer call), then the toolchain is
+  done.
 - After that, two Python plugins: annotate/tokenize (pure CPU, light) and
   align/separate (`stable-ts[fw]` CPU + `demucs-infer`/torch with CPU or CUDA,
   heavy and install-time optional). Nothing is bundled, so the heavy half can be
