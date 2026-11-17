@@ -51,6 +51,16 @@ function runBinary(file: string, args: readonly string[]): BinaryRun {
   };
 }
 
+/**
+ * The last non-empty line of a failed run: a traceback ends with the reason, and
+ * the whole traceback would swamp a one-line report.
+ */
+function failureDetail(result: BinaryRun): string | undefined {
+  const lines = result.output.split('\n').filter((line) => line.trim() !== '');
+
+  return lines.at(-1);
+}
+
 function checkVersion(
   label: string,
   file: string,
@@ -119,11 +129,39 @@ function checkDependencies(
     return {
       label: 'dependencies',
       ok: false,
-      detail: result.output || result.error || 'import failed',
+      detail: failureDetail(result) ?? result.error ?? 'import failed',
     };
   }
 
   return { label: 'dependencies', ok: true, detail: modules.join(', ') };
+}
+
+/**
+ * The `.pth` check only proves a line of text; this runs the line. Importing the
+ * entry point also runs the imports it declares at module level (the media
+ * methods register there), so one command covers "the package resolves" and
+ * "what it pulls in still loads".
+ */
+function checkImport(backend: BackendPaths, run: RunBinary): DoctorCheck {
+  if (!existsSync(backend.venvPython)) {
+    return {
+      label: 'import',
+      ok: false,
+      detail: `missing ${backend.venvPython}`,
+    };
+  }
+
+  const result = run(backend.venvPython, ['-c', 'import felyrics.__main__']);
+
+  if (result.error || result.status !== 0) {
+    return {
+      label: 'import',
+      ok: false,
+      detail: failureDetail(result) ?? result.error ?? 'import failed',
+    };
+  }
+
+  return { label: 'import', ok: true, detail: 'felyrics.__main__' };
 }
 
 /**
@@ -182,6 +220,8 @@ export async function doctor(
   } else {
     checks.push({ label: 'pth', ok: true, detail: services });
   }
+
+  checks.push(checkImport(backend, run));
 
   const marker = await readReadyMarker(backend);
   const matches = await isReady(backend, {
