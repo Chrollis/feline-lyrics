@@ -49,10 +49,16 @@ def decode(params: dict[str, Any]) -> dict[str, Any]:
         rate=_optional_positive_int(params, "rate"),
         layout=_optional_text(params, "layout"),
     )
-    target = _job_dir("audio") / "audio.flac"
+    directory = _new_job_dir("audio")
+    target = directory / "audio.flac"
 
-    audio.save(decoded, target)
+    try:
+        audio.save(decoded, target)
+    except BaseException:
+        shutil.rmtree(directory, ignore_errors=True)
+        raise
 
+    _keep_only("audio", directory)
     return {
         "path": str(target),
         "sample_rate": decoded.sample_rate,
@@ -105,32 +111,45 @@ def video_frames(params: dict[str, Any]) -> dict[str, Any]:
         )
 
     info = video.probe(source)
-    directory = _job_dir("frames")
 
+    # Created on the first frame, so an empty batch or a decode failure leaves
+    # the stills the renderer is already showing untouched.
+    directory: Path | None = None
     written = []
     image_width = 0
     image_height = 0
 
-    for index, shot in enumerate(
-        video.frames(source, start=start, step=step, count=count, width=width)
-    ):
-        target = directory / f"{index + 1:04d}.png"
-        image_height = int(shot.pixels.shape[0])
-        image_width = int(shot.pixels.shape[1])
-        target.write_bytes(
-            image.encode_png(shot.pixels, width=image_width, height=image_height)
-        )
-        written.append(
-            {
-                "index": index,
-                "requested": shot.requested,
-                "at": shot.at,
-                "path": str(target),
-            }
-        )
+    try:
+        for index, shot in enumerate(
+            video.frames(source, start=start, step=step, count=count, width=width)
+        ):
+            if directory is None:
+                directory = _new_job_dir("frames")
+
+            target = directory / f"{index + 1:04d}.png"
+            image_height = int(shot.pixels.shape[0])
+            image_width = int(shot.pixels.shape[1])
+            target.write_bytes(
+                image.encode_png(shot.pixels, width=image_width, height=image_height)
+            )
+            written.append(
+                {
+                    "index": index,
+                    "requested": shot.requested,
+                    "at": shot.at,
+                    "path": str(target),
+                }
+            )
+    except BaseException:
+        if directory is not None:
+            shutil.rmtree(directory, ignore_errors=True)
+        raise
+
+    if directory is not None:
+        _keep_only("frames", directory)
 
     return {
-        "dir": str(directory),
+        "dir": str(directory) if directory is not None else "",
         "width": image_width,
         "height": image_height,
         "fps": info.fps,
@@ -205,8 +224,8 @@ def _frame_width(params: dict[str, Any]) -> int | None:
     return width
 
 
-def _job_dir(kind: str) -> Path:
-    """One directory per call, inside a per-kind bucket that is dropped first.
+def _new_job_dir(kind: str) -> Path:
+    """Creates an empty directory per call, without touching the last one.
 
     A job directory only has to live until the next call of the same kind: the
     app works on one song at a time, and a result path is handed to the renderer
@@ -218,14 +237,24 @@ def _job_dir(kind: str) -> Path:
     be playing the decoded audio while the timeline asks for thumbnails, and a
     shared bucket would delete the file under the player.
 
+    The old directory is dropped by `_keep_only` only once the new result is
+    complete, so a request that fails or returns nothing leaves the previous
+    one usable instead of destroying it first.
+    """
+
+    directory = runtime.cache_root() / "jobs" / kind / uuid.uuid4().hex
+    directory.mkdir(parents=True, exist_ok=True)
+
+    return directory
+
+
+def _keep_only(kind: str, keep: Path) -> None:
+    """Drops every earlier job directory of this kind, once `keep` is complete.
+
     Cleanup is best effort on purpose: on Windows the previous file can still be
     open in the renderer, and losing a leak is cheaper than failing a request.
     """
 
-    jobs = runtime.cache_root() / "jobs" / kind
-    shutil.rmtree(jobs, ignore_errors=True)
-
-    directory = jobs / uuid.uuid4().hex
-    directory.mkdir(parents=True, exist_ok=True)
-
-    return directory
+    for old in (runtime.cache_root() / "jobs" / kind).iterdir():
+        if old != keep:
+            shutil.rmtree(old, ignore_errors=True)

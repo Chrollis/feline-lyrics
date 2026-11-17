@@ -112,19 +112,51 @@ class VideoTest(unittest.TestCase):
             self.assertEqual(written.read_bytes()[:8], b"\x89PNG\r\n\x1a\n")
 
     def test_the_method_writes_each_png_before_the_next_frame_arrives(self):
-        # Streaming, not "collect then write": when the decoder dies after the
-        # first frame, that frame is already on disk.
+        # Streaming, not "collect then write": by the time the consumer asks for
+        # the second frame, the first one is already a file on disk.
+        on_disk = []
+
         def dying(*args, **kwargs):
             yield video.Frame(requested=0.0, at=0.0, pixels=np.zeros((4, 6, 3), np.uint8))
+            on_disk.extend(sorted((self.cache / "jobs" / "frames").rglob("*.png")))
             raise RuntimeError("the decoder died")
 
         with mock.patch.object(methods.video, "frames", dying):
             response = call("video/frames", {"path": str(self.clip), "count": 3})
 
         self.assertEqual(response["error"]["code"], "internal/error")
-        written = sorted((self.cache / "jobs" / "frames").rglob("*.png"))
+        self.assertEqual(len(on_disk), 1)
 
-        self.assertEqual(len(written), 1)
+    def test_a_failed_frame_request_keeps_the_previous_stills(self):
+        # A request that dies halfway is a request whose paths nobody received,
+        # so the batch it was going to replace must still be on disk.
+        call("video/frames", {"path": str(self.clip), "step": 0.1, "count": 2})
+        before = sorted((self.cache / "jobs" / "frames").rglob("*.png"))
+
+        def dying(*args, **kwargs):
+            yield video.Frame(requested=0.0, at=0.0, pixels=np.zeros((4, 6, 3), np.uint8))
+            raise ServiceError("media/decode-failed", "the decoder died")
+
+        with mock.patch.object(methods.video, "frames", dying):
+            response = call("video/frames", {"path": str(self.clip), "count": 3})
+
+        self.assertEqual(response["error"]["code"], "media/decode-failed")
+        self.assertEqual(sorted((self.cache / "jobs" / "frames").rglob("*.png")), before)
+        self.assertEqual(len(list((self.cache / "jobs" / "frames").iterdir())), 1)
+
+    def test_an_empty_frame_request_keeps_the_previous_stills(self):
+        # `start` past the end of the clip asks for nothing; it must not wipe the
+        # stills the timeline is showing, and it has no directory to hand back.
+        call("video/frames", {"path": str(self.clip), "step": 0.1, "count": 2})
+        before = sorted((self.cache / "jobs" / "frames").rglob("*.png"))
+
+        result = call(
+            "video/frames", {"path": str(self.clip), "start": 5.0, "count": 2}
+        )["result"]
+
+        self.assertEqual(result["frames"], [])
+        self.assertEqual(result["dir"], "")
+        self.assertEqual(sorted((self.cache / "jobs" / "frames").rglob("*.png")), before)
 
     def test_a_frame_request_keeps_the_decoded_audio(self):
         # The renderer can still be playing the decoded audio while the timeline

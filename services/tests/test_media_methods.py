@@ -9,6 +9,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 from felyrics import runtime
 from felyrics.media import methods  # noqa: F401  (import registers the methods)
@@ -86,6 +87,20 @@ class MediaMethodsTest(unittest.TestCase):
 
         self.assertFalse(first.parent.exists())
         self.assertTrue(second.parent.is_dir())
+        self.assertEqual(len(list((self.cache / "jobs" / "audio").iterdir())), 1)
+
+    def test_a_failed_write_keeps_the_previous_job_directory(self):
+        # The old file is dropped only once the new one is complete: a save that
+        # dies halfway must not take the audio the player is using with it.
+        first = Path(call("media/decode", {"path": str(self.source)})["result"]["path"])
+
+        with mock.patch.object(
+            methods.audio, "save", side_effect=RuntimeError("disk full")
+        ):
+            response = call("media/decode", {"path": str(self.source)})
+
+        self.assertEqual(response["error"]["code"], "internal/error")
+        self.assertTrue(first.is_file())
         self.assertEqual(len(list((self.cache / "jobs" / "audio").iterdir())), 1)
 
     def test_a_missing_path_parameter_is_a_protocol_error(self):
