@@ -80,7 +80,11 @@ def video_probe(params: dict[str, Any]) -> dict[str, Any]:
 
 @method("video/frames")
 def video_frames(params: dict[str, Any]) -> dict[str, Any]:
-    """Decodes a batch of stills and writes them as PNGs in one job directory."""
+    """Decodes stills and writes each one as a PNG before decoding the next.
+
+    Writing inside the decode loop is what keeps memory flat: a 240-frame
+    request at 1920 wide would otherwise hold a gigabyte of raw pixels.
+    """
 
     source = _source(params)
     start = _optional_number(params, "start", 0.0)
@@ -101,22 +105,34 @@ def video_frames(params: dict[str, Any]) -> dict[str, Any]:
         )
 
     info = video.probe(source)
-    shots = video.frames(source, start=start, step=step, count=count, width=width)
     directory = _job_dir("frames")
 
     written = []
+    image_width = 0
+    image_height = 0
 
-    for index, shot in enumerate(shots):
+    for index, shot in enumerate(
+        video.frames(source, start=start, step=step, count=count, width=width)
+    ):
         target = directory / f"{index + 1:04d}.png"
-        height = int(shot.pixels.shape[0])
-        shot_width = int(shot.pixels.shape[1])
-        target.write_bytes(image.encode_png(shot.pixels, width=shot_width, height=height))
-        written.append({"index": index, "at": shot.at, "path": str(target)})
+        image_height = int(shot.pixels.shape[0])
+        image_width = int(shot.pixels.shape[1])
+        target.write_bytes(
+            image.encode_png(shot.pixels, width=image_width, height=image_height)
+        )
+        written.append(
+            {
+                "index": index,
+                "requested": shot.requested,
+                "at": shot.at,
+                "path": str(target),
+            }
+        )
 
     return {
         "dir": str(directory),
-        "width": int(shots[0].pixels.shape[1]) if shots else 0,
-        "height": int(shots[0].pixels.shape[0]) if shots else 0,
+        "width": image_width,
+        "height": image_height,
         "fps": info.fps,
         "frames": written,
     }

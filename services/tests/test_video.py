@@ -7,6 +7,9 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
+
+import numpy as np
 
 from felyrics import runtime
 from felyrics.errors import ServiceError
@@ -45,24 +48,43 @@ class VideoTest(unittest.TestCase):
         self.assertAlmostEqual(info.duration, 0.3, delta=0.05)
 
     def test_frames_decodes_the_requested_count(self):
-        shots = video.frames(self.clip, start=0.0, step=0.1, count=2)
+        shots = list(video.frames(self.clip, start=0.0, step=0.1, count=2))
 
         self.assertEqual(len(shots), 2)
+        self.assertEqual([shot.requested for shot in shots], [0.0, 0.1])
+        # 10 fps with a step that divides it: requested and real time agree.
         self.assertEqual([shot.at for shot in shots], [0.0, 0.1])
         self.assertEqual(shots[0].pixels.shape, (48, 64, 3))
         self.assertEqual(shots[0].pixels.dtype.name, "uint8")
 
+    def test_frames_reports_the_frame_time_when_step_misses_a_frame(self):
+        # 10 fps has frames at 0.0, 0.1, 0.2; a 0.15 step must answer with the
+        # 0.2 frame and say so, instead of labelling it 0.15.
+        shots = list(video.frames(self.clip, start=0.0, step=0.15, count=2))
+
+        self.assertEqual([shot.requested for shot in shots], [0.0, 0.15])
+        self.assertEqual([round(shot.at, 3) for shot in shots], [0.0, 0.2])
+
     def test_frames_scales_to_the_asked_width(self):
-        shots = video.frames(self.clip, count=1, width=32)
+        shots = list(video.frames(self.clip, count=1, width=32))
 
         # 64x48 scaled to 32 wide is 24 high: the aspect ratio is kept, not the
         # height the caller happened to imagine.
         self.assertEqual(shots[0].pixels.shape, (24, 32, 3))
 
     def test_frames_stops_when_the_file_ends(self):
-        shots = video.frames(self.clip, start=5.0, step=0.1, count=2)
+        shots = list(video.frames(self.clip, start=5.0, step=0.1, count=2))
 
         self.assertEqual(shots, [])
+
+    def test_frames_yields_before_it_has_decoded_the_whole_batch(self):
+        # The generator contract is what keeps memory flat: the caller must be
+        # able to act on the first still while the rest is still undecoded.
+        stream = video.frames(self.clip, step=0.1, count=3)
+        first = next(stream)
+
+        self.assertEqual(first.requested, 0.0)
+        stream.close()
 
     def test_a_file_without_video_is_named_as_such(self):
         audio_only = self.dir / "music.flac"
@@ -88,6 +110,21 @@ class VideoTest(unittest.TestCase):
 
             self.assertTrue(written.is_file())
             self.assertEqual(written.read_bytes()[:8], b"\x89PNG\r\n\x1a\n")
+
+    def test_the_method_writes_each_png_before_the_next_frame_arrives(self):
+        # Streaming, not "collect then write": when the decoder dies after the
+        # first frame, that frame is already on disk.
+        def dying(*args, **kwargs):
+            yield video.Frame(requested=0.0, at=0.0, pixels=np.zeros((4, 6, 3), np.uint8))
+            raise RuntimeError("the decoder died")
+
+        with mock.patch.object(methods.video, "frames", dying):
+            response = call("video/frames", {"path": str(self.clip), "count": 3})
+
+        self.assertEqual(response["error"]["code"], "internal/error")
+        written = sorted((self.cache / "jobs" / "frames").rglob("*.png"))
+
+        self.assertEqual(len(written), 1)
 
     def test_a_frame_request_keeps_the_decoded_audio(self):
         # The renderer can still be playing the decoded audio while the timeline
