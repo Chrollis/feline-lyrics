@@ -39,6 +39,18 @@ for await (const raw of lines) {
     continue;
   }
 
+  if (request.method === 'cross') {
+    const bytes = Buffer.from('diagnostic 中\\n');
+    const at = bytes.indexOf(0xe4) + 1;
+
+    process.stderr.write(bytes.subarray(0, at));
+    process.stdout.write(
+      JSON.stringify({ id: request.id, result: { text: '中' } }) + '\\n',
+    );
+    setTimeout(() => process.stderr.write(bytes.subarray(at)), 10);
+    continue;
+  }
+
   process.stdout.write(
     JSON.stringify({ id: request.id, result: { method: request.method } }) + '\\n',
   );
@@ -96,6 +108,27 @@ test('decodes a character split across two chunks', async () => {
     assert.equal(result.text, '中');
     assert.doesNotMatch(JSON.stringify(result), /\ufffd/);
   });
+});
+
+test('keeps a half-received stderr character out of the protocol channel', async () => {
+  const chunks = [];
+  const protocolErrors = [];
+
+  await withService(
+    {
+      onStderr: (chunk) => chunks.push(chunk),
+      onProtocolError: (line) => protocolErrors.push(line),
+    },
+    async (client) => {
+      const result = await client.request('cross');
+
+      assert.equal(result.text, '中');
+      await until(() => chunks.join('').includes('中'));
+      assert.match(chunks.join(''), /diagnostic 中/);
+      assert.doesNotMatch(JSON.stringify(result), /\ufffd/);
+      assert.deepEqual(protocolErrors, []);
+    },
+  );
 });
 
 test('rejects the pending request when the process exits', async () => {

@@ -45,7 +45,11 @@ export function startService(options: ServiceOptions): ServiceClient {
     stdio: ['pipe', 'pipe', 'pipe'],
   });
 
-  const decoder = new StringDecoder('utf8');
+  // One decoder per stream: a decoder holds the bytes of a half-received
+  // character, so sharing it would let a partial stderr write swallow the head
+  // of the next stdout line.
+  const stdoutDecoder = new StringDecoder('utf8');
+  const stderrDecoder = new StringDecoder('utf8');
   const pending = new Map<number, Pending>();
   const emitStderr = options.onStderr;
   const emitProtocolError = options.onProtocolError;
@@ -102,8 +106,8 @@ export function startService(options: ServiceOptions): ServiceClient {
 
   // A chunk boundary can fall inside a character, and inside a line: decode
   // across chunks and split on the newline only after decoding.
-  child.stdout.on('data', (chunk: Buffer) => {
-    buffered += decoder.write(chunk);
+  const absorbStdout = (text: string): void => {
+    buffered += text;
 
     let newline = buffered.indexOf('\n');
 
@@ -117,10 +121,14 @@ export function startService(options: ServiceOptions): ServiceClient {
 
       newline = buffered.indexOf('\n');
     }
+  };
+
+  child.stdout.on('data', (chunk: Buffer) => {
+    absorbStdout(stdoutDecoder.write(chunk));
   });
 
   child.stderr.on('data', (chunk: Buffer) => {
-    emitStderr?.(decoder.write(chunk));
+    emitStderr?.(stderrDecoder.write(chunk));
   });
 
   child.stdin.on('error', (error: Error) => {
@@ -136,6 +144,17 @@ export function startService(options: ServiceOptions): ServiceClient {
   child.on('exit', (code: number | null) => {
     closed = true;
     exitCode = code;
+
+    // Flush what each decoder still holds, so a diagnostic that ends inside a
+    // character is shown as a replacement character instead of vanishing.
+    absorbStdout(stdoutDecoder.end());
+
+    const tail = stderrDecoder.end();
+
+    if (tail !== '') {
+      emitStderr?.(tail);
+    }
+
     failAll(new Error(`the service exited with code ${code ?? 'null'}`));
   });
 
