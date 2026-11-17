@@ -9,6 +9,7 @@ import sys
 import unittest
 from contextlib import redirect_stderr
 
+from felyrics.errors import ServiceError
 from felyrics.server import METHODS, ProtocolError, respond, serve
 
 
@@ -64,6 +65,23 @@ class RespondTest(unittest.TestCase):
             self.assertIn("handler exploded", stderr.getvalue())
         finally:
             del METHODS["boom"]
+
+    def test_a_handler_error_keeps_its_code(self):
+        def refuse(params):
+            raise ServiceError("media/open-failed", "cannot open it")
+
+        METHODS["refuse"] = refuse
+
+        try:
+            response = parse('{"id":5,"method":"refuse"}')
+        finally:
+            del METHODS["refuse"]
+
+        self.assertEqual(response["id"], 5)
+        self.assertEqual(
+            response["error"],
+            {"code": "media/open-failed", "message": "cannot open it"},
+        )
 
 
 class ServeTest(unittest.TestCase):
