@@ -15,8 +15,16 @@ rules in force, `archive/` for what no longer changes the next step.
   proposed first.
 - Run the acceptance check and paste its real tail. If you did not run it, say
   "not run". Never describe a check you did not run.
-- Report in five lines: what changed, what deliberately did not, what is still
-  unproven, what was deleted, and the commit hash. Do not restate the diff.
+- Report a step in this order, and go quiet where it says quiet:
+  1. what changed: the files with links, what deliberately did not change, what
+     is unproven, the commit hash, and the real tail of the acceptance check;
+  2. then say nothing more -- hand the step to the reviewer and wait for it;
+  3. what the review changed, or "nothing fixed", with the unfixed findings moved
+     into part 4;
+  4. what the next step is;
+  5. what only the human can decide, one sentence each, with the tradeoff.
+  Do not restate the diff, do not narrate the wait, and do not open a new step
+  between 1 and 3.
 - Write every path as a link the harness can open:
   `[apps/desktop/src/main/index.ts:17-19](apps/desktop/src/main/index.ts#L17-L19)`,
   and a range ends `#L24-L30`. A bare path makes the reader search for a file
