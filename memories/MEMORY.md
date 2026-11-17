@@ -58,9 +58,11 @@ Rules:
 - `reference/` is gitignored and holds three kinds of thing: `202609/` is this
   repository's predecessor (the previous AI-built version, same architecture),
   `202606/` is an earlier Rust + Python attempt, `NicoKaraMaker3/` and
-  `RhythmicaLyrics/` are third-party references. `ideas/` holds designs and
-  `learning/syntax-log.md` is the agent-maintained syntax log, so it is not
-  versioned.
+  `RhythmicaLyrics/` are third-party references. `ideas/` is split by STATUS,
+  not by topic: `to-fix.md`, `fixed.md`, `keep-as-is.md`, with the discussion
+  notes (`python-acquisition.md`, `cache-management.md`, `plugin-system.md`)
+  kept apart. `learning/syntax-log.md` is the agent-maintained syntax log. The
+  whole directory is gitignored, so none of it is versioned.
 
 ## Decisions
 
@@ -123,8 +125,11 @@ Rules:
   `--no-bin --no-registry` to `uv python install` so it never writes to
   `~/.local/bin` or the Windows registry.
 - 2026-11 the uv assets are a per-platform table, not one constant: uv ships a
-  different file per OS and arch, and only the zip form is unpacked today, so
-  `TARGETS` lists all six rows while `SUPPORTED_TARGETS` stays `win32-x64`.
+  different file per OS and arch, and only the zip form is unpacked today. The
+  target is cross-platform; `SUPPORTED_TARGETS = ['win32-x64']` is the honest
+  statement of what works NOW, and the Windows-only `backendPaths()` sitting
+  next to a six-row `TARGETS` is a work item (`reference/ideas/to-fix.md`
+  item 3), not a decision to stay on Windows.
 - 2026-11 readiness is a marker, not an existence check: files can exist in a
   half-finished state, and a version can change under an existing directory.
   Comparing the marker's `uv`, `python` and absolute `services` is the cheap
