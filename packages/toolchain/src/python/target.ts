@@ -15,32 +15,70 @@ export interface PlatformTarget {
   readonly uvFilename: string;
   /** How uv packs that file; `extractZip` only understands the zip form. */
   readonly archive: 'zip' | 'tar.gz';
+  /** The uv executable inside the unpacked archive. */
+  readonly uvExeName: string;
+  /** The venv directory that holds the interpreter. */
+  readonly venvBinDir: string;
+  /** The interpreter's file name inside `venvBinDir`. */
+  readonly venvPythonName: string;
+  /**
+   * site-packages, relative to the venv root. `PYTHON_VERSION_SLOT` stands for
+   * the interpreter's major.minor, which Unix layouts embed in the directory.
+   */
+  readonly sitePackages: readonly string[];
 }
+
+/** Filled in by `backendPaths`; a venv path names `python3.12`, not `3.12.15`. */
+export const PYTHON_VERSION_SLOT = '{python}';
 
 export const TARGETS: Readonly<Record<TargetKey, PlatformTarget>> = {
   'win32-x64': {
     uvFilename: 'uv-x86_64-pc-windows-msvc.zip',
     archive: 'zip',
+    uvExeName: 'uv.exe',
+    venvBinDir: 'Scripts',
+    venvPythonName: 'python.exe',
+    sitePackages: ['Lib', 'site-packages'],
   },
   'win32-arm64': {
     uvFilename: 'uv-aarch64-pc-windows-msvc.zip',
     archive: 'zip',
+    uvExeName: 'uv.exe',
+    venvBinDir: 'Scripts',
+    venvPythonName: 'python.exe',
+    sitePackages: ['Lib', 'site-packages'],
   },
   'darwin-x64': {
     uvFilename: 'uv-x86_64-apple-darwin.tar.gz',
     archive: 'tar.gz',
+    uvExeName: 'uv',
+    venvBinDir: 'bin',
+    venvPythonName: 'python',
+    sitePackages: ['lib', `python${PYTHON_VERSION_SLOT}`, 'site-packages'],
   },
   'darwin-arm64': {
     uvFilename: 'uv-aarch64-apple-darwin.tar.gz',
     archive: 'tar.gz',
+    uvExeName: 'uv',
+    venvBinDir: 'bin',
+    venvPythonName: 'python',
+    sitePackages: ['lib', `python${PYTHON_VERSION_SLOT}`, 'site-packages'],
   },
   'linux-x64': {
     uvFilename: 'uv-x86_64-unknown-linux-gnu.tar.gz',
     archive: 'tar.gz',
+    uvExeName: 'uv',
+    venvBinDir: 'bin',
+    venvPythonName: 'python',
+    sitePackages: ['lib', `python${PYTHON_VERSION_SLOT}`, 'site-packages'],
   },
   'linux-arm64': {
     uvFilename: 'uv-aarch64-unknown-linux-gnu.tar.gz',
     archive: 'tar.gz',
+    uvExeName: 'uv',
+    venvBinDir: 'bin',
+    venvPythonName: 'python',
+    sitePackages: ['lib', `python${PYTHON_VERSION_SLOT}`, 'site-packages'],
   },
 };
 
@@ -55,6 +93,11 @@ export const UV_VERSION = '0.13.8';
  * because the downloadable list is frozen per uv release.
  */
 export const PYTHON_VERSION = '3.12.15';
+
+/** Major.minor, the form venv directory names use (`lib/python3.12/...`). */
+export const PYTHON_SHORT_VERSION = PYTHON_VERSION.split('.')
+  .slice(0, 2)
+  .join('.');
 
 /** The USTC mirror carries both GitHub releases we need, uv and the Python builds. */
 export const UV_DOWNLOAD_BASE =

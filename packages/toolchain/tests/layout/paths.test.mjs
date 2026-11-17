@@ -2,7 +2,15 @@ import assert from 'node:assert/strict';
 import { join, resolve } from 'node:path';
 import { test } from 'node:test';
 
-import { backendPaths, cachePaths } from '../../out/index.js';
+import {
+  PYTHON_SHORT_VERSION,
+  TARGETS,
+  backendPaths,
+  cachePaths,
+} from '../../out/index.js';
+
+const WINDOWS = TARGETS['win32-x64'];
+const LINUX = TARGETS['linux-x64'];
 
 test('lays the cache out under the root the caller chose', () => {
   const paths = cachePaths('data/cache');
@@ -14,7 +22,7 @@ test('lays the cache out under the root the caller chose', () => {
 });
 
 test('lays the backend out under the root the caller chose', () => {
-  const paths = backendPaths('data/backend');
+  const paths = backendPaths('data/backend', WINDOWS);
   const root = resolve('data/backend');
 
   assert.equal(paths.root, root);
@@ -25,8 +33,20 @@ test('lays the backend out under the root the caller chose', () => {
   assert.equal(paths.readyMarker, join(root, '.ready'));
 });
 
+test('reads the platform names from the target row', () => {
+  const root = resolve('data/backend');
+  const linux = backendPaths(root, LINUX);
+
+  assert.equal(linux.uvExe, join(root, 'uv', 'uv'));
+  assert.equal(linux.venvPython, join(root, 'venv', 'bin', 'python'));
+  assert.equal(
+    linux.sitePackages,
+    join(root, 'venv', 'lib', `python${PYTHON_SHORT_VERSION}`, 'site-packages'),
+  );
+});
+
 test('keeps an absolute root as it is', () => {
   const root = join('C:', 'felyrics', 'backend');
 
-  assert.equal(backendPaths(root).root, resolve(root));
+  assert.equal(backendPaths(root, WINDOWS).root, resolve(root));
 });
