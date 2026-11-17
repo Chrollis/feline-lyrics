@@ -30,6 +30,7 @@ test('writes the body to the destination', async () => {
     const received = await download({
       url: 'https://example.com/file',
       dest,
+      minBytes: 1,
       fetchImpl: async () => respondWith(payload),
     });
 
@@ -47,6 +48,7 @@ test('rejects a body shorter than content-length and removes the partial file', 
       download({
         url: 'https://example.com/file',
         dest,
+        minBytes: 1,
         attempts: 1,
         fetchImpl: async () =>
           respondWith(new Uint8Array([1, 2, 3]), { contentLength: 1000 }),
@@ -67,8 +69,8 @@ test('rejects a tiny body when the server sends no content-length', async () => 
       download({
         url: 'https://example.com/file',
         dest,
-        attempts: 1,
         minBytes: 64,
+        attempts: 1,
         fetchImpl: async () =>
           respondWith(new Uint8Array(10), { contentLength: null }),
       }),
@@ -94,6 +96,7 @@ test('retries a 5xx and then succeeds', async () => {
     const received = await download({
       url: 'https://example.test/a',
       dest,
+      minBytes: 1,
       fetchImpl,
       retryDelay: (attempt) => {
         delays.push(attempt);
@@ -126,6 +129,7 @@ test('aborts and reports a stall when no bytes arrive', async () => {
       download({
         url: 'https://example.test/a',
         dest,
+        minBytes: 1,
         fetchImpl,
         idleMs: 10,
         attempts: 1,
@@ -146,7 +150,7 @@ test('does not retry a 404', async () => {
     };
 
     await assert.rejects(
-      download({ url: 'https://example.test/a', dest, fetchImpl }),
+      download({ url: 'https://example.test/a', dest, minBytes: 1, fetchImpl }),
       /HTTP 404/,
     );
     assert.equal(calls, 1);
@@ -163,6 +167,7 @@ test('removes the part file after the last failed attempt', async () => {
       download({
         url: 'https://example.test/a',
         dest,
+        minBytes: 1,
         fetchImpl,
         attempts: 2,
         retryDelay: () => 1,
@@ -170,5 +175,89 @@ test('removes the part file after the last failed attempt', async () => {
       /HTTP 503/,
     );
     await assert.rejects(stat(`${dest}.part`));
+  });
+});
+
+test('keeps the download error when cleaning up the partial file fails', async () => {
+  await withTempDir(async (dir) => {
+    const dest = join(dir, 'archive.tar.gz');
+    let calls = 0;
+
+    const fetchImpl = async () => {
+      calls += 1;
+      return new Response('boom', { status: 503 });
+    };
+
+    await assert.rejects(
+      download({
+        url: 'https://example.test/a',
+        dest,
+        minBytes: 1,
+        fetchImpl,
+        attempts: 2,
+        retryDelay: () => 1,
+        removePartial: async () => {
+          throw new Error('EBUSY: resource busy or locked');
+        },
+      }),
+      /HTTP 503/,
+    );
+
+    // The cleanup failure neither stopped the retry nor replaced the cause.
+    assert.equal(calls, 2);
+  });
+});
+
+test('does not retry a TypeError that carries no cause', async () => {
+  await withTempDir(async (dir) => {
+    const dest = join(dir, 'archive.tar.gz');
+    let calls = 0;
+
+    const fetchImpl = async () => {
+      calls += 1;
+      throw new TypeError('programmer error');
+    };
+
+    await assert.rejects(
+      download({
+        url: 'https://example.test/a',
+        dest,
+        minBytes: 1,
+        fetchImpl,
+        attempts: 3,
+        retryDelay: () => 1,
+      }),
+      /programmer error/,
+    );
+    assert.equal(calls, 1);
+  });
+});
+
+test('retries a TypeError that carries a cause, the shape fetch uses', async () => {
+  await withTempDir(async (dir) => {
+    const dest = join(dir, 'archive.tar.gz');
+    const payload = new Uint8Array([1, 2, 3, 4, 5]);
+    let calls = 0;
+
+    const fetchImpl = async () => {
+      calls += 1;
+      if (calls === 1) {
+        throw new TypeError('fetch failed', {
+          cause: new Error('ECONNRESET'),
+        });
+      }
+      return respondWith(payload);
+    };
+
+    const received = await download({
+      url: 'https://example.test/a',
+      dest,
+      minBytes: 1,
+      fetchImpl,
+      retryDelay: () => 1,
+    });
+
+    assert.equal(received, payload.byteLength);
+    assert.equal(calls, 2);
   });
 });
