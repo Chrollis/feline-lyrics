@@ -82,7 +82,7 @@ test('reports every check when the backend is healthy', async () => {
     assert.equal(report.ok, true);
     assert.deepEqual(
       report.checks.map((check) => check.label),
-      ['uv', 'python', 'dependencies', 'pth', 'marker'],
+      ['uv', 'python', 'dependencies', 'pth', 'import', 'marker'],
     );
     assert.deepEqual(byLabel(report, 'dependencies'), {
       label: 'dependencies',
@@ -162,6 +162,26 @@ test('fails when the pth points somewhere else', async () => {
 
     assert.equal(report.ok, false);
     assert.match(byLabel(report, 'pth').detail, /does not mention/);
+  });
+});
+
+test('catches a backend package that does not import', async () => {
+  await withBackend(async (toolchain) => {
+    const { run: base } = fakeRun();
+    const run = (file, args) =>
+      args[1]?.includes('felyrics.__main__')
+        ? {
+            status: 1,
+            output: "ModuleNotFoundError: No module named 'does_not_exist'",
+          }
+        : base(file, args);
+
+    const report = await doctor(toolchain, { run });
+    const imported = byLabel(report, 'import');
+
+    assert.equal(report.ok, false);
+    assert.equal(imported.ok, false);
+    assert.match(imported.detail, /does_not_exist/);
   });
 });
 
