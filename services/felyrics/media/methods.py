@@ -9,6 +9,7 @@ backend's job, not the caller's.
 
 from __future__ import annotations
 
+import shutil
 import uuid
 from pathlib import Path
 from typing import Any
@@ -97,9 +98,21 @@ def _optional_text(params: dict[str, Any], name: str) -> str | None:
 
 
 def _job_dir() -> Path:
-    """One directory per call, so two decodes never overwrite each other."""
+    """One directory per call, and the previous one is dropped first.
 
-    directory = runtime.cache_root() / "jobs" / uuid.uuid4().hex
+    A job directory only has to live until the next call: the app works on one
+    song at a time, and a result path is handed to the renderer immediately. The
+    cache is user data, not the system temp directory, so nothing else would ever
+    delete this -- one decode leaves one full copy of the audio behind.
+
+    Cleanup is best effort on purpose: on Windows the previous file can still be
+    open in the renderer, and losing a leak is cheaper than failing a decode.
+    """
+
+    jobs = runtime.cache_root() / "jobs"
+    shutil.rmtree(jobs, ignore_errors=True)
+
+    directory = jobs / uuid.uuid4().hex
     directory.mkdir(parents=True, exist_ok=True)
 
     return directory
