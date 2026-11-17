@@ -12,18 +12,15 @@ import sys
 import traceback
 from typing import IO, Any, Callable
 
+from .errors import ServiceError
+
 Handler = Callable[[dict[str, Any]], Any]
 
 METHODS: dict[str, Handler] = {}
 
 
-class ProtocolError(Exception):
+class ProtocolError(ServiceError):
     """A request that cannot be answered as asked; the client sees `code`."""
-
-    def __init__(self, code: str, message: str) -> None:
-        super().__init__(message)
-        self.code = code
-        self.message = message
 
 
 def method(name: str) -> Callable[[Handler], Handler]:
@@ -93,7 +90,7 @@ def respond(line: str) -> dict[str, Any]:
                 "message": f"line is not JSON: {error}",
             },
         }
-    except ProtocolError as error:
+    except ServiceError as error:
         return {"id": request_id, "error": {"code": error.code, "message": error.message}}
     except Exception:
         # One broken handler must not kill a session that runs for hours.
