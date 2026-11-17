@@ -58,7 +58,7 @@ class MediaMethodsTest(unittest.TestCase):
 
         self.assertTrue(target.is_file())
         self.assertEqual(target.read_bytes()[:4], b"fLaC")
-        self.assertEqual(target.parent.parent, self.cache / "jobs")
+        self.assertEqual(target.parent.parent, self.cache / "jobs" / "audio")
         self.assertEqual(target.name, "audio.flac")
         self.assertEqual(result["sample_rate"], 16000)
         self.assertEqual(result["layout"], "mono")
@@ -86,7 +86,7 @@ class MediaMethodsTest(unittest.TestCase):
 
         self.assertFalse(first.parent.exists())
         self.assertTrue(second.parent.is_dir())
-        self.assertEqual(len(list((self.cache / "jobs").iterdir())), 1)
+        self.assertEqual(len(list((self.cache / "jobs" / "audio").iterdir())), 1)
 
     def test_a_missing_path_parameter_is_a_protocol_error(self):
         response = call("media/probe", {})
