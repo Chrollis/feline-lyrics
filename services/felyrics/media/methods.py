@@ -49,7 +49,7 @@ def decode(params: dict[str, Any]) -> dict[str, Any]:
         rate=_optional_positive_int(params, "rate"),
         layout=_optional_text(params, "layout"),
     )
-    target = _job_dir() / "audio.flac"
+    target = _job_dir("audio") / "audio.flac"
 
     audio.save(decoded, target)
 
@@ -102,7 +102,7 @@ def video_frames(params: dict[str, Any]) -> dict[str, Any]:
 
     info = video.probe(source)
     shots = video.frames(source, start=start, step=step, count=count, width=width)
-    directory = _job_dir()
+    directory = _job_dir("frames")
 
     written = []
 
@@ -189,19 +189,24 @@ def _frame_width(params: dict[str, Any]) -> int | None:
     return width
 
 
-def _job_dir() -> Path:
-    """One directory per call, and the previous one is dropped first.
+def _job_dir(kind: str) -> Path:
+    """One directory per call, inside a per-kind bucket that is dropped first.
 
-    A job directory only has to live until the next call: the app works on one
-    song at a time, and a result path is handed to the renderer immediately. The
-    cache is user data, not the system temp directory, so nothing else would ever
-    delete this -- one decode leaves one full copy of the audio behind.
+    A job directory only has to live until the next call of the same kind: the
+    app works on one song at a time, and a result path is handed to the renderer
+    immediately. The cache is user data, not the system temp directory, so
+    nothing else would ever delete this -- one decode leaves one full copy of the
+    audio behind, one frame request leaves one batch of stills.
+
+    The bucket is per kind because the consumers overlap: the renderer can still
+    be playing the decoded audio while the timeline asks for thumbnails, and a
+    shared bucket would delete the file under the player.
 
     Cleanup is best effort on purpose: on Windows the previous file can still be
-    open in the renderer, and losing a leak is cheaper than failing a decode.
+    open in the renderer, and losing a leak is cheaper than failing a request.
     """
 
-    jobs = runtime.cache_root() / "jobs"
+    jobs = runtime.cache_root() / "jobs" / kind
     shutil.rmtree(jobs, ignore_errors=True)
 
     directory = jobs / uuid.uuid4().hex

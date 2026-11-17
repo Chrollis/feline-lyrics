@@ -33,6 +33,8 @@ class VideoTest(unittest.TestCase):
         runtime.configure(self.cache)
         self.clip = self.dir / "clip.mp4"
         write_video(self.clip, width=64, height=48, count=3, rate=10)
+        self.song = self.dir / "song.flac"
+        write_flac(self.song, rate=8000, layout="mono", frames=800)
 
     def test_probe_reports_the_stream(self):
         info = video.probe(self.clip)
@@ -79,13 +81,23 @@ class VideoTest(unittest.TestCase):
 
         self.assertEqual(len(result["frames"]), 2)
         self.assertEqual((result["width"], result["height"]), (64, 48))
-        self.assertEqual(Path(result["dir"]).parent, self.cache / "jobs")
+        self.assertEqual(Path(result["dir"]).parent, self.cache / "jobs" / "frames")
 
         for entry in result["frames"]:
             written = Path(entry["path"])
 
             self.assertTrue(written.is_file())
             self.assertEqual(written.read_bytes()[:8], b"\x89PNG\r\n\x1a\n")
+
+    def test_a_frame_request_keeps_the_decoded_audio(self):
+        # The renderer can still be playing the decoded audio while the timeline
+        # asks for thumbnails, so each kind of result clears only its own bucket.
+        audio = Path(call("media/decode", {"path": str(self.song)})["result"]["path"])
+        call("video/frames", {"path": str(self.clip), "count": 1})
+
+        self.assertTrue(audio.is_file())
+        self.assertEqual(len(list((self.cache / "jobs" / "audio").iterdir())), 1)
+        self.assertEqual(len(list((self.cache / "jobs" / "frames").iterdir())), 1)
 
     def test_frames_method_rejects_a_count_over_the_cap(self):
         response = call(
