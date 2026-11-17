@@ -1,61 +1,53 @@
 # AGENTS.md
 
-Working agreement for one human learning to read every line, and an agent that
-writes it. This file is injected into every session, so it holds behaviour only:
-the past -- state, decisions, dead ends -- lives in `memories/MEMORY.md`.
+Working agreement for a human who decides, an agent that builds, and a reviewer
+that looks for what the builder missed. This file is injected into every session,
+so it holds behaviour only: the past -- state, decisions, dead ends -- lives in
+`memories/MEMORY.md`.
 
-## 1. One step: plan, write, report, verify
+## 1. One step: plan, write, verify, report
 
-- A step is one idea and one commit-sized change. Split anything larger, and let
-  the human confirm the plan before you write.
+- A step is one idea and one commit-sized change. Split anything larger.
 - Plan in three lines: the files and line ranges, the signature of anything new,
   and the acceptance command (`npm run typecheck`, `npm test -w @felyrics/toolchain`).
 - Write only the files the plan named. A drive-by fix is a separate step,
   proposed first.
+- Run the acceptance check and paste its real tail. If you did not run it, say
+  "not run". Never describe a check you did not run.
 - Report in five lines: what changed, what deliberately did not, what is still
-  unproven, and what was deleted. Do not restate the diff.
-- Hand over a reading list, not a diff: ordered `file:line` ranges, each saying
-  what to look at there, in the order that builds understanding (the types, then
-  the function, then its test). A diff hides intent and a file hides deletions,
-  so the list names both.
-- Walk the list with them: a few sentences per range on what it does and why it
-  is shaped that way. Do not paste the code back; they are reading the file, not
-  the chat.
+  unproven, what was deleted, and the commit hash. Do not restate the diff.
 - Write every path as a link the harness can open:
   `[apps/desktop/src/main/index.ts:17-19](apps/desktop/src/main/index.ts#L17-L19)`,
-  and a range ends `#L24-L30`. A bare path makes the human search for the file
+  and a range ends `#L24-L30`. A bare path makes the reader search for a file
   that was just named.
-- Do not commit. Give the human the `git add` and `git commit` command with the
-  message, and let them run it. They are the one who learns from the diff.
-- Run the acceptance check and paste its real tail. If you did not run it, say
-  "not run". Green tests do not close a step; section 2 does.
+- Commit the step yourself once it is green: `<type>(<scope>): <subject>`, ASCII,
+  one line, type from feat/fix/test/chore/style/docs/refactor. Never commit a red
+  test; never rewrite a pushed commit.
 - Do not invent an API: read the installed source when a detail matters. Say
   "uncertain" when that is the truth.
 
-## 2. The human must be able to explain the diff
+## 2. A step ends at the reviewer, not at green tests
 
-- Close a step only when the human answers, in their own words, one question that
-  cannot be answered without reading the diff. You do not answer it, and you do
-  not start the next step until it is answered.
-- Teach at most two constructs per step, and only ones the syntax log does not
-  cover. Add each to `reference/learning/syntax-log.md` with its real `file:line`
-  here and a three-line example.
-- Explain the tradeoff that decided the shape, not what the diff already shows.
-- The human may take any function. Then hand over the signature and its tests, a
-  hint after ten minutes, and never the body.
+- Green tests only prove the code does what the tests say.
+- The reviewer owns `reference/ideas/`: it reads the code the builder wrote and
+  appends findings to `to-fix.md` in the shape 现状 / 为什么 / 怎么改 / 验收.
+  Do not edit those three files while a review is running.
+- A P0 finding blocks the next step. P1 and P2 wait in the file.
+- Do not ask the human to explain the code. Ask only what cannot be derived from
+  it: a new dependency, a decision recorded in `keep-as-is.md` that should be
+  reversed, anything expensive to undo. One sentence, with the tradeoff.
 
 ## 3. `reference/` is the human's area, with three roles
 
 - The roles are recorded in `memories/MEMORY.md`; do not infer them from names.
-- `ideas/` and `learning/` are the agent's working area: read and write them
+- `ideas/` and `learning/` are the agents' working area: read and write them
   freely. Everything else under `reference/` is gated.
 - Do not read, search, grep or glob under the gated part unless the human names
   an exact path in the current request. Then read that path and nothing beside it.
 - A named path is evidence about the past, never a template: copy nothing -- no
   code, naming, layout or dependency -- from it unless asked. The predecessor
   exists so this repository can regain control, not to be copied from.
-- `reference/` is gitignored, so the idea notes and the syntax log are not
-  versioned.
+- `reference/` is gitignored, so the idea notes are not versioned.
 
 ## 4. Language and encoding
 
@@ -96,9 +88,11 @@ the past -- state, decisions, dead ends -- lives in `memories/MEMORY.md`.
 - It holds reasons, decisions, dead ends and the next step: never a changelog,
   never a file index, never a test count. Delete what went stale.
 
-## 9. Autonomy
+## 9. Autonomy and the team
 
 - Long, self-contained work goes to a plain `subagent`, not a fork: a fork re-pays
   this whole conversation, a subagent starts clean and returns only its result.
 - The files a child touches count as files you announced. Never run unattended,
   and never chain steps without the review in between.
+- The reviewer is a durable teammate, not a session prompt. Ask it for a review
+  after a batch of steps, and for a full pass when the human says so.

@@ -61,8 +61,10 @@ Rules:
   `RhythmicaLyrics/` are third-party references. `ideas/` is split by STATUS,
   not by topic: `to-fix.md`, `fixed.md`, `keep-as-is.md`, with the discussion
   notes (`python-acquisition.md`, `cache-management.md`, `plugin-system.md`)
-  kept apart. `learning/syntax-log.md` is the agent-maintained syntax log. The
-  whole directory is gitignored, so none of it is versioned.
+  kept apart. `learning/` holds the syntax log from the teaching phase, no
+  longer maintained. A durable reviewer teammate owns the three status files:
+  it is the only writer, and the builder never edits them while a review runs.
+  The whole directory is gitignored, so none of it is versioned.
 
 ## Decisions
 
@@ -93,8 +95,9 @@ Rules:
 - Sources are grouped by domain, not by layer, so a helper shared by two tools
   has one obvious home instead of an "utils" drawer.
 - 2026-11 `AGENTS.md` is injected into every session, so it carries behaviour
-  only; state, decisions and dead ends live here. A step closes when the human
-  can restate the diff, not when the tests are green.
+  only; state, decisions and dead ends live here. The human decides and does not
+  read code, so a step closes at the reviewer's pass, not at a restated diff;
+  green tests only prove what the tests claim.
 - Failures we expect and branch on carry a `ToolchainError` code
   (`domain/reason`) and structured `context`; unexpected ones (spawn ENOENT,
   killed process) stay native, so "the archive is at fault" is a code prefix,
@@ -193,9 +196,8 @@ Rules:
 
 ## Next
 
-- The toolchain is one step from done: port audio/video decoding into
-  `services/felyrics/media/` and wire a dependency declaration into `provision`,
-  then leave the toolchain alone.
+- `media/decode` and `media/probe` work end to end over the protocol; `video.py`
+  and the IPC/preload path for them are next, then the toolchain is done.
 - After that, two Python plugins: annotate/tokenize (pure CPU, light) and
   align/separate (`stable-ts[fw]` CPU + `demucs-infer`/torch with CPU or CUDA,
   heavy and install-time optional). Nothing is bundled, so the heavy half can be
