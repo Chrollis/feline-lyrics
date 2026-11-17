@@ -2,6 +2,7 @@ export type ToolchainErrorCode =
   | 'archive/unusable'
   | 'archive/unsafe-entry'
   | 'target/unsupported'
+  | 'backend/not-provisioned'
   | 'uv/missing-binary'
   | 'uv/install-failed'
   | 'uv/venv-failed'
