@@ -64,8 +64,7 @@ Rules:
   `RhythmicaLyrics/` are third-party references. `ideas/` is split by STATUS,
   not by topic: `to-fix.md`, `fixed.md`, `keep-as-is.md`, with the discussion
   notes (`python-acquisition.md`, `cache-management.md`, `plugin-system.md`)
-  kept apart. `learning/` holds the notes from the teaching phase, no longer
-  maintained. A durable reviewer teammate owns the three status files:
+  kept apart. A durable reviewer teammate owns the three status files:
   it is the only writer, and the builder never edits them while a review runs.
   The whole directory is gitignored, so none of it is versioned.
 

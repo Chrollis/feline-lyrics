@@ -41,8 +41,8 @@ rules in force, `archive/` for what no longer changes the next step.
 ## 3. `reference/` is the human's area, with three roles
 
 - The roles are recorded in `memories/MEMORY.md`; do not infer them from names.
-- `ideas/` and `learning/` are the agents' working area: read and write them
-  freely. Everything else under `reference/` is gated.
+- `ideas/` is the agents' working area: read and write it freely. Everything
+  else under `reference/` is gated.
 - Do not read, search, grep or glob under the gated part unless the human names
   an exact path in the current request. Then read that path and nothing beside it.
 - A named path is evidence about the past, never a template: copy nothing -- no
