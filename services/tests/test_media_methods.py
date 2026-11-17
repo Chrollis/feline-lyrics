@@ -78,6 +78,16 @@ class MediaMethodsTest(unittest.TestCase):
 
         self.assertNotEqual(first.parent, second.parent)
 
+    def test_a_decode_drops_the_previous_job_directory(self):
+        first = Path(call("media/decode", {"path": str(self.source)})["result"]["path"])
+        second = Path(
+            call("media/decode", {"path": str(self.source)})["result"]["path"]
+        )
+
+        self.assertFalse(first.parent.exists())
+        self.assertTrue(second.parent.is_dir())
+        self.assertEqual(len(list((self.cache / "jobs").iterdir())), 1)
+
     def test_a_missing_path_parameter_is_a_protocol_error(self):
         response = call("media/probe", {})
 
