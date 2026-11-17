@@ -1,6 +1,9 @@
 import { app, BrowserWindow, ipcMain } from 'electron';
 import { join } from 'node:path';
 
+import { ToolchainError } from '@felyrics/toolchain';
+
+import type { IpcResult } from '../preload/api.js';
 import { pingBackend, shutdownBackend } from './backend.js';
 
 function createWindow(): void {
@@ -46,9 +49,26 @@ app.on('window-all-closed', () => {
   }
 });
 
+/**
+ * A rejected handler crosses the IPC boundary as a plain string, so the code the
+ * toolchain carries is lost exactly here. Hand back the failure as a value
+ * instead: the renderer can branch on `code` without parsing a message.
+ */
+async function asResult<T>(run: () => Promise<T>): Promise<IpcResult<T>> {
+  try {
+    return { ok: true, value: await run() };
+  } catch (error) {
+    return {
+      ok: false,
+      code: error instanceof ToolchainError ? error.code : 'ipc/unexpected',
+      message: error instanceof Error ? error.message : String(error),
+    };
+  }
+}
+
 ipcMain.handle('ping', () => 'pong');
 
-ipcMain.handle('backend:ping', () => pingBackend());
+ipcMain.handle('backend:ping', () => asResult(() => pingBackend()));
 
 /**
  * Closing stdin is how the backend learns to stop: its read loop ends on EOF, so

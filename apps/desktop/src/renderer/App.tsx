@@ -1,11 +1,10 @@
 import { useEffect, useState } from 'react';
 
+import type { FelyricsApi } from '../preload/api.js';
+
 declare global {
   interface Window {
-    felyrics: {
-      ping: () => Promise<string>;
-      backendPing: () => Promise<{ pong: boolean }>;
-    };
+    felyrics: FelyricsApi;
   }
 }
 
@@ -37,8 +36,12 @@ export function App() {
           setBackend('asking...');
           window.felyrics
             .backendPing()
-            .then((value) => {
-              setBackend(JSON.stringify(value));
+            .then((result) => {
+              setBackend(
+                result.ok
+                  ? JSON.stringify(result.value)
+                  : `${result.code}: ${result.message}`,
+              );
             })
             .catch((error: unknown) => {
               setBackend(String(error));

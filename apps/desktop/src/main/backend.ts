@@ -5,6 +5,7 @@ import { join, resolve } from 'node:path';
 import {
   backendPaths,
   startService,
+  ToolchainError,
   type ServiceClient,
   type ToolchainPaths,
 } from '@felyrics/toolchain';
@@ -43,8 +44,10 @@ async function launch(): Promise<ServiceClient> {
   const backend = backendPaths(paths.backendRoot);
 
   if (!existsSync(backend.venvPython)) {
-    throw new Error(
+    throw new ToolchainError(
+      'backend/not-provisioned',
       `the python backend is not provisioned at ${backend.venvPython}; run: npm run python -- --setup`,
+      { command: 'npm run python -- --setup' },
     );
   }
 
