@@ -17,7 +17,12 @@ from typing import Any
 from .. import runtime
 from ..errors import ServiceError
 from ..server import method
-from . import audio
+from . import audio, image, video
+
+# The smallest thumbnail that is still readable, and the largest still worth
+# encoding one file at a time.
+MIN_FRAME_WIDTH = 16
+MAX_FRAME_WIDTH = 4096
 
 
 @method("media/probe")
@@ -58,6 +63,65 @@ def decode(params: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+@method("video/probe")
+def video_probe(params: dict[str, Any]) -> dict[str, Any]:
+    """Reads the video stream parameters without decoding a frame."""
+
+    info = video.probe(_source(params))
+
+    return {
+        "width": info.width,
+        "height": info.height,
+        "fps": info.fps,
+        "duration": info.duration,
+        "codec": info.codec,
+    }
+
+
+@method("video/frames")
+def video_frames(params: dict[str, Any]) -> dict[str, Any]:
+    """Decodes a batch of stills and writes them as PNGs in one job directory."""
+
+    source = _source(params)
+    start = _optional_number(params, "start", 0.0)
+    step = _optional_number(params, "step", 0.5)
+    count = _optional_positive_int(params, "count") or 1
+    width = _frame_width(params)
+
+    if start < 0:
+        raise ServiceError("protocol/invalid-request", "'start' must not be negative")
+
+    if step <= 0:
+        raise ServiceError("protocol/invalid-request", "'step' must be positive")
+
+    if count > video.MAX_FRAMES:
+        raise ServiceError(
+            "protocol/invalid-request",
+            f"'count' must not exceed {video.MAX_FRAMES}",
+        )
+
+    info = video.probe(source)
+    shots = video.frames(source, start=start, step=step, count=count, width=width)
+    directory = _job_dir()
+
+    written = []
+
+    for index, shot in enumerate(shots):
+        target = directory / f"{index + 1:04d}.png"
+        height = int(shot.pixels.shape[0])
+        shot_width = int(shot.pixels.shape[1])
+        target.write_bytes(image.encode_png(shot.pixels, width=shot_width, height=height))
+        written.append({"index": index, "at": shot.at, "path": str(target)})
+
+    return {
+        "dir": str(directory),
+        "width": int(shots[0].pixels.shape[1]) if shots else 0,
+        "height": int(shots[0].pixels.shape[0]) if shots else 0,
+        "fps": info.fps,
+        "frames": written,
+    }
+
+
 def _source(params: dict[str, Any]) -> Path:
     value = params.get("path")
 
@@ -95,6 +159,34 @@ def _optional_text(params: dict[str, Any], name: str) -> str | None:
         )
 
     return value
+
+
+def _optional_number(params: dict[str, Any], name: str, default: float) -> float:
+    value = params.get(name)
+
+    if value is None:
+        return default
+
+    # bool is an int in Python, and `True` seconds is never what anyone meant.
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise ServiceError("protocol/invalid-request", f"'{name}' must be a number")
+
+    return float(value)
+
+
+def _frame_width(params: dict[str, Any]) -> int | None:
+    width = _optional_positive_int(params, "width")
+
+    if width is None:
+        return None
+
+    if not MIN_FRAME_WIDTH <= width <= MAX_FRAME_WIDTH:
+        raise ServiceError(
+            "protocol/invalid-request",
+            f"'width' must be between {MIN_FRAME_WIDTH} and {MAX_FRAME_WIDTH}",
+        )
+
+    return width
 
 
 def _job_dir() -> Path:
