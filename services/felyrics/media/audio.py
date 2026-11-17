@@ -20,6 +20,7 @@ import av
 import numpy as np
 
 from ..errors import ServiceError
+from . import container as containers
 
 
 @dataclass(frozen=True)
@@ -57,8 +58,8 @@ class Audio:
 def probe(path: str | Path) -> AudioInfo:
     """Reads the stream parameters without decoding."""
 
-    with _open(path) as container:
-        stream = _audio_stream(container, path)
+    with containers.open(path) as opened:
+        stream = _audio_stream(opened, path)
         context = stream.codec_context
         layout = context.layout
 
@@ -66,7 +67,7 @@ def probe(path: str | Path) -> AudioInfo:
             sample_rate=int(context.sample_rate or 0),
             layout=layout.name if layout else "unknown",
             channels=layout.nb_channels if layout else 0,
-            duration=_duration(container),
+            duration=containers.duration(opened),
             codec=context.name or "unknown",
         )
 
@@ -83,8 +84,8 @@ def decode(
     count; it does not mean "use my idea of a default".
     """
 
-    with _open(path) as container:
-        stream = _audio_stream(container, path)
+    with containers.open(path) as opened:
+        stream = _audio_stream(opened, path)
         context = stream.codec_context
         target_rate = rate or int(context.sample_rate or 0)
         target_layout = layout or _layout_name(context, path)
@@ -107,7 +108,7 @@ def decode(
         chunks: list[np.ndarray] = []
 
         try:
-            for frame in container.decode(stream):
+            for frame in opened.decode(stream):
                 for converted in resampler.resample(frame):
                     chunks.append(_plane(converted))
             for converted in resampler.resample(None):
@@ -182,13 +183,6 @@ def _channels(layout: str, path: str | Path) -> int:
         ) from error
 
 
-def _open(path: str | Path) -> av.container.InputContainer:
-    try:
-        return av.open(str(path))
-    except (OSError, av.FFmpegError) as error:
-        raise ServiceError("media/open-failed", f"cannot open {path}: {error}") from error
-
-
 def _audio_stream(
     container: av.container.InputContainer, path: str | Path
 ) -> av.audio.stream.AudioStream:
@@ -205,10 +199,3 @@ def _layout_name(
         raise ServiceError("media/unknown-layout", f"{path} declares no channel layout")
 
     return context.layout.name
-
-
-def _duration(container: av.container.InputContainer) -> float:
-    if container.duration is None:
-        return 0.0
-
-    return float(container.duration) / av.time_base
