@@ -144,6 +144,13 @@ Rules:
   UTF-8 because Windows consoles default to a legacy code page. A handler that
   raises answers `internal/error` and logs its traceback to stderr, so one bad
   request cannot end a session that is meant to run for hours.
+- 2026-11 the root `test` script is `--workspaces --if-present`, so tests are
+  as reachable as `typecheck`; a workspace without tests is skipped silently,
+  which is right because "has tests" is optional per package.
+- 2026-11 `packages/toolchain` declares its entry once, in `exports`: the
+  top-level `types` was a byte-for-byte duplicate and is gone. `main` stays
+  because it is the entry point for tools that predate `exports`, and nothing
+  here is published, so removing it would buy nothing.
 
 ## Dead ends
 

@@ -20,6 +20,7 @@
     "preview": "npm run preview -w @felyrics/desktop",
     "python": "node scripts/python.mjs",
     "typecheck": "npm run typecheck --workspaces --if-present",
+    "test": "npm run test --workspaces --if-present",
     "lint": "eslint .",
     "format": "prettier --write .",
     "unblock": "node scripts/unblock.mjs",
