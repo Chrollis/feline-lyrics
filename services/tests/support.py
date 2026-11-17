@@ -37,7 +37,7 @@ def write_video(path, *, width=64, height=48, count=3, rate=10):
 
     for index in range(count):
         pixels = np.zeros((height, width, 3), dtype=np.uint8)
-        pixels[:, :, 0] = 40 + index * 60
+        pixels[:, :, 0] = 40 + (index * 37) % 200
         frame = av.VideoFrame.from_ndarray(pixels, format="rgb24")
         frame.pts = index
         container.mux(stream.encode(frame))

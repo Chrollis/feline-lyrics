@@ -12,6 +12,7 @@ resampler the encoder uses, and the only cheap way to turn a 1080p frame into a
 
 from __future__ import annotations
 
+from collections.abc import Iterator
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -39,8 +40,15 @@ class VideoInfo:
 
 @dataclass(frozen=True)
 class Frame:
-    """One decoded still: `at` seconds into the file, shape (height, width, 3)."""
+    """One decoded still, shape (height, width, 3).
 
+    `requested` is the time the caller asked for; `at` is the presentation time
+    of the frame that answered it. They differ whenever the source frame rate
+    does not divide `step`: 10 fps asked for 0.15 s answers with the 0.2 s frame,
+    because there is nothing in between.
+    """
+
+    requested: float
     at: float
     pixels: np.ndarray
 
@@ -68,11 +76,14 @@ def frames(
     step: float = 0.5,
     count: int = 1,
     width: int | None = None,
-) -> list[Frame]:
-    """Decodes stills at `start + index * step` seconds, scaled to `width`.
+) -> Iterator[Frame]:
+    """Yields stills at `start + index * step` seconds, scaled to `width`.
 
-    Returns fewer than `count` when the file ends first: a preview asks for a
-    timeline nobody measured, and a short list is more useful than an error.
+    A generator, not a list: the caller writes each still out before asking for
+    the next one, so a 240-frame request holds one frame in memory instead of
+    two hundred. Yields fewer than `count` when the file ends first -- a preview
+    asks about a timeline nobody measured, and a short run is more useful than an
+    error.
     """
 
     targets = [start + index * step for index in range(count)]
@@ -81,7 +92,6 @@ def frames(
         stream = _video_stream(opened, path)
         _seek(opened, stream, start)
 
-        found: list[Frame] = []
         pending = 0
 
         try:
@@ -94,19 +104,19 @@ def frames(
                 # One decoded frame can satisfy several targets: a 10 fps source
                 # asked for 30 fps stills has nothing newer to offer.
                 while pending < len(targets) and at >= targets[pending] - _EPSILON:
-                    found.append(
-                        Frame(at=targets[pending], pixels=_pixels(frame, width))
+                    yield Frame(
+                        requested=targets[pending],
+                        at=at,
+                        pixels=_pixels(frame, width),
                     )
                     pending += 1
 
                 if pending >= len(targets):
-                    break
+                    return
         except av.FFmpegError as error:
             raise ServiceError(
                 "media/decode-failed", f"cannot decode {path}: {error}"
             ) from error
-
-    return found
 
 
 _EPSILON = 1e-6
