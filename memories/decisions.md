@@ -107,7 +107,7 @@ marker, the root `test` script, the package entry points -- are in
   then abort the setup) or when a setup step grows long enough to need a timeout.
   Until then a hard kill leaves a `.part` file, which the next attempt truncates.
 - 2026-11 a cancellation is a decision, not a failure to retry: `download()` fails
-  with `setup/cancelled` (the caller's own `abort()` reason rides along as `cause`)
+  with `download/cancelled` (the caller's own `abort()` reason rides along as `cause`)
   and never retries, because a retry would ignore the user for two more backoffs.
   The abort is raced against the body read and the backoff, not checked between
   chunks: a transport that ignores its signal parks the loop inside `read()`, and
