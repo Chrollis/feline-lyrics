@@ -1,3 +1,4 @@
+import { rm } from 'node:fs/promises';
 import { resolve } from 'node:path';
 
 import type { ToolchainPaths } from '../layout/paths.js';
@@ -24,8 +25,12 @@ export interface ProvisionOptions {
   readonly paths: ToolchainPaths;
   /** Scratch directory for uv; the caller creates and removes it. */
   readonly tempDir: string;
-  /** Exact requirement strings, already read from the services manifest. */
-  readonly requirements?: readonly string[];
+  /**
+   * Exact requirement strings, already read from the services manifest. They are
+   * required, not optional: an omitted list silently means "no dependencies",
+   * which builds a venv whose only symptom is a failing `import av` in --doctor.
+   */
+  readonly requirements: readonly string[];
   /** Rebuild even when the marker says the backend is ready. */
   readonly force?: boolean;
   readonly fetchImpl?: typeof fetch;
@@ -48,7 +53,7 @@ export async function provision(
   options: ProvisionOptions,
 ): Promise<ReadyMarker> {
   const backend = backendPaths(options.paths.backendRoot);
-  const requirements = options.requirements ?? [];
+  const requirements = options.requirements;
   const marker: ReadyMarker = {
     uv: UV_VERSION,
     python: PYTHON_VERSION,
@@ -59,6 +64,13 @@ export async function provision(
   if (!options.force && (await isReady(backend, marker))) {
     return marker;
   }
+
+  // From here on this directory is being rebuilt, so the marker must stop
+  // claiming it is usable right now. Waiting for the success path to overwrite
+  // it is not the same thing: `uv venv --clear` empties the venv early, and a
+  // crash after that would leave the old marker beside a broken interpreter,
+  // which `isReady` only checks for existence.
+  await rm(backend.readyMarker, { force: true });
 
   const ctx: UvContext = {
     paths: options.paths,
