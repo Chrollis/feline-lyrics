@@ -45,9 +45,11 @@ export interface ProvisionOptions {
  * safe to interrupt: the marker is written last, so a killed run leaves a
  * backend that the next run rebuilds instead of trusting.
  *
- * Nothing is cleaned up on failure: the shared cache stays usable input, and
+ * Nothing else is cleaned up on failure: the shared cache stays usable input, and
  * `uv venv --clear` / the versioned download directories make a rerun overwrite
- * the half-finished parts.
+ * the half-finished parts. The one exception is the marker itself, which is
+ * removed the moment a rebuild starts -- it is the file that would otherwise lie
+ * about the result.
  */
 export async function provision(
   options: ProvisionOptions,
