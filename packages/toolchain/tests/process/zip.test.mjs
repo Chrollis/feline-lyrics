@@ -1,31 +1,19 @@
 import assert from 'node:assert/strict';
-import {
-  existsSync,
-  mkdtempSync,
-  readFileSync,
-  rmSync,
-  writeFileSync,
-} from 'node:fs';
-import { tmpdir } from 'node:os';
+import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { test } from 'node:test';
 
-import { ToolchainError, extractZip, listEntries } from '../../out/index.js';
+import {
+  ToolchainError,
+  extractZip,
+  listEntries,
+  withTempDir,
+} from '../../out/index.js';
 
 // Built with Compress-Archive on Windows: nested\inner.txt keeps a backslash,
 // which is the shape a Windows-made zip has in the wild.
 const SAMPLE_ZIP_BASE64 =
   'UEsDBBQAAAAIAM60bV2MTQLQCAAAAAYAAAAQAAAAbmVzdGVkXGlubmVyLnR4dMvMy0st4gIAUEsDBBQAAAAIAM60bV01CU0iEQAAAA8AAAAJAAAAaGVsbG8udHh0y0jNyclXSCvKz1WoyizgAgBQSwECFAAUAAAACADOtG1djE0C0AgAAAAGAAAAEAAAAAAAAAAAAAAAAAAAAAAAbmVzdGVkXGlubmVyLnR4dFBLAQIUABQAAAAIAM60bV01CU0iEQAAAA8AAAAJAAAAAAAAAAAAAAAAADYAAABoZWxsby50eHRQSwUGAAAAAAIAAgB1AAAAbgAAAAAA';
-
-async function withTempDir(fn) {
-  const dir = mkdtempSync(join(tmpdir(), 'felyrics-zip-'));
-
-  try {
-    await fn(dir);
-  } finally {
-    rmSync(dir, { recursive: true, force: true });
-  }
-}
 
 /**
  * An in-memory archive: the tests care about which names are refused and where
@@ -86,7 +74,7 @@ test('lists entry names without writing anything', async () => {
 });
 
 test('lists every entry before extracting', async () => {
-  await withTempDir(async (dir) => {
+  await withTempDir('felyrics-zip-', async (dir) => {
     const dest = join(dir, 'out');
     const { open, calls } = fakeZip({
       entries: ['python/', 'python/python.exe'],
@@ -103,7 +91,7 @@ test('lists every entry before extracting', async () => {
 });
 
 test('turns a backslash in an entry name into a directory', async () => {
-  await withTempDir(async (dir) => {
+  await withTempDir('felyrics-zip-', async (dir) => {
     const dest = join(dir, 'out');
     const { open, calls } = fakeZip({
       entries: [{ name: 'nested\\inner.txt', isDirectory: false }],
@@ -129,7 +117,7 @@ const UNSAFE_ENTRIES = [
 
 for (const [entry, pattern] of UNSAFE_ENTRIES) {
   test(`refuses an archive containing ${JSON.stringify(entry)}`, async () => {
-    await withTempDir(async (dir) => {
+    await withTempDir('felyrics-zip-', async (dir) => {
       const dest = join(dir, 'out');
       const { open, calls } = fakeZip({ entries: ['python/', entry] });
 
@@ -148,7 +136,7 @@ for (const [entry, pattern] of UNSAFE_ENTRIES) {
 }
 
 test('allows a name that only contains dots', async () => {
-  await withTempDir(async (dir) => {
+  await withTempDir('felyrics-zip-', async (dir) => {
     const dest = join(dir, 'out');
     const { open } = fakeZip({ entries: ['python/..hidden', 'a..b'] });
 
@@ -173,7 +161,7 @@ test('reports an archive the library cannot read', async () => {
 test('lets a file system error through unchanged', async () => {
   const denied = Object.assign(new Error('access denied'), { code: 'EACCES' });
 
-  await withTempDir(async (dir) => {
+  await withTempDir('felyrics-zip-', async (dir) => {
     const { open } = fakeZip({
       entries: ['uv.exe'],
       readError: denied,
@@ -191,7 +179,7 @@ test('lets a file system error through unchanged', async () => {
 });
 
 test('extracts a real zip, including a backslash entry', async () => {
-  await withTempDir(async (dir) => {
+  await withTempDir('felyrics-zip-', async (dir) => {
     const archive = join(dir, 'sample.zip');
     const dest = join(dir, 'out');
 
