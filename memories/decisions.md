@@ -99,6 +99,12 @@ marker, the root `test` script, the package entry points -- are in
   accident. A non-numeric `id` cannot be matched to a request at all (guessing
   `String(id)` would bless a broken backend), so it only raises a protocol error
   and the request ends on its deadline.
+- 2026-11 a cancellation is a decision, not a failure to retry: `download()` fails
+  with `setup/cancelled` (the caller's own `abort()` reason rides along as `cause`)
+  and never retries, because a retry would ignore the user for two more backoffs.
+  The abort is raced against the body read and the backoff, not checked between
+  chunks: a transport that ignores its signal parks the loop inside `read()`, and
+  nothing of ours runs until the idle timer fires.
 - 2026-11 the renderer bridge has one declared shape,
   `apps/desktop/src/preload/api.ts` (`FelyricsApi` + `IpcResult`), imported with
   `import type` by the preload, the renderer and the main process. Two hand-copied

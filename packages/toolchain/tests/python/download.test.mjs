@@ -22,18 +22,24 @@ test('rejects a cancelled download without retrying it', async () => {
         dest,
         minBytes: 1,
         attempts: 3,
-        signal: AbortSignal.abort(),
+        signal: AbortSignal.abort(new Error('the user cancelled the setup')),
         fetchImpl: async () => {
           calls += 1;
 
           return respondWith(new Uint8Array([1, 2, 3]));
         },
       }),
-      /abort|cancel/i,
+      (error) => {
+        // The code is the stable half: a caller branches on it, not on a message.
+        assert.equal(error.code, 'setup/cancelled');
+        assert.equal(error.message, 'the download was cancelled');
+        assert.equal(error.context.url, 'https://example.com/file');
+        assert.equal(error.cause.message, 'the user cancelled the setup');
+        return true;
+      },
     );
 
-    // A cancellation is a decision, not a stall: nothing is even requested, and
-    // the message is the caller's reason instead of "download stalled".
+    // A cancellation is a decision, not a stall: nothing is even requested.
     assert.equal(calls, 0);
     await assert.rejects(stat(dest));
     await assert.rejects(stat(`${dest}.part`));
@@ -70,8 +76,100 @@ test('stops a streaming download when the caller aborts', async () => {
       controller.abort(new Error('the user cancelled the setup'));
     }, 20);
 
-    await assert.rejects(pending, /user cancelled the setup/);
+    await assert.rejects(pending, (error) => {
+      assert.equal(error.code, 'setup/cancelled');
+      assert.equal(error.cause.message, 'the user cancelled the setup');
+      return true;
+    });
     assert.equal(calls, 1);
+  });
+});
+
+test('stops even when the transport ignores the abort', async () => {
+  await withTempDir('felyrics-download-', async (dir) => {
+    const dest = join(dir, 'uv.zip');
+    const controller = new AbortController();
+    let sent = 0;
+
+    // A transport that never looks at its signal: it keeps producing chunks
+    // until it is told to stop, which is what a misbehaving mock or a socket
+    // that ignores the close looks like. Without the loop's own check these
+    // bytes are written and renamed into place, so the cancelled file wins.
+    const body = new ReadableStream({
+      pull(stream) {
+        if (sent >= 200) {
+          return;
+        }
+        sent += 1;
+        stream.enqueue(new Uint8Array(1024).fill(sent));
+      },
+    });
+    const started = Date.now();
+
+    const pending = download({
+      url: 'https://example.com/file',
+      dest,
+      minBytes: 1,
+      attempts: 3,
+      idleMs: 5_000,
+      signal: controller.signal,
+      fetchImpl: async () => new Response(body),
+    });
+
+    setTimeout(() => {
+      controller.abort(new Error('cancelled while the body streamed'));
+    }, 20);
+
+    await assert.rejects(pending, (error) => {
+      assert.equal(error.code, 'setup/cancelled');
+      assert.equal(error.cause.message, 'cancelled while the body streamed');
+      return true;
+    });
+
+    // The stall timer is 5 s, so a run that took longer than 1 s means the loop
+    // only stopped because of the timer, not because of the caller.
+    assert.ok(Date.now() - started < 1_000, `took ${Date.now() - started} ms`);
+    await assert.rejects(stat(dest));
+    await assert.rejects(stat(`${dest}.part`));
+  });
+});
+
+test('stops a backoff when the caller aborts during it', async () => {
+  await withTempDir('felyrics-download-', async (dir) => {
+    const dest = join(dir, 'uv.zip');
+    const controller = new AbortController();
+    let calls = 0;
+    const started = Date.now();
+
+    const pending = download({
+      url: 'https://example.com/file',
+      dest,
+      minBytes: 1,
+      attempts: 3,
+      retryDelay: () => 5_000,
+      signal: controller.signal,
+      fetchImpl: async () => {
+        calls += 1;
+
+        return new Response('busy', { status: 503 });
+      },
+    });
+
+    setTimeout(() => {
+      controller.abort(new Error('cancelled during the backoff'));
+    }, 20);
+
+    await assert.rejects(pending, (error) => {
+      assert.equal(error.code, 'setup/cancelled');
+      assert.equal(error.cause.message, 'cancelled during the backoff');
+      return true;
+    });
+
+    // One 5 s backoff would dwarf this; the abort has to cut it short.
+    assert.ok(Date.now() - started < 1_000, `took ${Date.now() - started} ms`);
+    assert.equal(calls, 1);
+    await assert.rejects(stat(dest));
+    await assert.rejects(stat(`${dest}.part`));
   });
 });
 

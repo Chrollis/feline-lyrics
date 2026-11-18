@@ -1,5 +1,6 @@
 import { mkdir, open, rename, rm, type FileHandle } from 'node:fs/promises';
 import { dirname } from 'node:path';
+import { ToolchainError } from '../errors.js';
 
 /** Removes a partial file. The caller swallows whatever it throws. */
 export type RemovePartial = (path: string) => Promise<void>;
@@ -38,17 +39,63 @@ class RetryableError extends Error {}
 const sleep = (ms: number) =>
   new Promise<void>((resolve) => setTimeout(resolve, ms));
 
+/**
+ * Sleeps unless the caller cancels first. The retry backoff is the last place a
+ * cancellation could hide, for up to `MAX_BACKOFF_MS`, and a cancel button that
+ * needs half a minute reads as a broken button.
+ */
+async function sleepUnlessAborted(
+  ms: number,
+  signal: AbortSignal | undefined,
+): Promise<void> {
+  if (signal === undefined) {
+    await sleep(ms);
+    return;
+  }
+  if (signal.aborted) {
+    return;
+  }
+
+  let wake: (() => void) | undefined;
+
+  try {
+    await Promise.race([
+      sleep(ms),
+      new Promise<void>((resolve) => {
+        // A zero-argument listener: the event carries nothing we need, and
+        // `resolve` itself is not an `EventListener`.
+        const onAbort = (): void => {
+          resolve();
+        };
+
+        wake = onAbort;
+        signal.addEventListener('abort', onAbort, { once: true });
+      }),
+    ]);
+  } finally {
+    // The timer keeps running when the abort wins; only the listener must go.
+    if (wake !== undefined) {
+      signal.removeEventListener('abort', wake);
+    }
+  }
+}
+
 const defaultRemovePartial: RemovePartial = (path) => rm(path, { force: true });
 
 /**
- * The error a cancelled download fails with. `signal.reason` is whatever the
- * caller passed to `abort()`; a bare `AbortController` carries a DOMException,
- * which is still an Error and reads fine to a developer.
+ * The error a cancelled download fails with. The code is stable so a caller can
+ * tell "the user gave up" from "the network failed"; the caller's own abort
+ * reason rides along as `cause`, where it belongs, instead of replacing it.
  */
-function cancelled(signal: AbortSignal): Error {
-  return signal.reason instanceof Error
-    ? signal.reason
-    : new Error('the download was cancelled');
+function cancelled(signal: AbortSignal, url: string): ToolchainError {
+  const cause = signal.reason instanceof Error ? signal.reason : undefined;
+
+  return new ToolchainError(
+    'setup/cancelled',
+    'the download was cancelled',
+    { url },
+    cause === undefined ? undefined : { cause },
+  );
 }
 
 function defaultRetryDelay(attempt: number): number {
@@ -117,6 +164,24 @@ async function attemptDownload(options: AttemptOptions): Promise<number> {
   });
   stall.catch(() => {}); // a rejection after the race is decided must not be unhandled
 
+  // The caller's cancel needs its own race: a transport that never ends its
+  // body parks the loop inside `reader.read()`, where no check of ours can run
+  // until the idle timer fires.
+  let stopOnAbort: (() => void) | undefined;
+  const aborted = new Promise<never>((_, reject) => {
+    stopOnAbort = () => {
+      const reason = options.signal?.reason;
+
+      reject(reason instanceof Error ? reason : new Error('cancelled'));
+    };
+    if (options.signal?.aborted === true) {
+      stopOnAbort();
+    } else {
+      options.signal?.addEventListener('abort', stopOnAbort, { once: true });
+    }
+  });
+  aborted.catch(() => {});
+
   const armStallTimer = () => {
     clearTimeout(stallTimer);
     if (options.idleMs > 0) {
@@ -155,7 +220,17 @@ async function attemptDownload(options: AttemptOptions): Promise<number> {
     let received = 0;
 
     for (;;) {
-      const { done, value } = await Promise.race([reader.read(), stall]);
+      const { done, value } = await Promise.race([
+        reader.read(),
+        stall,
+        aborted,
+      ]);
+      // A transport may ignore the abort and keep handing out bytes. This check
+      // is the only thing that stops the loop, and it runs before the write so a
+      // cancelled download can never reach the rename below.
+      if (options.signal?.aborted) {
+        throw cancelled(options.signal, options.url);
+      }
       if (done) {
         break;
       }
@@ -189,6 +264,9 @@ async function attemptDownload(options: AttemptOptions): Promise<number> {
   } finally {
     clearTimeout(stallTimer);
     options.signal?.removeEventListener('abort', forwardAbort);
+    if (stopOnAbort !== undefined) {
+      options.signal?.removeEventListener('abort', stopOnAbort);
+    }
     await reader?.cancel().catch(() => {});
     // A close failure here would replace the error on its way out.
     await handle?.close().catch(() => {});
@@ -221,7 +299,7 @@ export async function download(options: DownloadOptions): Promise<number> {
   // keeps that true without a trailing throw nobody can reach.
   for (let attempt = 1; ; attempt += 1) {
     if (signal?.aborted) {
-      throw cancelled(signal);
+      throw cancelled(signal, url);
     }
 
     try {
@@ -242,7 +320,7 @@ export async function download(options: DownloadOptions): Promise<number> {
       // A cancellation is a decision, not a hiccup: retrying it would ignore the
       // caller for two more backoffs, and the stall message would be a lie.
       if (signal?.aborted) {
-        throw cancelled(signal);
+        throw cancelled(signal, url);
       }
 
       // Only `fetchOnce` and the body checks produce RetryableError, so any
@@ -251,7 +329,11 @@ export async function download(options: DownloadOptions): Promise<number> {
         throw error;
       }
 
-      await sleep(retryDelay(attempt));
+      // A cancel that arrives during the backoff must not wait it out.
+      await sleepUnlessAborted(retryDelay(attempt), signal);
+      if (signal?.aborted) {
+        throw cancelled(signal, url);
+      }
     }
   }
 }

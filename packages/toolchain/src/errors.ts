@@ -2,6 +2,7 @@ export type ToolchainErrorCode =
   | 'archive/unusable'
   | 'archive/unsafe-entry'
   | 'target/unsupported'
+  | 'setup/cancelled'
   | 'backend/not-provisioned'
   | 'backend/unavailable'
   | 'backend/timeout'
@@ -17,6 +18,7 @@ export interface ToolchainErrorContext {
   readonly reason?: string;
   readonly target?: string;
   readonly command?: string;
+  readonly url?: string;
   readonly status?: number;
 }
 
