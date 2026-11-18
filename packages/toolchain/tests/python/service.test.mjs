@@ -20,6 +20,16 @@ for await (const raw of lines) {
     process.exit(3);
   }
 
+  if (request.method === 'badcode') {
+    process.stdout.write(
+      JSON.stringify({
+        id: request.id,
+        error: { code: 7, message: 'the code is not a string' },
+      }) + '\\n',
+    );
+    continue;
+  }
+
   if (request.method === 'hang') {
     continue;
   }
@@ -232,6 +242,28 @@ test('keeps the backend error code when a request fails', async () => {
     assert.ok(error instanceof BackendError);
     assert.equal(error.code, 'media/open-failed');
     assert.equal(error.message, 'cannot open the file');
+  });
+});
+
+test('refuses to invent a backend code out of a malformed error', async () => {
+  await withService({}, async (client) => {
+    await assert.rejects(client.request('badcode'), (error) => {
+      assert.ok(error instanceof ToolchainError);
+      assert.equal(error.code, 'backend/protocol');
+      assert.equal(error.context.command, 'badcode');
+      return true;
+    });
+    // The client is a wire reader, not a crash: the next request still works.
+    assert.deepEqual(await client.request('alpha'), { method: 'alpha' });
+  });
+});
+
+test('close resolves even after the process has already exited', async () => {
+  await withService({}, async (client) => {
+    await assert.rejects(client.request('die'));
+
+    assert.equal(await client.close(), 3);
+    assert.equal(await client.close(), 3);
   });
 });
 

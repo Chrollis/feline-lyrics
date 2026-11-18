@@ -5,6 +5,7 @@ export type ToolchainErrorCode =
   | 'backend/not-provisioned'
   | 'backend/unavailable'
   | 'backend/timeout'
+  | 'backend/protocol'
   | 'uv/missing-binary'
   | 'uv/install-failed'
   | 'uv/venv-failed'
