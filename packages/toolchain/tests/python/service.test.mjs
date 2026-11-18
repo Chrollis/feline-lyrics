@@ -321,7 +321,7 @@ test('calls a late answer late instead of a protocol error', async () => {
   assert.equal(reported.length, 1);
   // The wording matters: the backend kept its promise, we stopped listening, and
   // a diagnostic that blames them sends the next reader the wrong way.
-  assert.match(reported[0], /late answer to id 1/);
+  assert.match(reported[0], /answer to id 1, which is no longer pending/);
 });
 
 test('calls a second answer to the same id late, not unasked', async () => {
@@ -338,7 +338,7 @@ test('calls a second answer to the same id late, not unasked', async () => {
   assert.equal(reported.length, 1);
   // We did send id 1, so the second answer is ours to explain; a diagnostic
   // saying "nobody asked for 1" would send the next reader after the backend.
-  assert.match(reported[0], /late answer to id 1/);
+  assert.match(reported[0], /answer to id 1, which is no longer pending/);
 });
 
 test('does not blame a late answer for an id it never sent', async () => {
