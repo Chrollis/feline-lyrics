@@ -40,6 +40,7 @@ export interface ServiceClient {
 }
 
 interface Pending {
+  readonly method: string;
   readonly resolve: (value: unknown) => void;
   readonly reject: (error: Error) => void;
   readonly timer?: NodeJS.Timeout;
@@ -80,6 +81,14 @@ export function startService(options: ServiceOptions): ServiceClient {
     stdio: ['pipe', 'pipe', 'pipe'],
   });
 
+  // Registered before anything can exit. `close()` used to add its own listener
+  // after checking a flag, so an exit landing between the check and the
+  // registration left that promise pending forever -- the process was gone and
+  // nothing was going to call back.
+  const exited = new Promise<number | null>((resolve) => {
+    child.once('exit', (code) => resolve(code));
+  });
+
   // One decoder per stream: a decoder holds the bytes of a half-received
   // character, so sharing it would let a partial stderr write swallow the head
   // of the next stdout line.
@@ -91,7 +100,6 @@ export function startService(options: ServiceOptions): ServiceClient {
   let buffered = '';
   let nextId = 1;
   let closed = false;
-  let exitCode: number | null = null;
 
   const failAll = (error: Error): void => {
     for (const entry of pending.values()) {
@@ -117,6 +125,10 @@ export function startService(options: ServiceOptions): ServiceClient {
 
     const id = message.id;
 
+    // The request is left to its own deadline: we cannot identify which one a
+    // non-numeric id belongs to, and guessing (`String(id)`) would accept a
+    // backend that breaks the protocol. The caller sees `backend/timeout`,
+    // which is at least bounded.
     if (typeof id !== 'number') {
       emitProtocolError?.(line, new Error('the line carries no numeric id'));
       return;
@@ -138,8 +150,24 @@ export function startService(options: ServiceOptions): ServiceClient {
       clearTimeout(entry.timer);
     }
 
-    if (message.error) {
-      entry.reject(new BackendError(message.error.code, message.error.message));
+    if (message.error !== undefined) {
+      const { code, message: text } = message.error;
+
+      // The code is the contract, so a malformed one must not become a new
+      // backend code by accident. This request is identified, so it can be
+      // failed here instead of waiting out its deadline.
+      if (typeof code !== 'string' || code === '' || typeof text !== 'string') {
+        entry.reject(
+          new ToolchainError(
+            'backend/protocol',
+            'the backend answered with an error object that has no code and message',
+            { command: entry.method },
+          ),
+        );
+        return;
+      }
+
+      entry.reject(new BackendError(code, text));
     } else {
       entry.resolve(message.result);
     }
@@ -201,7 +229,6 @@ export function startService(options: ServiceOptions): ServiceClient {
 
   child.on('exit', (code: number | null) => {
     closed = true;
-    exitCode = code;
 
     // Flush what each decoder still holds, so a diagnostic that ends inside a
     // character is shown as a replacement character instead of vanishing.
@@ -263,6 +290,7 @@ export function startService(options: ServiceOptions): ServiceClient {
         timer?.unref();
 
         pending.set(id, {
+          method,
           resolve: (value) => resolve(value as T),
           reject,
           ...(timer === undefined ? {} : { timer }),
@@ -273,16 +301,14 @@ export function startService(options: ServiceOptions): ServiceClient {
     },
 
     close(): Promise<number | null> {
-      if (closed) {
-        return Promise.resolve(exitCode);
+      if (!closed) {
+        closed = true;
+        child.stdin.end();
       }
 
-      closed = true;
-      child.stdin.end();
-
-      return new Promise((resolve) => {
-        child.once('exit', (code) => resolve(code));
-      });
+      // `exited` already exists, so nothing can be missed between the decision to
+      // wait and the wait starting.
+      return exited;
     },
   };
 }
