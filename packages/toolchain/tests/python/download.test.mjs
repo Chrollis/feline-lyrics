@@ -1,4 +1,4 @@
-import assert from 'node:assert/strict';
+﻿import assert from 'node:assert/strict';
 import { readFile, stat } from 'node:fs/promises';
 import { join } from 'node:path';
 import { test } from 'node:test';
@@ -31,7 +31,7 @@ test('rejects a cancelled download without retrying it', async () => {
       }),
       (error) => {
         // The code is the stable half: a caller branches on it, not on a message.
-        assert.equal(error.code, 'setup/cancelled');
+        assert.equal(error.code, 'download/cancelled');
         assert.equal(error.message, 'the download was cancelled');
         assert.equal(error.context.url, 'https://example.com/file');
         assert.equal(error.cause.message, 'the user cancelled the setup');
@@ -77,7 +77,7 @@ test('stops a streaming download when the caller aborts', async () => {
     }, 20);
 
     await assert.rejects(pending, (error) => {
-      assert.equal(error.code, 'setup/cancelled');
+      assert.equal(error.code, 'download/cancelled');
       assert.equal(error.cause.message, 'the user cancelled the setup');
       return true;
     });
@@ -121,7 +121,7 @@ test('stops even when the transport ignores the abort', async () => {
     }, 20);
 
     await assert.rejects(pending, (error) => {
-      assert.equal(error.code, 'setup/cancelled');
+      assert.equal(error.code, 'download/cancelled');
       assert.equal(error.cause.message, 'cancelled while the body streamed');
       return true;
     });
@@ -160,7 +160,7 @@ test('stops a backoff when the caller aborts during it', async () => {
     }, 20);
 
     await assert.rejects(pending, (error) => {
-      assert.equal(error.code, 'setup/cancelled');
+      assert.equal(error.code, 'download/cancelled');
       assert.equal(error.cause.message, 'cancelled during the backoff');
       return true;
     });
