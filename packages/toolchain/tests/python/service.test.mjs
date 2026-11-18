@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
 
-import { startService } from '../../out/index.js';
+import { BackendError, startService } from '../../out/index.js';
 
 // A fake backend: it answers like services/felyrics, and can misbehave on
 // request. `中` is data here, not an identifier.
@@ -26,6 +26,16 @@ for await (const raw of lines) {
 
   if (request.method === 'garbage') {
     process.stdout.write('not json\\n');
+  }
+
+  if (request.method === 'fail') {
+    process.stdout.write(
+      JSON.stringify({
+        id: request.id,
+        error: { code: 'media/open-failed', message: 'cannot open the file' },
+      }) + '\\n',
+    );
+    continue;
   }
 
   if (request.method === 'split') {
@@ -168,6 +178,19 @@ test('reports a line that is not a response', async () => {
       assert.deepEqual(lines, ['not json']);
     },
   );
+});
+
+test('keeps the backend error code when a request fails', async () => {
+  await withService({}, async (client) => {
+    const error = await client.request('fail').then(
+      () => null,
+      (reason) => reason,
+    );
+
+    assert.ok(error instanceof BackendError);
+    assert.equal(error.code, 'media/open-failed');
+    assert.equal(error.message, 'cannot open the file');
+  });
 });
 
 test('close waits for the exit code', async () => {

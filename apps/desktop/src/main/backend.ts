@@ -92,6 +92,24 @@ export async function pingBackend(): Promise<unknown> {
   return service.request('ping');
 }
 
+/**
+ * The one way to ask the backend anything. `params` stays `Record<string,
+ * unknown>` on purpose: the protocol is JSON, and each surface types its own
+ * answer in the bridge contract rather than here.
+ *
+ * A failure the backend reported arrives as a `BackendError` with its `code`
+ * intact, so the caller can tell "this file has no audio stream" from "the
+ * process died".
+ */
+export async function callBackend<T>(
+  method: string,
+  params: Record<string, unknown> = {},
+): Promise<T> {
+  const service = await ensureService();
+
+  return service.request<T>(method, params);
+}
+
 export async function shutdownBackend(): Promise<number | null> {
   const current = client;
   client = null;
