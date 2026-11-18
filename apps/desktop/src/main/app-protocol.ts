@@ -43,7 +43,7 @@ export interface AppRoots {
 
 /**
  * Serve both roots over the `app` scheme: `app://bundle/` for the page and its
- * assets, `app://media/<job>/<file>` for the files the backend produces.
+ * assets, `app://media/<kind>/<job>/<file>` for the files the backend produces.
  *
  * The file is read here and handed back with an explicit `Content-Type` plus the
  * policy header. Letting `net.fetch(file://...)` do it would be shorter, but a

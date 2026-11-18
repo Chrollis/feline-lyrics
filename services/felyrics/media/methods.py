@@ -237,6 +237,12 @@ def _new_job_dir(kind: str) -> Path:
     be playing the decoded audio while the timeline asks for thumbnails, and a
     shared bucket would delete the file under the player.
 
+    `kind` is also half of the media URL the desktop app builds
+    (`app://media/<kind>/<job>/<file>`), and the other half is a whitelist in
+    `apps/desktop/src/main/app-assets.ts` (`JOB_KINDS`). A new bucket here is a
+    URL that 404s until that whitelist learns the name -- no error, just a
+    picture that never appears.
+
     The old directory is dropped by `_keep_only` only once the new result is
     complete, so a request that fails or returns nothing leaves the previous
     one usable instead of destroying it first.
