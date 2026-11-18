@@ -110,22 +110,23 @@ export async function pingBackend(): Promise<unknown> {
  *
  * A failure the backend reported arrives as a `BackendError` with its `code`
  * intact, so the caller can tell "this file has no audio stream" from "the
- * process died". `timeoutMs` bounds the wait, because a method that silently
- * takes minutes (decoding a large video) would otherwise leave the renderer
- * waiting with no way to tell it from a hang.
+ * process died".
+ *
+ * `timeoutMs` is required on purpose. A default here would be a second opinion
+ * about how long a method may take, held in a file that knows nothing about the
+ * method: a legitimately slow call would fail at the toolchain's default, the
+ * backend would keep working, and nothing would say which number to change. With
+ * it required, a new call site has to name its budget in the same line that
+ * names the method.
  */
 export async function callBackend<T>(
   method: string,
-  params: Record<string, unknown> = {},
-  timeoutMs?: number,
+  params: Record<string, unknown>,
+  timeoutMs: number,
 ): Promise<T> {
   const service = await ensureService();
 
-  return service.request<T>(
-    method,
-    params,
-    timeoutMs === undefined ? {} : { timeoutMs },
-  );
+  return service.request<T>(method, params, { timeoutMs });
 }
 
 export async function shutdownBackend(): Promise<number | null> {
