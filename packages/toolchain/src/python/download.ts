@@ -91,7 +91,7 @@ function cancelled(signal: AbortSignal, url: string): ToolchainError {
   const cause = signal.reason instanceof Error ? signal.reason : undefined;
 
   return new ToolchainError(
-    'setup/cancelled',
+    'download/cancelled',
     'the download was cancelled',
     { url },
     cause === undefined ? undefined : { cause },
