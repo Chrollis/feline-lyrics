@@ -209,13 +209,15 @@ export function startService(options: ServiceOptions): ServiceClient {
     if (entry === undefined) {
       // An answer to a request we stopped waiting for is our own doing, not the
       // backend breaking the protocol: the diagnostic must not point at them.
-      // `id < nextId` means we handed that id out, so the answer is either late
-      // or a duplicate; anything at or above `nextId` was never sent, and that
-      // is the backend inventing an id.
-      if (id < nextId) {
+      // `1 <= id < nextId` means we handed that id out, so the answer is either
+      // late or a second answer to a request that already finished -- both are
+      // "nobody is listening any more", and the two are worth telling apart when
+      // reading a log but not worth two branches here. An id of 0 or less, or one
+      // at or above `nextId`, was never sent: that is the backend inventing ids.
+      if (id > 0 && id < nextId) {
         emitProtocolError?.(
           line,
-          new Error(`late answer to id ${id}, which already gave up waiting`),
+          new Error(`answer to id ${id}, which is no longer pending`),
         );
         return;
       }
