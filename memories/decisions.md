@@ -107,6 +107,14 @@ marker, the root `test` script, the package entry points -- are in
   `UV_*` and `PIP_*` variable is dropped first, so a machine with its own uv
   0.11 (this one has it in PATH) cannot pick the interpreter or the index. The
   backend's own `uv.exe` is the only uv the toolchain calls.
+- 2026-11 the built renderer is served from `app://bundle` by a privileged
+  standard scheme, not from `file://`: `file://` has no usable origin, so a CSP on
+  it either gets ignored or has to trust everything, and modules/fetch/storage do
+  not behave. The handler reads the file itself and answers with an explicit
+  `Content-Type` plus `Content-Security-Policy`, because a `.js` served as
+  `application/octet-stream` breaks `<script type="module">` far from its cause.
+  `npm run dev` still loads `http://localhost` from Vite, where the policy does
+  not apply -- so CSP is verified in `preview`, never in `dev`.
 
 ## Build
 

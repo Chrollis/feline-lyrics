@@ -11,7 +11,15 @@ import type {
   IpcResult,
   VideoInfo,
 } from '../preload/api.js';
+import { APP_ENTRY_URL } from './app-assets.js';
+import { registerAppScheme, serveAppProtocol } from './app-protocol.js';
 import { callBackend, pingBackend, shutdownBackend } from './backend.js';
+
+// Before `app.whenReady()`: the scheme registry is frozen at startup.
+registerAppScheme();
+
+/** Where the built renderer lives: `out/main/../renderer`. */
+const RENDERER_ROOT = join(import.meta.dirname, '../renderer');
 
 function createWindow(): void {
   const win = new BrowserWindow({
@@ -32,15 +40,37 @@ function createWindow(): void {
     win.show();
   });
 
+  // The preload bridge is the renderer's only door to the backend, and a broken
+  // path to it fails silently: the page loads, every button throws on
+  // `undefined`. Say it once in the log instead of leaving it to the first click.
+  win.webContents.on('did-finish-load', () => {
+    void win.webContents
+      .executeJavaScript('typeof window.felyrics')
+      .then((kind: unknown) => {
+        if (kind !== 'object') {
+          console.error(
+            `the preload bridge is missing (window.felyrics is ${String(kind)})`,
+          );
+        }
+      })
+      .catch((error: unknown) => {
+        console.error('could not inspect the preload bridge', error);
+      });
+  });
+
   const rendererUrl = process.env['ELECTRON_RENDERER_URL'];
   if (rendererUrl) {
+    // `npm run dev`: Vite serves the page over http://localhost, where the
+    // `app://` policy does not apply and HMR works. Everything else loads the
+    // built page from our own origin.
     void win.loadURL(rendererUrl);
   } else {
-    void win.loadFile(join(import.meta.dirname, '../renderer/index.html'));
+    void win.loadURL(APP_ENTRY_URL);
   }
 }
 
 app.whenReady().then(() => {
+  serveAppProtocol(RENDERER_ROOT);
   createWindow();
 
   app.on('activate', () => {
