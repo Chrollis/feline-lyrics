@@ -52,6 +52,7 @@ export {
 } from './python/doctor.js';
 export { withTempDir } from './layout/temp.js';
 export {
+  BackendError,
   startService,
   type ServiceClient,
   type ServiceMessage,

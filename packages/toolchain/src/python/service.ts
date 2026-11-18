@@ -33,6 +33,28 @@ interface Pending {
 }
 
 /**
+ * A failure the backend reported, with the protocol's `code` kept as a field.
+ *
+ * The code is the part a caller branches on, so folding it into the message
+ * (`"media/open-failed: cannot open ..."`) would leave every backend failure
+ * indistinguishable from a crash by the time it reaches the renderer.
+ *
+ * The vocabulary belongs to the backend (`media/open-failed`,
+ * `method/not-found`, `protocol/invalid-request`, `internal/error`), which is why
+ * this is not a `ToolchainError`: the toolchain cannot enumerate codes that a new
+ * service method may invent, and a backend release must not need a toolchain one.
+ */
+export class BackendError extends Error {
+  readonly code: string;
+
+  constructor(code: string, message: string) {
+    super(message);
+    this.name = 'BackendError';
+    this.code = code;
+  }
+}
+
+/**
  * Starts one long-lived backend and speaks its line protocol.
  *
  * The process is not restarted here: a backend that dies is a state the caller
@@ -96,9 +118,7 @@ export function startService(options: ServiceOptions): ServiceClient {
     pending.delete(id);
 
     if (message.error) {
-      entry.reject(
-        new Error(`${message.error.code}: ${message.error.message}`),
-      );
+      entry.reject(new BackendError(message.error.code, message.error.message));
     } else {
       entry.resolve(message.result);
     }
