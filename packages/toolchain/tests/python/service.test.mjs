@@ -44,6 +44,20 @@ for await (const raw of lines) {
     continue;
   }
 
+  if (request.method === 'refuseversion') {
+    process.stdout.write(
+      reply({
+        id: request.id,
+        error: {
+          code: 'protocol/version-mismatch',
+          message:
+            'this backend speaks protocol version 1, the request declared none',
+        },
+      }),
+    );
+    continue;
+  }
+
   if (request.method === 'nullerror') {
     process.stdout.write(
       reply({
@@ -237,6 +251,8 @@ test('refuses an answer from another protocol version', async () => {
       await assert.rejects(client.request('alpha'), (error) => {
         assert.ok(error instanceof ToolchainError);
         assert.equal(error.code, 'backend/version-mismatch');
+        assert.equal(error.context.declared, 2);
+        assert.equal(error.context.expected, 1);
         assert.match(error.message, /protocol version 2/);
         return true;
       });
@@ -246,6 +262,20 @@ test('refuses an answer from another protocol version', async () => {
   // The line is also reported unreadable, so a log shows the stray answer even
   // if no request was waiting for it.
   assert.equal(rejected.length, 1);
+});
+
+test('reports a version the backend refuses like a version it answers with', async () => {
+  await withService({}, async (client) => {
+    await assert.rejects(client.request('refuseversion'), (error) => {
+      assert.ok(error instanceof ToolchainError);
+      // One condition, one code for the caller: which side noticed is an
+      // implementation detail, and both say "ask the other process its version".
+      assert.equal(error.code, 'backend/version-mismatch');
+      assert.equal(error.context.expected, 1);
+      assert.equal(error.context.command, 'refuseversion');
+      return true;
+    });
+  });
 });
 
 test('keeps diagnostics off the protocol channel', async () => {

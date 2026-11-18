@@ -100,6 +100,24 @@ class RespondTest(unittest.TestCase):
         )
         self.assertIn("none", response["error"]["message"])
 
+    def test_a_boolean_version_is_not_the_number_one(self):
+        # `True == 1` in Python, so a plain equality test would accept this and
+        # the TypeScript client would refuse the same answer. Both sides agree.
+        response = parse('{"v":true,"id":11,"method":"ping"}')
+
+        self.assertEqual(
+            response["error"]["code"], "protocol/version-mismatch"
+        )
+        self.assertIn("True", response["error"]["message"])
+
+    def test_a_string_version_is_refused(self):
+        response = parse('{"v":"1","id":12,"method":"ping"}')
+
+        self.assertEqual(
+            response["error"]["code"], "protocol/version-mismatch"
+        )
+        self.assertIn("'1'", response["error"]["message"])
+
     def test_a_handler_error_keeps_its_code(self):
         def refuse(params):
             raise ServiceError("media/open-failed", "cannot open it")

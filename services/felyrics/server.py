@@ -56,7 +56,14 @@ def dispatch(request: Any) -> Any:
 
     version = request.get("v")
 
-    if version != PROTOCOL_VERSION:
+    # `bool` is a subclass of `int` in Python, so `True == 1` would pass a plain
+    # equality test -- and the TypeScript client compares with `!==`, where a
+    # boolean is never 1. Both sides must reject the same bytes.
+    if (
+        isinstance(version, bool)
+        or not isinstance(version, int)
+        or version != PROTOCOL_VERSION
+    ):
         # `repr(None)` would read as the word None; a missing field is its own
         # case, because "forgot to send it" and "sent the wrong one" are what a
         # developer has to tell apart.

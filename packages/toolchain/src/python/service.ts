@@ -161,7 +161,12 @@ export function startService(options: ServiceOptions): ServiceClient {
         if (stale !== undefined) {
           pending.delete(staleId);
           clearTimeout(stale.timer);
-          stale.reject(new ToolchainError('backend/version-mismatch', detail));
+          stale.reject(
+            new ToolchainError('backend/version-mismatch', detail, {
+              expected: PROTOCOL_VERSION,
+              ...(typeof message.v === 'number' ? { declared: message.v } : {}),
+            }),
+          );
         }
       }
 
@@ -212,6 +217,20 @@ export function startService(options: ServiceOptions): ServiceClient {
             'the backend answered with an error object that has no code and message',
             { command: entry.method },
           ),
+        );
+        return;
+      }
+
+      // The backend saying "your version is not mine" is the same condition as
+      // this side spotting a foreign answer, so the caller gets one code for it.
+      // The other side's version only exists inside its English sentence, which
+      // is why `declared` is absent here.
+      if (code === 'protocol/version-mismatch') {
+        entry.reject(
+          new ToolchainError('backend/version-mismatch', text, {
+            command: entry.method,
+            expected: PROTOCOL_VERSION,
+          }),
         );
         return;
       }
