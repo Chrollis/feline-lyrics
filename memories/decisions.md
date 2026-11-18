@@ -115,6 +115,12 @@ marker, the root `test` script, the package entry points -- are in
   `application/octet-stream` breaks `<script type="module">` far from its cause.
   `npm run dev` still loads `http://localhost` from Vite, where the policy does
   not apply -- so CSP is verified in `preview`, never in `dev`.
+- 2026-11 the backend's own files get a second host on the same scheme,
+  `app://media/<job>/<file>`, rather than a token map or a path under the bundle:
+  a job directory is a `uuid4().hex` and a file name, so one regex plus the
+  separator guard covers it and no state has to be kept in sync. The renderer is
+  still handed a URL, never a path -- `mediaUrlFor` converts, and a file that is
+  not inside a job directory gets `null` instead of a guess.
 
 ## Build
 

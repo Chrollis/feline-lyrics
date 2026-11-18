@@ -27,9 +27,16 @@ export interface AudioInfo {
   readonly codec: string;
 }
 
-/** `media/decode`: the written file plus what it actually contains. */
+/**
+ * `media/decode`: the written file plus what it actually contains.
+ *
+ * `path` is where the file is on disk; `url` is where the page may load it from
+ * (`app://media/<job>/<file>`), and is `null` if the file somehow landed outside
+ * a job directory. Only `url` is usable in an `img`/`audio`/`video` tag.
+ */
 export interface DecodedAudio {
   readonly path: string;
+  readonly url: string | null;
   readonly sample_rate: number;
   readonly layout: string;
   readonly channels: number;
@@ -51,7 +58,10 @@ export interface FrameFile {
   readonly index: number;
   readonly requested: number;
   readonly at: number;
+  /** Where the PNG is on disk. Not loadable from the page; use `url`. */
   readonly path: string;
+  /** `app://media/<job>/<file>`, or `null` when the file is not in a job. */
+  readonly url: string | null;
 }
 
 /**

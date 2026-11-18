@@ -5,7 +5,9 @@ import {
   APP_SCHEME,
   CONTENT_SECURITY_POLICY,
   contentTypeFor,
+  MEDIA_HOST,
   resolveAssetPath,
+  resolveMediaPath,
 } from './app-assets.js';
 
 /**
@@ -31,17 +33,37 @@ export function registerAppScheme(): void {
   ]);
 }
 
+/** The two roots the `app` scheme serves. They never overlap on disk. */
+export interface AppRoots {
+  /** The built renderer; served as `app://bundle/`. */
+  readonly rendererRoot: string;
+  /** The backend's job directories; served as `app://media/`. */
+  readonly jobsRoot: string;
+}
+
 /**
- * Serve `root` over `app://bundle/`.
+ * Serve both roots over the `app` scheme: `app://bundle/` for the page and its
+ * assets, `app://media/<job>/<file>` for the files the backend produces.
  *
  * The file is read here and handed back with an explicit `Content-Type` plus the
  * policy header. Letting `net.fetch(file://...)` do it would be shorter, but a
  * `.js` answered as `application/octet-stream` makes `<script type="module">`
  * fail with a mime error that points nowhere near the cause.
  */
-export function serveAppProtocol(root: string): void {
+export function serveAppProtocol(roots: AppRoots): void {
   protocol.handle(APP_SCHEME, async (request) => {
-    const file = resolveAssetPath(root, request.url);
+    let host: string;
+
+    try {
+      host = new URL(request.url).host;
+    } catch {
+      return new Response('not found', { status: 404 });
+    }
+
+    const file =
+      host === MEDIA_HOST
+        ? resolveMediaPath(roots.jobsRoot, request.url)
+        : resolveAssetPath(roots.rendererRoot, request.url);
 
     if (file === null) {
       return new Response('not found', { status: 404 });

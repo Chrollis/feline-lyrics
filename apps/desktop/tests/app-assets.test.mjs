@@ -7,10 +7,15 @@ import {
   APP_ORIGIN,
   CONTENT_SECURITY_POLICY,
   contentTypeFor,
+  MEDIA_ORIGIN,
+  mediaUrlFor,
   resolveAssetPath,
+  resolveMediaPath,
 } from '../src/main/app-assets.ts';
 
 const root = join(resolve('.'), 'out', 'renderer');
+const jobsRoot = join(resolve('.'), 'cache', 'jobs');
+const job = 'a'.repeat(32);
 
 test('loads index.html for the bare origin', () => {
   assert.equal(
@@ -90,4 +95,69 @@ test('the policy allows no remote code and no inline code', () => {
   assert.match(CONTENT_SECURITY_POLICY, /style-src 'self'/);
   assert.match(CONTENT_SECURITY_POLICY, /object-src 'none'/);
   assert.doesNotMatch(CONTENT_SECURITY_POLICY, /unsafe-inline|unsafe-eval|\*/);
+  // The backend's PNGs live on `app://media`, so an `img` tag is blocked unless
+  // the scheme is named here. The audio tag was already covered by media-src.
+  assert.match(CONTENT_SECURITY_POLICY, /img-src 'self' data: app:/);
+});
+
+test('serves a job file on the media host and nothing else', () => {
+  assert.equal(
+    resolveMediaPath(jobsRoot, `${MEDIA_ORIGIN}/${job}/0001.png`),
+    join(jobsRoot, job, '0001.png'),
+  );
+  assert.equal(
+    resolveMediaPath(jobsRoot, `${MEDIA_ORIGIN}/${job}/audio.flac`),
+    join(jobsRoot, job, 'audio.flac'),
+  );
+});
+
+test('refuses anything that is not exactly one job and one file', () => {
+  assert.equal(resolveMediaPath(jobsRoot, `${MEDIA_ORIGIN}/`), null);
+  assert.equal(resolveMediaPath(jobsRoot, `${MEDIA_ORIGIN}/${job}`), null);
+  assert.equal(
+    resolveMediaPath(jobsRoot, `${MEDIA_ORIGIN}/${job}/nested/0001.png`),
+    null,
+  );
+  assert.equal(
+    resolveMediaPath(jobsRoot, `${MEDIA_ORIGIN}/not-a-job-id/0001.png`),
+    null,
+  );
+  assert.equal(
+    resolveMediaPath(jobsRoot, `${MEDIA_ORIGIN}/${job}/..%5csecret.txt`),
+    null,
+  );
+  assert.equal(
+    resolveMediaPath(jobsRoot, `${MEDIA_ORIGIN}/${job}/%zz.png`),
+    null,
+  );
+});
+
+test('keeps the two hosts apart', () => {
+  // The bundle host must not reach the cache, and the media host must not reach
+  // the bundle: an origin that serves both would undo the separation.
+  assert.equal(resolveAssetPath(root, `${MEDIA_ORIGIN}/${job}/0001.png`), null);
+  assert.equal(resolveMediaPath(jobsRoot, `${APP_ORIGIN}/index.html`), null);
+});
+
+test('turns a backend result into the url the page may load', () => {
+  assert.equal(
+    mediaUrlFor(jobsRoot, join(jobsRoot, job, '0001.png')),
+    `${MEDIA_ORIGIN}/${job}/0001.png`,
+  );
+  // Anything that is not one job directory and one file inside it has no URL;
+  // the renderer gets `null` rather than a guess that would 404 later.
+  assert.equal(
+    mediaUrlFor(jobsRoot, join(jobsRoot, job, 'deep', '0001.png')),
+    null,
+  );
+  assert.equal(mediaUrlFor(jobsRoot, join(root, 'index.html')), null);
+  assert.equal(mediaUrlFor(jobsRoot, resolve('C:/Windows/win.ini')), null);
+});
+
+test('round-trips every url the bridge hands out', () => {
+  const file = join(jobsRoot, job, 'frame 1.png');
+  const url = mediaUrlFor(jobsRoot, file);
+
+  assert.ok(url);
+  assert.equal(resolveMediaPath(jobsRoot, url), file);
 });
