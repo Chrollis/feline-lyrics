@@ -54,11 +54,14 @@ Rules:
   object per request on stdio. `server.py` keeps a `METHODS` table that
   `@method` fills, so `ping`, `media/probe`, `media/decode`, `video/probe` and
   `video/frames` register themselves; importing `media.methods` is what
-  registers the rest. The renderer reaches it through `backend:ping`, which
-  returns an `IpcResult`.
-- Media work goes to disk under `<cache>/jobs/<uuid>/` and the protocol answers
-  with paths, not payloads: `<cache>` is user data the OS never collects, so
-  `_job_dir()` deletes the previous job before making the next one.
+  registers the rest. The renderer reaches them through six IPC channels
+  (`media:pick|probe|decode`, `video:pick|probe|frames`), each returning an
+  `IpcResult`; a backend failure keeps its `code` because `service.ts` rejects
+  with `BackendError`.
+- Media work goes to disk under `<cache>/jobs/<kind>/<uuid>/` and the protocol
+  answers with paths, not payloads: `<cache>` is user data the OS never collects.
+  A bucket is cleared only after a finished result (`_keep_only`), never before,
+  so a failed or empty request cannot destroy the file the renderer is playing.
 - Paths are inputs: the toolchain takes `{ cacheDir, servicesDir, backendRoot }`
   from the caller and derives the rest, so the CLI and the app can disagree
   about where things live without the library knowing.
@@ -84,10 +87,12 @@ Rules:
 
 ## Next
 
-- The four media methods work end to end over the protocol (`media/probe`,
-  `media/decode`, `video/probe`, `video/frames`). Next: put them on the bridge
-  (`FelyricsApi` + `asResult` handlers + a renderer call), then the toolchain is
-  done.
+- The four media methods are on the bridge end to end (`FelyricsApi`, six IPC
+  handlers, a renderer that renders `IpcResult`). The click path has not been
+  run in a GUI yet -- `npm run dev` once is the remaining check. Then the `app://`
+  custom protocol (decided: CSP rides on a real origin, not on `file://`), which
+  is the last P1 in `reference/ideas/to-fix.md` along with the preload artifact
+  name.
 - After that, two Python plugins: annotate/tokenize (pure CPU, light) and
   align/separate (`stable-ts[fw]` CPU + `demucs-infer`/torch with CPU or CUDA,
   heavy and install-time optional). Nothing is bundled, so the heavy half can be
