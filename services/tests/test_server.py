@@ -10,7 +10,13 @@ import unittest
 from contextlib import redirect_stderr
 
 from felyrics.errors import ServiceError
-from felyrics.server import METHODS, ProtocolError, respond, serve
+from felyrics.server import (
+    METHODS,
+    PROTOCOL_VERSION,
+    ProtocolError,
+    respond,
+    serve,
+)
 
 
 def parse(line):
@@ -19,13 +25,14 @@ def parse(line):
 
 class RespondTest(unittest.TestCase):
     def test_ping_echoes_the_id(self):
-        self.assertEqual(parse('{"id":1,"method":"ping"}'), {
+        self.assertEqual(parse('{"v":1,"id":1,"method":"ping"}'), {
+            "v": 1,
             "id": 1,
             "result": {"pong": True},
         })
 
     def test_missing_params_defaults_to_an_empty_object(self):
-        self.assertEqual(parse('{"id":7,"method":"ping"}')["id"], 7)
+        self.assertEqual(parse('{"v":1,"id":7,"method":"ping"}')["id"], 7)
 
     def test_invalid_json_has_no_id(self):
         response = parse("{not json")
@@ -39,14 +46,14 @@ class RespondTest(unittest.TestCase):
         self.assertEqual(response["error"]["code"], "protocol/invalid-request")
 
     def test_unknown_method_is_named(self):
-        response = parse('{"id":2,"method":"nope"}')
+        response = parse('{"v":1,"id":2,"method":"nope"}')
 
         self.assertEqual(response["id"], 2)
         self.assertEqual(response["error"]["code"], "method/not-found")
         self.assertIn("nope", response["error"]["message"])
 
     def test_params_must_be_an_object(self):
-        response = parse('{"id":3,"method":"ping","params":[1]}')
+        response = parse('{"v":1,"id":3,"method":"ping","params":[1]}')
 
         self.assertEqual(response["error"]["code"], "protocol/invalid-request")
 
@@ -58,13 +65,40 @@ class RespondTest(unittest.TestCase):
 
         try:
             with redirect_stderr(io.StringIO()) as stderr:
-                response = parse('{"id":4,"method":"boom"}')
+                response = parse('{"v":1,"id":4,"method":"boom"}')
 
             self.assertEqual(response["id"], 4)
             self.assertEqual(response["error"]["code"], "internal/error")
             self.assertIn("handler exploded", stderr.getvalue())
         finally:
             del METHODS["boom"]
+
+    def test_every_answer_states_the_version_it_speaks(self):
+        for line in (
+            '{"v":1,"id":1,"method":"ping"}',
+            '{"v":1,"id":2,"method":"nope"}',
+            "{not json",
+        ):
+            with self.subTest(line=line):
+                self.assertEqual(parse(line)["v"], PROTOCOL_VERSION)
+
+    def test_a_request_from_another_version_is_refused_with_the_id(self):
+        response = parse('{"v":2,"id":9,"method":"ping"}')
+
+        # The id survives so the caller can pair the refusal with its request.
+        self.assertEqual(response["id"], 9)
+        self.assertEqual(
+            response["error"]["code"], "protocol/version-mismatch"
+        )
+        self.assertIn("protocol version 1", response["error"]["message"])
+
+    def test_a_request_without_a_version_is_refused(self):
+        response = parse('{"id":10,"method":"ping"}')
+
+        self.assertEqual(
+            response["error"]["code"], "protocol/version-mismatch"
+        )
+        self.assertIn("none", response["error"]["message"])
 
     def test_a_handler_error_keeps_its_code(self):
         def refuse(params):
@@ -73,7 +107,7 @@ class RespondTest(unittest.TestCase):
         METHODS["refuse"] = refuse
 
         try:
-            response = parse('{"id":5,"method":"refuse"}')
+            response = parse('{"v":1,"id":5,"method":"refuse"}')
         finally:
             del METHODS["refuse"]
 
@@ -87,7 +121,7 @@ class RespondTest(unittest.TestCase):
 class ServeTest(unittest.TestCase):
     def test_writes_one_line_per_request_and_skips_blanks(self):
         stdin = io.StringIO(
-            '{"id":1,"method":"ping"}\n\n{"id":2,"method":"ping"}\n'
+            '{"v":1,"id":1,"method":"ping"}\n\n{"v":1,"id":2,"method":"ping"}\n'
         )
         stdout = io.StringIO()
 
@@ -101,7 +135,7 @@ class ServeTest(unittest.TestCase):
     def test_each_line_is_a_complete_json_object(self):
         stdout = io.StringIO()
 
-        serve(io.StringIO('{"id":1,"method":"ping"}\n'), stdout)
+        serve(io.StringIO('{"v":1,"id":1,"method":"ping"}\n'), stdout)
 
         self.assertTrue(stdout.getvalue().endswith("\n"))
         json.loads(stdout.getvalue())

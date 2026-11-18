@@ -8,6 +8,7 @@ export type ToolchainErrorCode =
   | 'backend/unavailable'
   | 'backend/timeout'
   | 'backend/protocol'
+  | 'backend/version-mismatch'
   | 'uv/missing-binary'
   | 'uv/install-failed'
   | 'uv/venv-failed'

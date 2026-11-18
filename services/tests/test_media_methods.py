@@ -14,12 +14,12 @@ from unittest import mock
 from felyrics import runtime
 from felyrics.media import methods  # noqa: F401  (import registers the methods)
 from felyrics.media.audio import probe
-from felyrics.server import respond
+from felyrics.server import PROTOCOL_VERSION, respond
 from support import write_flac
 
 
 def call(name, params=None, request_id=1):
-    request = {"id": request_id, "method": name}
+    request = {"v": PROTOCOL_VERSION, "id": request_id, "method": name}
 
     if params is not None:
         request["params"] = params

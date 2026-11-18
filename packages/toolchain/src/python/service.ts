@@ -3,7 +3,15 @@ import { StringDecoder } from 'node:string_decoder';
 
 import { ToolchainError } from '../errors.js';
 
+/**
+ * The envelope both sides speak. Each side states its own version and rejects a
+ * line that declares another one; a mismatch means one of the two processes is
+ * not the build the other expects, which the files on disk cannot reveal.
+ */
+export const PROTOCOL_VERSION = 1;
+
 export interface ServiceMessage {
+  readonly v?: number;
   readonly id?: number | null;
   readonly result?: unknown;
   readonly error?: { readonly code: string; readonly message: string };
@@ -133,6 +141,30 @@ export function startService(options: ServiceOptions): ServiceClient {
       message = JSON.parse(line) as ServiceMessage;
     } catch (error) {
       emitProtocolError?.(line, error as Error);
+      return;
+    }
+
+    // A receiver cannot answer in a version it does not know, so a mismatch is
+    // reported as it stands. The request it belongs to still fails here rather
+    // than hanging until its deadline.
+    if (message.v !== PROTOCOL_VERSION) {
+      const declared = message.v === undefined ? 'none' : String(message.v);
+      const detail = `the backend answered with protocol version ${declared}, this client speaks ${PROTOCOL_VERSION}`;
+
+      emitProtocolError?.(line, new Error(detail));
+
+      const staleId = message.id;
+
+      if (typeof staleId === 'number') {
+        const stale = pending.get(staleId);
+
+        if (stale !== undefined) {
+          pending.delete(staleId);
+          clearTimeout(stale.timer);
+          stale.reject(new ToolchainError('backend/version-mismatch', detail));
+        }
+      }
+
       return;
     }
 
@@ -310,7 +342,9 @@ export function startService(options: ServiceOptions): ServiceClient {
           timer,
         });
 
-        child.stdin.write(`${JSON.stringify({ id, method, params })}\n`);
+        child.stdin.write(
+          `${JSON.stringify({ v: PROTOCOL_VERSION, id, method, params })}\n`,
+        );
       });
     },
 
