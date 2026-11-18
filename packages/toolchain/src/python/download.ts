@@ -34,7 +34,28 @@ const DEFAULT_ATTEMPTS = 3;
 const DEFAULT_IDLE_MS = 30_000;
 const MAX_BACKOFF_MS = 30_000;
 
-class RetryableError extends Error {}
+/**
+ * A failure this module detected itself, retryable or not. Both kinds end as
+ * `download/failed`, because a caller distinguishes "the network let us down"
+ * from "the user gave up", not "the fifth attempt failed differently".
+ */
+class DownloadFailure extends Error {
+  readonly status: number | undefined;
+
+  constructor(
+    message: string,
+    options: { readonly status?: number; readonly cause?: unknown } = {},
+  ) {
+    super(
+      message,
+      options.cause === undefined ? undefined : { cause: options.cause },
+    );
+    this.name = 'DownloadFailure';
+    this.status = options.status;
+  }
+}
+
+class RetryableError extends DownloadFailure {}
 
 const sleep = (ms: number) =>
   new Promise<void>((resolve) => setTimeout(resolve, ms));
@@ -219,15 +240,17 @@ async function attemptDownload(options: AttemptOptions): Promise<number> {
     ]);
 
     if (!response.ok) {
-      const message = `HTTP ${response.status} for ${options.url}`;
+      const message = `HTTP ${response.status} for ${publicUrl(options.url)}`;
       if (response.status === 429 || response.status >= 500) {
-        throw new RetryableError(message);
+        throw new RetryableError(message, { status: response.status });
       }
-      throw new Error(message);
+      throw new DownloadFailure(message, { status: response.status });
     }
 
     if (!response.body) {
-      throw new Error(`empty response body for ${options.url}`);
+      throw new DownloadFailure(
+        `empty response body for ${publicUrl(options.url)}`,
+      );
     }
 
     const total = Number(response.headers.get('content-length')) || 0;
@@ -289,6 +312,27 @@ async function attemptDownload(options: AttemptOptions): Promise<number> {
   }
 }
 
+/**
+ * Gives our own failures the code a caller can branch on. Anything else -- a
+ * TypeError from the code that called us, a full disk, a cancelled request --
+ * keeps its identity: renaming an error we do not understand only hides the
+ * stack that explains it.
+ */
+function described(error: unknown, url: string): unknown {
+  if (!(error instanceof DownloadFailure)) {
+    return error;
+  }
+
+  return new ToolchainError(
+    'download/failed',
+    error.message,
+    error.status === undefined
+      ? { url: publicUrl(url) }
+      : { url: publicUrl(url), status: error.status },
+    { cause: error },
+  );
+}
+
 export async function download(options: DownloadOptions): Promise<number> {
   const {
     url,
@@ -342,7 +386,7 @@ export async function download(options: DownloadOptions): Promise<number> {
       // Only `fetchOnce` and the body checks produce RetryableError, so any
       // other error is ours and a retry would only flatten its stack.
       if (!(error instanceof RetryableError) || attempt >= attempts) {
-        throw error;
+        throw described(error, url);
       }
 
       // A cancel that arrives during the backoff must not wait it out.

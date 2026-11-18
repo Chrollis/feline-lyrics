@@ -3,6 +3,7 @@ export type ToolchainErrorCode =
   | 'archive/unsafe-entry'
   | 'target/unsupported'
   | 'download/cancelled'
+  | 'download/failed'
   | 'backend/not-provisioned'
   | 'backend/unavailable'
   | 'backend/timeout'
