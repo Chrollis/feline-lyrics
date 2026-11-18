@@ -69,6 +69,19 @@ for await (const raw of lines) {
     continue;
   }
 
+  if (request.method === 'ghost') {
+    process.stdout.write(reply({ id: 99, result: { ghost: true } }));
+    continue;
+  }
+
+  if (request.method === 'twice') {
+    const line = reply({ id: request.id, result: { once: true } });
+
+    process.stdout.write(line);
+    process.stdout.write(line);
+    continue;
+  }
+
   if (request.method === 'slowreply') {
     setTimeout(() => {
       process.stdout.write(reply({ id: request.id, result: { late: true } }));
@@ -305,6 +318,40 @@ test('calls a late answer late instead of a protocol error', async () => {
   // The wording matters: the backend kept its promise, we stopped listening, and
   // a diagnostic that blames them sends the next reader the wrong way.
   assert.match(reported[0], /late answer to id 1/);
+});
+
+test('calls a second answer to the same id late, not unasked', async () => {
+  const reported = [];
+
+  await withService(
+    { onProtocolError: (line, error) => reported.push(error.message) },
+    async (client) => {
+      assert.deepEqual(await client.request('twice'), { once: true });
+      await until(() => reported.length > 0);
+    },
+  );
+
+  assert.equal(reported.length, 1);
+  // We did send id 1, so the second answer is ours to explain; a diagnostic
+  // saying "nobody asked for 1" would send the next reader after the backend.
+  assert.match(reported[0], /late answer to id 1/);
+});
+
+test('does not blame a late answer for an id it never sent', async () => {
+  const reported = [];
+
+  await withService(
+    { onProtocolError: (line, error) => reported.push(error.message) },
+    async (client) => {
+      await assert.rejects(
+        client.request('ghost', {}, { timeoutMs: 50 }),
+        (error) => error.code === 'backend/timeout',
+      );
+    },
+  );
+
+  assert.equal(reported.length, 1);
+  assert.match(reported[0], /never sent/);
 });
 
 test('keeps diagnostics off the protocol channel', async () => {
