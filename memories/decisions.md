@@ -101,11 +101,13 @@ marker, the root `test` script, the package entry points -- are in
   and the request ends on its deadline.
 - 2026-11 the cancel plumbing is library-only until something can press it:
   `signal` reaches `download`/`uv`/`provision`, and `scripts/python.mjs` passes
-  none, because the CLI's only cancel is Ctrl+C -- which on Windows kills the
-  whole console process group, so "the process exited" proves nothing about our
-  handler. It gets wired when the GUI has a cancel button (stop the backend first,
-  then abort the setup) or when a setup step grows long enough to need a timeout.
-  Until then a hard kill leaves a `.part` file, which the next attempt truncates.
+  none, because nothing in the product can cancel yet and a handler no path
+  reaches is untestable in an unattended run. (An earlier version of this note
+  said Ctrl+C on Windows kills the whole console group and proves nothing; that is
+  wrong -- Node does receive SIGINT, and a handler can drop a marker file.) It gets
+  wired when the GUI has a cancel button (stop the backend first, then abort the
+  setup) or when a setup step grows long enough to need a timeout. Until then a
+  hard kill leaves a `.part` file, which the next attempt truncates.
 - 2026-11 a cancellation is a decision, not a failure to retry: `download()` fails
   with `download/cancelled` (the caller's own `abort()` reason rides along as `cause`)
   and never retries, because a retry would ignore the user for two more backoffs.
