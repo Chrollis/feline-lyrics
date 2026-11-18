@@ -18,9 +18,10 @@ rules in force, `archive/` for what no longer changes the next step.
 - Report a step in this order, and go quiet where it says quiet:
   1. what changed: the files with links, what deliberately did not change, what
      is unproven, the commit hash, and the real tail of the acceptance check;
-  2. then say nothing more -- hand the step to the reviewer and wait for it;
-  3. what the review changed, or "nothing fixed", with the unfixed findings moved
-     into part 4;
+  2. then stop and hand the step back to the human. A review never runs inside
+     this session: do not spawn a reviewer, do not wait for one, do not poll;
+  3. when the human brings findings back: what the review changed, or "nothing
+     fixed", with the unfixed findings moved into part 4;
   4. what the next step is;
   5. what only the human can decide, one sentence each, with the tradeoff.
   Do not restate the diff, do not narrate the wait, and do not open a new step
@@ -35,13 +36,16 @@ rules in force, `archive/` for what no longer changes the next step.
 - Do not invent an API: read the installed source when a detail matters. Say
   "uncertain" when that is the truth.
 
-## 2. A step ends at the reviewer, not at green tests
+## 2. A step ends when it is reported, not at green tests
 
 - Green tests only prove the code does what the tests say.
-- The reviewer owns `reference/ideas/`: it reads the code the builder wrote and
-  appends findings to `to-fix.md` in the shape 现状 / 为什么 / 怎么改 / 验收.
-  Do not edit those three files while a review is running.
-- A P0 finding blocks the next step. P1 and P2 wait in the file.
+- The reviewer runs in a separate session the human starts by hand. It reads the
+  code and appends findings to `reference/ideas/to-fix.md` in the shape
+  现状 / 为什么 / 怎么改 / 验收. It is not a teammate: do not spawn it, do not
+  message it, do not poll it, and do not edit those three files yourself.
+- A P0 finding blocks the next step. P1 and P2 wait in the file. Findings enter
+  as the next step's input, never as a reason to keep working inside a step that
+  has already been reported.
 - Do not ask the human to explain the code. Ask only what cannot be derived from
   it: a new dependency, a decision recorded in `keep-as-is.md` that should be
   reversed, anything expensive to undo. One sentence, with the tradeoff.
@@ -104,7 +108,8 @@ rules in force, `archive/` for what no longer changes the next step.
 
 - Long, self-contained work goes to a plain `subagent`, not a fork: a fork re-pays
   this whole conversation, a subagent starts clean and returns only its result.
-- The files a child touches count as files you announced. Never run unattended,
-  and never chain steps without the review in between.
-- The reviewer is a durable teammate, not a session prompt. Ask it for a review
-  after a batch of steps, and for a full pass when the human says so.
+- The files a child touches count as files you announced.
+- Never run unattended: a step ends at the report, and the next one waits for the
+  human. Do not keep a turn alive by waiting on a review, a teammate or a poll.
+- There is no reviewer teammate. Review is a separate session the human starts
+  by hand, after a batch of steps, or for a full pass when they say so.

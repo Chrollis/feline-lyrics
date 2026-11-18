@@ -137,5 +137,10 @@ marker, the root `test` script, the package entry points -- are in
 
 - 2026-11 `AGENTS.md` is injected into every session, so it carries behaviour
   only; state, decisions and dead ends live here. The human decides and does not
-  read code, so a step closes at the reviewer's pass, not at a restated diff;
-  green tests only prove what the tests claim.
+  read code, so a step closes when it is committed and reported, not on a
+  reviewer's pass; green tests only prove what the tests claim.
+- 2026-11 the reviewer is a separate session the human starts by hand, never a
+  teammate. A durable teammate's message resumes the builder's turn, so a review
+  held inside a step never ends: the builder reports, gets woken, and reports
+  again without the human's floor. Review findings therefore arrive as the next
+  step's input, and a step that is already reported never waits for them.
