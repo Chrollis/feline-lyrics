@@ -330,7 +330,15 @@ test('aborts and reports a stall when no bytes arrive', async () => {
         idleMs: 10,
         attempts: 1,
       }),
-      /download stalled/,
+      (error) => {
+        // A stall has no HTTP status, so the code is the only thing a caller
+        // can branch on.
+        assert.equal(error.code, 'download/failed');
+        assert.match(error.message, /download stalled/);
+        assert.equal(error.context.url, 'https://example.test/a');
+        assert.equal(error.context.status, undefined);
+        return true;
+      },
     );
   });
 });
@@ -347,7 +355,13 @@ test('does not retry a 404', async () => {
 
     await assert.rejects(
       download({ url: 'https://example.test/a', dest, minBytes: 1, fetchImpl }),
-      /HTTP 404/,
+      (error) => {
+        // The status is what tells a stuck mirror from an expired signature.
+        assert.equal(error.code, 'download/failed');
+        assert.match(error.message, /HTTP 404/);
+        assert.equal(error.context.status, 404);
+        return true;
+      },
     );
     assert.equal(calls, 1);
   });
@@ -368,7 +382,13 @@ test('removes the part file after the last failed attempt', async () => {
         attempts: 2,
         retryDelay: () => 1,
       }),
-      /HTTP 503/,
+      (error) => {
+        // The last attempt reports the same shape as the first would have.
+        assert.equal(error.code, 'download/failed');
+        assert.match(error.message, /HTTP 503/);
+        assert.equal(error.context.status, 503);
+        return true;
+      },
     );
     await assert.rejects(stat(`${dest}.part`));
   });
