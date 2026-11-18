@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict';
-import { readFile, stat } from 'node:fs/promises';
+import { spawnSync } from 'node:child_process';
+import { readFile, stat, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { test } from 'node:test';
 import { download, withTempDir } from '../../out/index.js';
 
@@ -213,6 +215,111 @@ test('stops a backoff when the caller aborts during it', async () => {
     // One 5 s backoff would dwarf this; the abort has to cut it short.
     assert.ok(Date.now() - started < 1_000, `took ${Date.now() - started} ms`);
     assert.equal(calls, 1);
+    await assert.rejects(stat(dest));
+    await assert.rejects(stat(`${dest}.part`));
+  });
+});
+
+test('leaves no timer behind when a backoff is cancelled', async () => {
+  await withTempDir('felyrics-download-', async (dir) => {
+    const moduleUrl = pathToFileURL(
+      join(import.meta.dirname, '..', '..', 'out', 'index.js'),
+    ).href;
+    const scriptPath = join(dir, 'cancel-backoff.mjs');
+
+    // A child process, because the symptom is "the event loop does not empty":
+    // in this process the test runner owns timers of its own.
+    await writeFile(
+      scriptPath,
+      `import { download } from ${JSON.stringify(moduleUrl)};
+
+const controller = new AbortController();
+
+setTimeout(() => {
+  controller.abort(new Error('cancel'));
+}, 20);
+
+await download({
+  url: 'https://example.com/file',
+  dest: ${JSON.stringify(join(dir, 'uv.zip'))},
+  minBytes: 1,
+  attempts: 3,
+  retryDelay: () => 5_000,
+  signal: controller.signal,
+  fetchImpl: async () => new Response('busy', { status: 503 }),
+}).catch(() => {});
+`,
+    );
+
+    const started = Date.now();
+    const child = spawnSync(process.execPath, [scriptPath], {
+      encoding: 'utf8',
+      timeout: 30_000,
+    });
+    const elapsed = Date.now() - started;
+
+    assert.equal(child.status, 0, child.stderr);
+    // The 5 s backoff must not outlive the cancel it lost against.
+    assert.ok(elapsed < 2_000, `the child took ${elapsed} ms to exit`);
+  });
+});
+
+test('does not rename the file when the cancel lands while it closes', async () => {
+  await withTempDir('felyrics-download-', async (dir) => {
+    const dest = join(dir, 'uv.zip');
+    let bodySeen = false;
+    let afterBody = 0;
+
+    // Starts aborting on the second `aborted` read after the body has arrived:
+    // the first is the loop's `done` check, the second is the one between
+    // closing the handle and renaming. Counting from the body keeps the test
+    // independent of how many checks the setup adds.
+    const signal = {
+      reason: new Error('cancelled while closing'),
+      get aborted() {
+        if (!bodySeen) {
+          return false;
+        }
+
+        afterBody += 1;
+
+        return afterBody >= 2;
+      },
+      addEventListener() {},
+      removeEventListener() {},
+    };
+
+    await assert.rejects(
+      download({
+        url: 'https://example.com/file',
+        dest,
+        minBytes: 1,
+        signal,
+        onProgress: (received) => {
+          if (received >= 2048) {
+            bodySeen = true;
+          }
+        },
+        // One chunk, always: a `Response` built from a buffer may split it, and
+        // then the body is not finished where the test thinks it is.
+        fetchImpl: async () =>
+          new Response(
+            new ReadableStream({
+              start(controller) {
+                controller.enqueue(new Uint8Array(2048).fill(7));
+                controller.close();
+              },
+            }),
+          ),
+      }),
+      (error) => {
+        assert.equal(error.code, 'download/cancelled');
+        return true;
+      },
+    );
+
+    // Two reads after the body: `done`, then the one that refuses the rename.
+    assert.ok(afterBody >= 2, `aborted was read ${afterBody} times`);
     await assert.rejects(stat(dest));
     await assert.rejects(stat(`${dest}.part`));
   });
