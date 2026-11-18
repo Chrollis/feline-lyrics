@@ -14,12 +14,12 @@ import numpy as np
 from felyrics import runtime
 from felyrics.errors import ServiceError
 from felyrics.media import methods, video  # noqa: F401  (import registers methods)
-from felyrics.server import respond
+from felyrics.server import PROTOCOL_VERSION, respond
 from support import write_flac, write_video
 
 
 def call(name, params=None, request_id=1):
-    request = {"id": request_id, "method": name}
+    request = {"v": PROTOCOL_VERSION, "id": request_id, "method": name}
 
     if params is not None:
         request["params"] = params

@@ -11,7 +11,21 @@ import { BackendError, startService, ToolchainError } from '../../out/index.js';
 const FIXTURE = `
 import { createInterface } from 'node:readline';
 
+const reply = (body) => JSON.stringify({ v: 1, ...body }) + '\\n';
+
 const lines = createInterface({ input: process.stdin });
+
+// A backend that speaks another version: the client must not read the rest of
+// the line as if the format were the one it knows.
+if (process.argv.includes('--stale-version')) {
+  for await (const raw of lines) {
+    process.stdout.write(
+      JSON.stringify({ v: 2, id: JSON.parse(raw).id, result: {} }) + '\\n',
+    );
+  }
+
+  process.exit(0);
+}
 
 for await (const raw of lines) {
   const request = JSON.parse(raw);
@@ -22,21 +36,21 @@ for await (const raw of lines) {
 
   if (request.method === 'badcode') {
     process.stdout.write(
-      JSON.stringify({
+      reply({
         id: request.id,
         error: { code: 7, message: 'the code is not a string' },
-      }) + '\\n',
+      }),
     );
     continue;
   }
 
   if (request.method === 'nullerror') {
     process.stdout.write(
-      JSON.stringify({
+      reply({
         id: request.id,
         error: null,
         result: { ok: true },
-      }) + '\\n',
+      }),
     );
     continue;
   }
@@ -55,17 +69,17 @@ for await (const raw of lines) {
 
   if (request.method === 'fail') {
     process.stdout.write(
-      JSON.stringify({
+      reply({
         id: request.id,
         error: { code: 'media/open-failed', message: 'cannot open the file' },
-      }) + '\\n',
+      }),
     );
     continue;
   }
 
   if (request.method === 'split') {
     const bytes = Buffer.from(
-      JSON.stringify({ id: request.id, result: { text: '中' } }) + '\\n',
+      reply({ id: request.id, result: { text: '中' } }),
     );
     const at = bytes.indexOf(0xe4) + 1;
 
@@ -80,19 +94,20 @@ for await (const raw of lines) {
 
     process.stderr.write(bytes.subarray(0, at));
     process.stdout.write(
-      JSON.stringify({ id: request.id, result: { text: '中' } }) + '\\n',
+      reply({ id: request.id, result: { text: '中' } }),
     );
     setTimeout(() => process.stderr.write(bytes.subarray(at)), 10);
     continue;
   }
 
   process.stdout.write(
-    JSON.stringify({ id: request.id, result: { method: request.method } }) + '\\n',
+    reply({ id: request.id, result: { method: request.method } }),
   );
 }
 `;
 
 async function withService(options, fn) {
+  const { extraArgs = [], ...rest } = options;
   const dir = mkdtempSync(join(tmpdir(), 'felyrics-service-'));
   const file = join(dir, 'service.mjs');
 
@@ -100,8 +115,8 @@ async function withService(options, fn) {
 
   const client = startService({
     pythonExe: process.execPath,
-    args: [file],
-    ...options,
+    args: [file, ...extraArgs],
+    ...rest,
   });
 
   try {
@@ -208,6 +223,29 @@ test('gives up on a request the backend never answers', async () => {
     // The timeout only stops the wait: the process is still usable afterwards.
     assert.deepEqual(await client.request('alpha'), { method: 'alpha' });
   });
+});
+
+test('refuses an answer from another protocol version', async () => {
+  const rejected = [];
+
+  await withService(
+    {
+      extraArgs: ['--stale-version'],
+      onProtocolError: (line, error) => rejected.push(error),
+    },
+    async (client) => {
+      await assert.rejects(client.request('alpha'), (error) => {
+        assert.ok(error instanceof ToolchainError);
+        assert.equal(error.code, 'backend/version-mismatch');
+        assert.match(error.message, /protocol version 2/);
+        return true;
+      });
+    },
+  );
+
+  // The line is also reported unreadable, so a log shows the stray answer even
+  // if no request was waiting for it.
+  assert.equal(rejected.length, 1);
 });
 
 test('keeps diagnostics off the protocol channel', async () => {

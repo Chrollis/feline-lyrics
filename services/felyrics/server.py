@@ -18,6 +18,12 @@ Handler = Callable[[dict[str, Any]], Any]
 
 METHODS: dict[str, Handler] = {}
 
+# Both sides state the version they speak, and each one answers in its own: an
+# implementation cannot reply in a format it does not know. The field is what
+# catches a backend process left running from an older checkout, which the files
+# on disk cannot reveal.
+PROTOCOL_VERSION = 1
+
 
 class ProtocolError(ServiceError):
     """A request that cannot be answered as asked; the client sees `code`."""
@@ -46,6 +52,20 @@ def dispatch(request: Any) -> Any:
     if not isinstance(request, dict):
         raise ProtocolError(
             "protocol/invalid-request", "request must be a JSON object"
+        )
+
+    version = request.get("v")
+
+    if version != PROTOCOL_VERSION:
+        # `repr(None)` would read as the word None; a missing field is its own
+        # case, because "forgot to send it" and "sent the wrong one" are what a
+        # developer has to tell apart.
+        declared = "none" if version is None else repr(version)
+
+        raise ProtocolError(
+            "protocol/version-mismatch",
+            f"this backend speaks protocol version {PROTOCOL_VERSION}, "
+            f"the request declared {declared}",
         )
 
     name = request.get("method")
@@ -81,9 +101,10 @@ def respond(line: str) -> dict[str, Any]:
         if isinstance(request, dict):
             request_id = request.get("id")
 
-        return {"id": request_id, "result": dispatch(request)}
+        return {"v": PROTOCOL_VERSION, "id": request_id, "result": dispatch(request)}
     except json.JSONDecodeError as error:
         return {
+            "v": PROTOCOL_VERSION,
             "id": None,
             "error": {
                 "code": "protocol/invalid-json",
@@ -91,11 +112,16 @@ def respond(line: str) -> dict[str, Any]:
             },
         }
     except ServiceError as error:
-        return {"id": request_id, "error": {"code": error.code, "message": error.message}}
+        return {
+            "v": PROTOCOL_VERSION,
+            "id": request_id,
+            "error": {"code": error.code, "message": error.message},
+        }
     except Exception:
         # One broken handler must not kill a session that runs for hours.
         traceback.print_exc(file=sys.stderr)
         return {
+            "v": PROTOCOL_VERSION,
             "id": request_id,
             "error": {
                 "code": "internal/error",
