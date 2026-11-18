@@ -80,12 +80,14 @@ marker, the root `test` script, the package entry points -- are in
   `ToolchainError`. Nothing client-side may reuse a backend code -- the backend
   did not say it. A dead process, a closed pipe or a request that never comes back
   is `backend/unavailable` / `backend/timeout`.
-- 2026-11 every backend request carries a deadline (`timeoutMs`), and the main
-  process gives each surface a budget: 5 s for `ping` (it is the liveness check),
-  30 s for probe and decode, 5 min for a still batch. A timeout stops waiting, not
-  the backend: only idempotent methods are safe to retry, which is why the
-  comment says so. Without a deadline a stalled method leaves the renderer
-  spinning forever with nothing to branch on.
+- 2026-11 every backend request carries a deadline, and it is a default
+  (`DEFAULT_REQUEST_TIMEOUT_MS`, 30 s), not an option: a request that names no
+  `timeoutMs` still ends, so "I forgot" cannot mean "wait forever". The main
+  process then gives each surface its own budget (5 s for `ping`, because it is
+  the liveness check; 30 s for probe and decode; 5 min for a still batch). A
+  timeout stops waiting, not the backend: only idempotent methods are safe to
+  retry, which is why the comment says so. Without a deadline a stalled method
+  leaves the renderer spinning forever with nothing to branch on.
 - 2026-11 the long-lived backend is started with `node:child_process.spawn`, not
   `execa`: `execa` exists to run a command to completion and hand back collected
   output, while this client needs a duplex pipe it owns for hours, decodes each

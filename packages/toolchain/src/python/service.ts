@@ -19,7 +19,15 @@ export interface ServiceOptions {
   readonly onStderr?: (chunk: string) => void;
   /** A line on stdout that is not a response we can route. */
   readonly onProtocolError?: (line: string, error: Error) => void;
+  /**
+   * The deadline for a request that does not name its own. There is no "wait
+   * forever" option on purpose: a request without a deadline is a request that
+   * can hang the caller for as long as the process lives.
+   */
+  readonly defaultTimeoutMs?: number;
 }
+
+export const DEFAULT_REQUEST_TIMEOUT_MS = 30_000;
 
 export interface ServiceRequestOptions {
   /**
@@ -43,7 +51,7 @@ interface Pending {
   readonly method: string;
   readonly resolve: (value: unknown) => void;
   readonly reject: (error: Error) => void;
-  readonly timer?: NodeJS.Timeout;
+  readonly timer: NodeJS.Timeout;
 }
 
 /**
@@ -85,8 +93,13 @@ export function startService(options: ServiceOptions): ServiceClient {
   // after checking a flag, so an exit landing between the check and the
   // registration left that promise pending forever -- the process was gone and
   // nothing was going to call back.
+  //
+  // `error` is part of it because a failed spawn (ENOENT on a missing python.exe)
+  // emits `error` and never `exit`: waiting only for `exit` would hang the quit
+  // path on exactly the machine where the backend is broken.
   const exited = new Promise<number | null>((resolve) => {
     child.once('exit', (code) => resolve(code));
+    child.once('error', () => resolve(null));
   });
 
   // One decoder per stream: a decoder holds the bytes of a half-received
@@ -96,6 +109,8 @@ export function startService(options: ServiceOptions): ServiceClient {
   const stderrDecoder = new StringDecoder('utf8');
   const pending = new Map<number, Pending>();
   const emitStderr = options.onStderr;
+  const defaultTimeoutMs =
+    options.defaultTimeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS;
   const emitProtocolError = options.onProtocolError;
   let buffered = '';
   let nextId = 1;
@@ -103,9 +118,7 @@ export function startService(options: ServiceOptions): ServiceClient {
 
   const failAll = (error: Error): void => {
     for (const entry of pending.values()) {
-      if (entry.timer !== undefined) {
-        clearTimeout(entry.timer);
-      }
+      clearTimeout(entry.timer);
 
       entry.reject(error);
     }
@@ -146,12 +159,16 @@ export function startService(options: ServiceOptions): ServiceClient {
 
     pending.delete(id);
 
-    if (entry.timer !== undefined) {
-      clearTimeout(entry.timer);
-    }
+    clearTimeout(entry.timer);
 
-    if (message.error !== undefined) {
-      const { code, message: text } = message.error;
+    // `error: null` means "no error" -- and this branch runs inside the stdout
+    // `data` callback, where a throw is an uncaught exception that takes the
+    // whole app down, so every shape has to be checked before it is read.
+    if (message.error !== undefined && message.error !== null) {
+      const failure: unknown = message.error;
+      const { code, message: text } = (
+        typeof failure === 'object' ? failure : {}
+      ) as { code?: unknown; message?: unknown };
 
       // The code is the contract, so a malformed one must not become a new
       // backend code by accident. This request is identified, so it can be
@@ -268,32 +285,29 @@ export function startService(options: ServiceOptions): ServiceClient {
       nextId += 1;
 
       return new Promise<T>((resolve, reject) => {
-        const { timeoutMs } = options;
-        const timer =
-          timeoutMs === undefined
-            ? undefined
-            : setTimeout(() => {
-                if (!pending.delete(id)) {
-                  return;
-                }
+        const timeoutMs = options.timeoutMs ?? defaultTimeoutMs;
+        const timer = setTimeout(() => {
+          if (!pending.delete(id)) {
+            return;
+          }
 
-                reject(
-                  new ToolchainError(
-                    'backend/timeout',
-                    `the backend did not answer ${method} within ${timeoutMs} ms`,
-                    { command: method },
-                  ),
-                );
-              }, timeoutMs);
+          reject(
+            new ToolchainError(
+              'backend/timeout',
+              `the backend did not answer ${method} within ${timeoutMs} ms`,
+              { command: method },
+            ),
+          );
+        }, timeoutMs);
 
         // A pending timer must not be what keeps the app alive on quit.
-        timer?.unref();
+        timer.unref();
 
         pending.set(id, {
           method,
           resolve: (value) => resolve(value as T),
           reject,
-          ...(timer === undefined ? {} : { timer }),
+          timer,
         });
 
         child.stdin.write(`${JSON.stringify({ id, method, params })}\n`);
