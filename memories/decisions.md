@@ -120,6 +120,13 @@ marker, the root `test` script, the package entry points -- are in
   missing `v` is `protocol/version-mismatch` on the backend and
   `backend/version-mismatch` on the client, and the request it belongs to is
   rejected at once instead of waiting out its deadline.
+- 2026-11 the protocol's `error` object may carry a `data` object, open on the
+  wire and closed on our side: the backend can add a field to a new error without
+  a protocol bump, while `ToolchainErrorContext` stays an enumerable type -- the
+  client copies the two numbers it knows (`declared`, `expected`) and ignores the
+  rest. `message` is English fallback text, so anything a person is meant to see
+  has to arrive as a field; the version mismatch was the first error that had
+  something renderable to say in both directions.
 - 2026-11 a download failure is a code, not a bare `Error`: 4xx, an empty body and
   an exhausted retry all end as `download/failed` with the HTTP `status` kept in
   the context, while anything the transport itself throws stays native. Without
