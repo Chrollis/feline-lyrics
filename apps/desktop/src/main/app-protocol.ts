@@ -17,7 +17,10 @@ import {
  *
  * `standard` gives the URL normal rules (an origin, relative paths, `..`
  * collapsing); `secure` puts it on the same footing as https for the APIs that
- * refuse to run on an insecure origin.
+ * refuse to run on an insecure origin; `stream` is what lets `<audio>`/`<video>`
+ * play a resource from this scheme -- without it Chromium refuses to stream
+ * media over a custom protocol, which looks like a silent, unplayable track
+ * while images from the same origin load fine.
  */
 export function registerAppScheme(): void {
   protocol.registerSchemesAsPrivileged([
@@ -28,6 +31,7 @@ export function registerAppScheme(): void {
         secure: true,
         supportFetchAPI: true,
         corsEnabled: true,
+        stream: true,
       },
     },
   ]);
