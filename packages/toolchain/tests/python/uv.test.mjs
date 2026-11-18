@@ -1,7 +1,14 @@
 import assert from 'node:assert/strict';
-import { existsSync, mkdtempSync, rmSync } from 'node:fs';
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import { test } from 'node:test';
 
 import {
@@ -10,6 +17,7 @@ import {
   downloadUv,
   installPackages,
   installPython,
+  MIN_DOWNLOAD_BYTES,
   runUv,
   TARGETS,
   ToolchainError,
@@ -323,6 +331,31 @@ test('reports an archive that does not contain uv.exe', async () => {
       }),
       (error) => error.code === 'uv/missing-binary',
     );
+  });
+});
+
+test('re-fetches a cached archive that turns out to be damaged', async () => {
+  await withRoot(async (ctx) => {
+    const archive = uvArchivePath(ctx.paths.cacheDir, target);
+
+    // Big enough to pass the size check, and not a zip: the unpack is the first
+    // place that can tell the difference, so the cache has to heal itself here.
+    mkdirSync(dirname(archive), { recursive: true });
+    writeFileSync(archive, Buffer.alloc(MIN_DOWNLOAD_BYTES, 0x7a));
+
+    let calls = 0;
+
+    const uvExe = await downloadUv(ctx, target, {
+      fetchImpl: async () => {
+        calls += 1;
+
+        return zipResponse(ZIP_WITH_UV);
+      },
+    });
+
+    assert.equal(calls, 1);
+    assert.ok(existsSync(uvExe));
+    assert.ok(statSync(archive).size < MIN_DOWNLOAD_BYTES);
   });
 });
 
