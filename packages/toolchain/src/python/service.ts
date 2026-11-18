@@ -1,6 +1,8 @@
 import { spawn } from 'node:child_process';
 import { StringDecoder } from 'node:string_decoder';
 
+import { ToolchainError } from '../errors.js';
+
 export interface ServiceMessage {
   readonly id?: number | null;
   readonly result?: unknown;
@@ -19,10 +21,20 @@ export interface ServiceOptions {
   readonly onProtocolError?: (line: string, error: Error) => void;
 }
 
+export interface ServiceRequestOptions {
+  /**
+   * Give up after this long. A timeout stops waiting, not the backend: the
+   * request may still finish server-side, which is why the caller retries a
+   * method that is safe to repeat, never one that writes.
+   */
+  readonly timeoutMs?: number;
+}
+
 export interface ServiceClient {
   request<T = unknown>(
     method: string,
     params?: Record<string, unknown>,
+    options?: ServiceRequestOptions,
   ): Promise<T>;
   close(): Promise<number | null>;
 }
@@ -30,6 +42,7 @@ export interface ServiceClient {
 interface Pending {
   readonly resolve: (value: unknown) => void;
   readonly reject: (error: Error) => void;
+  readonly timer?: NodeJS.Timeout;
 }
 
 /**
@@ -82,6 +95,10 @@ export function startService(options: ServiceOptions): ServiceClient {
 
   const failAll = (error: Error): void => {
     for (const entry of pending.values()) {
+      if (entry.timer !== undefined) {
+        clearTimeout(entry.timer);
+      }
+
       entry.reject(error);
     }
 
@@ -117,6 +134,10 @@ export function startService(options: ServiceOptions): ServiceClient {
 
     pending.delete(id);
 
+    if (entry.timer !== undefined) {
+      clearTimeout(entry.timer);
+    }
+
     if (message.error) {
       entry.reject(new BackendError(message.error.code, message.error.message));
     } else {
@@ -151,14 +172,31 @@ export function startService(options: ServiceOptions): ServiceClient {
     emitStderr?.(stderrDecoder.write(chunk));
   });
 
+  // A closed pipe or a process that never started is our side of the wire: the
+  // renderer still needs a code to branch on, so these are `backend/unavailable`
+  // rather than the native error the filesystem happened to produce.
   child.stdin.on('error', (error: Error) => {
     closed = true;
-    failAll(error);
+    failAll(
+      new ToolchainError(
+        'backend/unavailable',
+        `the backend stdin is closed: ${error.message}`,
+        {},
+        { cause: error },
+      ),
+    );
   });
 
   child.on('error', (error: Error) => {
     closed = true;
-    failAll(error);
+    failAll(
+      new ToolchainError(
+        'backend/unavailable',
+        `the backend process failed to start: ${error.message}`,
+        {},
+        { cause: error },
+      ),
+    );
   });
 
   child.on('exit', (code: number | null) => {
@@ -175,16 +213,27 @@ export function startService(options: ServiceOptions): ServiceClient {
       emitStderr?.(tail);
     }
 
-    failAll(new Error(`the service exited with code ${code ?? 'null'}`));
+    failAll(
+      new ToolchainError(
+        'backend/unavailable',
+        `the service exited with code ${code ?? 'null'}`,
+        code === null ? {} : { status: code },
+      ),
+    );
   });
 
   return {
     request<T = unknown>(
       method: string,
       params: Record<string, unknown> = {},
+      options: ServiceRequestOptions = {},
     ): Promise<T> {
       if (closed) {
-        return Promise.reject(new Error('the service is closed'));
+        return Promise.reject(
+          new ToolchainError('backend/unavailable', 'the service is closed', {
+            command: method,
+          }),
+        );
       }
 
       const id = nextId;
@@ -192,9 +241,31 @@ export function startService(options: ServiceOptions): ServiceClient {
       nextId += 1;
 
       return new Promise<T>((resolve, reject) => {
+        const { timeoutMs } = options;
+        const timer =
+          timeoutMs === undefined
+            ? undefined
+            : setTimeout(() => {
+                if (!pending.delete(id)) {
+                  return;
+                }
+
+                reject(
+                  new ToolchainError(
+                    'backend/timeout',
+                    `the backend did not answer ${method} within ${timeoutMs} ms`,
+                    { command: method },
+                  ),
+                );
+              }, timeoutMs);
+
+        // A pending timer must not be what keeps the app alive on quit.
+        timer?.unref();
+
         pending.set(id, {
           resolve: (value) => resolve(value as T),
           reject,
+          ...(timer === undefined ? {} : { timer }),
         });
 
         child.stdin.write(`${JSON.stringify({ id, method, params })}\n`);
