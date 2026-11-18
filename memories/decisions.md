@@ -86,6 +86,17 @@ marker, the root `test` script, the package entry points -- are in
   the backend: only idempotent methods are safe to retry, which is why the
   comment says so. Without a deadline a stalled method leaves the renderer
   spinning forever with nothing to branch on.
+- 2026-11 the long-lived backend is started with `node:child_process.spawn`, not
+  `execa`: `execa` exists to run a command to completion and hand back collected
+  output, while this client needs a duplex pipe it owns for hours, decodes each
+  stream itself (`StringDecoder`) and pairs responses by id. `uv` stays on
+  `execa` because those are short commands whose whole output we want.
+- 2026-11 a malformed answer is the client's own code, never the backend's:
+  `backend/protocol`. If the backend sends an `error` without a string `code`, the
+  request is rejected here instead of becoming a brand-new backend code by
+  accident. A non-numeric `id` cannot be matched to a request at all (guessing
+  `String(id)` would bless a broken backend), so it only raises a protocol error
+  and the request ends on its deadline.
 - 2026-11 the renderer bridge has one declared shape,
   `apps/desktop/src/preload/api.ts` (`FelyricsApi` + `IpcResult`), imported with
   `import type` by the preload, the renderer and the main process. Two hand-copied
