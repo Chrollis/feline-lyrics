@@ -1,4 +1,4 @@
-﻿import assert from 'node:assert/strict';
+import assert from 'node:assert/strict';
 import { readFile, stat } from 'node:fs/promises';
 import { join } from 'node:path';
 import { test } from 'node:test';
@@ -43,6 +43,51 @@ test('rejects a cancelled download without retrying it', async () => {
     assert.equal(calls, 0);
     await assert.rejects(stat(dest));
     await assert.rejects(stat(`${dest}.part`));
+  });
+});
+
+test('keeps the query string out of the url it reports', async () => {
+  await withTempDir('felyrics-download-', async (dir) => {
+    const dest = join(dir, 'uv.zip');
+
+    await assert.rejects(
+      download({
+        url: 'https://example.com/releases/uv.zip?X-Amz-Signature=secret&X-Amz-Credential=key',
+        dest,
+        minBytes: 1,
+        signal: AbortSignal.abort(new Error('cancelled')),
+        fetchImpl: async () => respondWith(new Uint8Array([1, 2, 3])),
+      }),
+      (error) => {
+        // A presigned link puts its credentials in the query, and this context
+        // travels into logs and issue reports.
+        assert.equal(error.context.url, 'https://example.com/releases/uv.zip');
+        assert.equal(JSON.stringify(error.context).includes('secret'), false);
+        return true;
+      },
+    );
+  });
+});
+
+test('reports a placeholder when the url cannot be parsed', async () => {
+  await withTempDir('felyrics-download-', async (dir) => {
+    const dest = join(dir, 'uv.zip');
+
+    await assert.rejects(
+      download({
+        url: 'not a url',
+        dest,
+        minBytes: 1,
+        signal: AbortSignal.abort(new Error('cancelled')),
+        fetchImpl: async () => respondWith(new Uint8Array([1, 2, 3])),
+      }),
+      (error) => {
+        // Building the error must never throw a second time.
+        assert.equal(error.code, 'download/cancelled');
+        assert.equal(error.context.url, '(unparsable url)');
+        return true;
+      },
+    );
   });
 });
 
