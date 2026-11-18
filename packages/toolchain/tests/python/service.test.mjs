@@ -30,6 +30,17 @@ for await (const raw of lines) {
     continue;
   }
 
+  if (request.method === 'nullerror') {
+    process.stdout.write(
+      JSON.stringify({
+        id: request.id,
+        error: null,
+        result: { ok: true },
+      }) + '\\n',
+    );
+    continue;
+  }
+
   if (request.method === 'hang') {
     continue;
   }
@@ -265,6 +276,45 @@ test('close resolves even after the process has already exited', async () => {
     assert.equal(await client.close(), 3);
     assert.equal(await client.close(), 3);
   });
+});
+
+test('treats a null error field as "no error"', async () => {
+  await withService({}, async (client) => {
+    // `{ "error": null }` used to be destructured and throw inside the stdout
+    // callback, which is an uncaught exception in the parent process.
+    assert.deepEqual(await client.request('nullerror'), { ok: true });
+  });
+});
+
+test('gives every request a deadline by default', async () => {
+  await withService({ defaultTimeoutMs: 50 }, async (client) => {
+    await assert.rejects(client.request('hang'), (error) => {
+      assert.ok(error instanceof ToolchainError);
+      assert.equal(error.code, 'backend/timeout');
+      assert.match(error.message, /within 50 ms/);
+      return true;
+    });
+  });
+});
+
+test('close resolves when the interpreter never started', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'felyrics-service-'));
+  const client = startService({
+    pythonExe: join(dir, 'no-such-python.exe'),
+  });
+
+  try {
+    await assert.rejects(client.request('ping'), (error) => {
+      assert.ok(error instanceof ToolchainError);
+      assert.equal(error.code, 'backend/unavailable');
+      return true;
+    });
+    // `error` arrives instead of `exit`, so a close that only waited for `exit`
+    // would hang the quit path on a machine with a broken install.
+    assert.equal(await client.close(), null);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });
 
 test('close waits for the exit code', async () => {
