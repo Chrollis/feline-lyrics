@@ -74,6 +74,17 @@ marker, the root `test` script, the package entry points -- are in
   `apps/desktop/src/main/index.ts`). A rejected handler crosses the boundary as
   one flattened string, so the `code` that every caller is supposed to branch on
   disappears exactly at the process edge.
+- 2026-11 two vocabularies, two classes: a failure the *backend reported* is a
+  `BackendError` (its `code` comes from the protocol: `media/*`, `protocol/*`,
+  `method/not-found`, `internal/error`), a failure the *toolchain observed* is a
+  `ToolchainError`. Nothing client-side may reuse a backend code -- the backend
+  did not say it. A dead process, a closed pipe or a request that never comes back
+  is `backend/unavailable` / `backend/timeout`.
+- 2026-11 every backend request may carry a deadline (`timeoutMs`), and the main
+  process gives each surface a budget. A timeout stops waiting, not the backend:
+  only idempotent methods are safe to retry, which is why the comment says so.
+  Without a deadline a stalled method leaves the renderer spinning forever with
+  nothing to branch on.
 - 2026-11 the renderer bridge has one declared shape,
   `apps/desktop/src/preload/api.ts` (`FelyricsApi` + `IpcResult`), imported with
   `import type` by the preload, the renderer and the main process. Two hand-copied
