@@ -69,6 +69,13 @@ for await (const raw of lines) {
     continue;
   }
 
+  if (request.method === 'slowreply') {
+    setTimeout(() => {
+      process.stdout.write(reply({ id: request.id, result: { late: true } }));
+    }, 200);
+    continue;
+  }
+
   if (request.method === 'hang') {
     continue;
   }
@@ -276,6 +283,28 @@ test('reports a version the backend refuses like a version it answers with', asy
       return true;
     });
   });
+});
+
+test('calls a late answer late instead of a protocol error', async () => {
+  const reported = [];
+
+  await withService(
+    { onProtocolError: (line, error) => reported.push(error.message) },
+    async (client) => {
+      await assert.rejects(
+        client.request('slowreply', {}, { timeoutMs: 50 }),
+        (error) => error.code === 'backend/timeout',
+      );
+
+      // The answer arrives 150 ms after we stopped waiting for it.
+      await until(() => reported.length > 0);
+    },
+  );
+
+  assert.equal(reported.length, 1);
+  // The wording matters: the backend kept its promise, we stopped listening, and
+  // a diagnostic that blames them sends the next reader the wrong way.
+  assert.match(reported[0], /late answer to id 1/);
 });
 
 test('keeps diagnostics off the protocol channel', async () => {
