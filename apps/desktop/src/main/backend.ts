@@ -86,10 +86,18 @@ async function ensureService(): Promise<ServiceClient> {
   return launching;
 }
 
+/**
+ * `ping` is the liveness check, so it has to answer faster than anything else:
+ * the button that awaits it sits on `asking...` until this settles, and the
+ * backend may be busy inside a long synchronous decode, where the queued ping
+ * waits for the whole job to finish.
+ */
+const PING_TIMEOUT_MS = 5_000;
+
 export async function pingBackend(): Promise<unknown> {
   const service = await ensureService();
 
-  return service.request('ping');
+  return service.request('ping', {}, { timeoutMs: PING_TIMEOUT_MS });
 }
 
 /**
