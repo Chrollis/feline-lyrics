@@ -13,9 +13,12 @@ import { test } from 'node:test';
 
 import {
   backendPaths,
+  isReady,
   provision,
   PTH_FILENAME,
+  PYTHON_VERSION,
   TARGETS,
+  UV_VERSION,
 } from '../../out/index.js';
 
 // The uv archive fixture: a zip whose only entry is uv.exe. The payload does not
@@ -111,7 +114,14 @@ test('skips pip when nothing is declared', async () => {
   await withPaths(async (paths, tempDir) => {
     const { calls, run } = fakeRun();
 
-    await provision({ paths, tempDir, run, target, fetchImpl: zipResponse });
+    await provision({
+      paths,
+      tempDir,
+      requirements: [],
+      run,
+      target,
+      fetchImpl: zipResponse,
+    });
 
     assert.deepEqual(
       calls.map((call) => call.args[0]),
@@ -127,6 +137,7 @@ test('does nothing when the marker already matches', async () => {
     await provision({
       paths,
       tempDir,
+      requirements: [],
       run: first.run,
       target,
       fetchImpl: zipResponse,
@@ -138,6 +149,7 @@ test('does nothing when the marker already matches', async () => {
     await provision({
       paths,
       tempDir,
+      requirements: [],
       run: second.run,
       target,
       fetchImpl: () => {
@@ -154,6 +166,7 @@ test('force rebuilds even when the marker matches', async () => {
     await provision({
       paths,
       tempDir,
+      requirements: [],
       run: fakeRun().run,
       target,
       fetchImpl: zipResponse,
@@ -165,6 +178,7 @@ test('force rebuilds even when the marker matches', async () => {
     await provision({
       paths,
       tempDir,
+      requirements: [],
       run: forced.run,
       target,
       force: true,
@@ -174,6 +188,51 @@ test('force rebuilds even when the marker matches', async () => {
     });
 
     assert.equal(forced.calls.length, 2);
+  });
+});
+
+test('drops the marker before rebuilding, so a killed run cannot look ready', async () => {
+  await withPaths(async (paths, tempDir) => {
+    await provision({
+      paths,
+      tempDir,
+      requirements: [],
+      run: fakeRun().run,
+      target,
+      fetchImpl: zipResponse,
+    });
+    markVenvReady(paths);
+
+    const backend = backendPaths(paths.backendRoot);
+
+    assert.equal(existsSync(backend.readyMarker), true);
+
+    // `uv venv --clear` has already emptied the venv when this fails: the old
+    // marker would keep claiming a directory that no longer holds an interpreter.
+    const { run } = fakeRun((args) => (args[0] === 'venv' ? 1 : 0));
+
+    await assert.rejects(
+      provision({
+        paths,
+        tempDir,
+        requirements: [],
+        run,
+        target,
+        force: true,
+        fetchImpl: zipResponse,
+      }),
+    );
+
+    assert.equal(existsSync(backend.readyMarker), false);
+    assert.equal(
+      await isReady(backend, {
+        uv: UV_VERSION,
+        python: PYTHON_VERSION,
+        services: resolve(paths.servicesDir),
+        requirements: '',
+      }),
+      false,
+    );
   });
 });
 
@@ -205,6 +264,7 @@ test('re-provisions when the services directory moved', async () => {
     await provision({
       paths,
       tempDir,
+      requirements: [],
       run: fakeRun().run,
       target,
       fetchImpl: zipResponse,
@@ -220,6 +280,7 @@ test('re-provisions when the services directory moved', async () => {
     await provision({
       paths: moved,
       tempDir,
+      requirements: [],
       run: second.run,
       target,
       fetchImpl: zipResponse,
