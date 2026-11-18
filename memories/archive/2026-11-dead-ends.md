@@ -38,3 +38,13 @@ the story.
 - 2026-11 A test that hangs with no output is usually the fixture, not the
   parser: the fake service answered with JSON but no trailing newline, so the
   client waited for a line end that never came. Wrong side, on purpose.
+- 2026-11 `<audio>` stayed silent on an `app://media/...flac` URL while `<img>`
+  loaded from the same origin: a custom scheme needs `stream: true` in
+  `registerSchemesAsPrivileged`, otherwise Chromium refuses to stream media over
+  it and reports `MediaError` code 4 (src not supported) with an empty message.
+  The same probe disproved the guess that the missing `Content-Type: audio/flac`
+  was the cause -- Chromium sniffs the flac bytes and plays it either way.
+- 2026-11 A probe that bundles Electron app code must run with
+  `ELECTRON_RUN_AS_NODE` unset (see above) and, when the probe is ESM, import
+  electron as a default export: named imports fail with "does not provide an
+  export named ...".

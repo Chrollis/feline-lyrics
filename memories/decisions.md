@@ -124,6 +124,12 @@ marker, the root `test` script, the package entry points -- are in
   a guess. The three segments are the layout the backend really writes, buckets
   included: a two-segment rule looks right in a test and silently yields `null`
   for every real result.
+- 2026-11 the `app` scheme is registered with `stream: true` as well as
+  `standard`/`secure`/`supportFetchAPI`/`corsEnabled`, because Chromium will not
+  stream media over a custom scheme without it: `<audio>`/`<video>` fail with
+  `MediaError` code 4 and an empty message while images from the same origin
+  load, so the symptom points at the file instead of the privilege. A content
+  type alone does not fix it -- Chromium sniffs a flac and plays it either way.
 
 ## Build
 
