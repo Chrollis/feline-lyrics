@@ -122,6 +122,9 @@ export function startService(options: ServiceOptions): ServiceClient {
   const emitProtocolError = options.onProtocolError;
   let buffered = '';
   let nextId = 1;
+  // The highest id we stopped waiting for; ids only go up, so this is all we
+  // need to recognise an answer that arrived after its request was abandoned.
+  let highestTimedOut = 0;
   let closed = false;
 
   const failAll = (error: Error): void => {
@@ -187,6 +190,16 @@ export function startService(options: ServiceOptions): ServiceClient {
     const entry = pending.get(id);
 
     if (entry === undefined) {
+      // An answer to a request we stopped waiting for is our own doing, not the
+      // backend breaking the protocol: the diagnostic must not point at them.
+      if (id <= highestTimedOut) {
+        emitProtocolError?.(
+          line,
+          new Error(`late answer to id ${id}, which already gave up waiting`),
+        );
+        return;
+      }
+
       emitProtocolError?.(
         line,
         new Error(`no request is waiting for id ${id}`),
@@ -341,6 +354,11 @@ export function startService(options: ServiceOptions): ServiceClient {
           if (!pending.delete(id)) {
             return;
           }
+
+          // Ids only go up, so the highest one we gave up on is enough to tell
+          // a late answer from an answer nobody ever asked for: a `Set` of every
+          // timed-out id would grow for as long as the process lives.
+          highestTimedOut = Math.max(highestTimedOut, id);
 
           reject(
             new ToolchainError(
