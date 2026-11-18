@@ -78,23 +78,27 @@ async function sleepUnlessAborted(
   }
 
   let wake: (() => void) | undefined;
+  let timer: NodeJS.Timeout | undefined;
 
   try {
-    await Promise.race([
-      sleep(ms),
-      new Promise<void>((resolve) => {
-        // A zero-argument listener: the event carries nothing we need, and
-        // `resolve` itself is not an `EventListener`.
-        const onAbort = (): void => {
-          resolve();
-        };
+    await new Promise<void>((resolve) => {
+      timer = setTimeout(resolve, ms);
 
-        wake = onAbort;
-        signal.addEventListener('abort', onAbort, { once: true });
-      }),
-    ]);
+      // A zero-argument listener: the event carries nothing we need, and
+      // `resolve` itself is not an `EventListener`.
+      const onAbort = (): void => {
+        resolve();
+      };
+
+      wake = onAbort;
+      signal.addEventListener('abort', onAbort, { once: true });
+    });
   } finally {
-    // The timer keeps running when the abort wins; only the listener must go.
+    // Whichever side woke us, the handle goes: a timer left running keeps the
+    // event loop alive for the rest of the backoff, so a cancelled CLI process
+    // sits there for up to half a minute after the user is done asking.
+    clearTimeout(timer);
+
     if (wake !== undefined) {
       signal.removeEventListener('abort', wake);
     }
@@ -266,7 +270,8 @@ async function attemptDownload(options: AttemptOptions): Promise<number> {
       ]);
       // A transport may ignore the abort and keep handing out bytes. This check
       // is the only thing that stops the loop, and it runs before the write so a
-      // cancelled download can never reach the rename below.
+      // cancelled download never writes another chunk. The rename below has its
+      // own check: closing the handle is an await, and a cancel can land there.
       if (options.signal?.aborted) {
         throw cancelled(options.signal, options.url);
       }
@@ -293,6 +298,13 @@ async function attemptDownload(options: AttemptOptions): Promise<number> {
     // Windows cannot rename a file that is still open.
     await handle.close();
     handle = undefined;
+
+    // `close()` is an await, so a cancel can land inside it -- after the loop's
+    // last check and before the bytes become the real file.
+    if (options.signal?.aborted) {
+      throw cancelled(options.signal, options.url);
+    }
+
     await rename(part, options.dest);
     return received;
   } catch (error) {
