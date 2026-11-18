@@ -19,6 +19,7 @@
     "build": "npm run build -w @felyrics/desktop",
     "preview": "npm run preview -w @felyrics/desktop",
     "python": "node scripts/python.mjs",
+    "pretypecheck": "npm run build -w @felyrics/toolchain",
     "typecheck": "npm run typecheck --workspaces --if-present",
     "test": "npm run test --workspaces --if-present",
     "lint": "eslint .",
