@@ -52,6 +52,7 @@ for await (const raw of lines) {
           code: 'protocol/version-mismatch',
           message:
             'this backend speaks protocol version 1, the request declared none',
+          data: { declared: 2, expected: 1 },
         },
       }),
     );
@@ -293,6 +294,9 @@ test('reports a version the backend refuses like a version it answers with', asy
       assert.equal(error.code, 'backend/version-mismatch');
       assert.equal(error.context.expected, 1);
       assert.equal(error.context.command, 'refuseversion');
+      // The direction where the backend refused us now carries the number too,
+      // so a renderer never has to read it out of the English sentence.
+      assert.equal(error.context.declared, 2);
       return true;
     });
   });

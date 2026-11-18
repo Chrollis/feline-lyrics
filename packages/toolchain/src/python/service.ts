@@ -10,11 +10,31 @@ import { ToolchainError } from '../errors.js';
  */
 export const PROTOCOL_VERSION = 1;
 
+/**
+ * Reads the version the other side reported, out of an error's open `data`.
+ *
+ * Anything that is not a number is "the backend did not say": guessing here
+ * would put a made-up version in front of a person who is debugging a mismatch.
+ */
+function declaredVersion(data: unknown): number | undefined {
+  if (typeof data !== 'object' || data === null) {
+    return undefined;
+  }
+
+  const value = (data as { declared?: unknown }).declared;
+
+  return typeof value === 'number' ? value : undefined;
+}
+
 export interface ServiceMessage {
   readonly v?: number;
   readonly id?: number | null;
   readonly result?: unknown;
-  readonly error?: { readonly code: string; readonly message: string };
+  readonly error?: {
+    readonly code: string;
+    readonly message: string;
+    readonly data?: unknown;
+  };
 }
 
 export interface ServiceOptions {
@@ -216,9 +236,15 @@ export function startService(options: ServiceOptions): ServiceClient {
     // whole app down, so every shape has to be checked before it is read.
     if (message.error !== undefined && message.error !== null) {
       const failure: unknown = message.error;
-      const { code, message: text } = (
-        typeof failure === 'object' ? failure : {}
-      ) as { code?: unknown; message?: unknown };
+      const {
+        code,
+        message: text,
+        data,
+      } = (typeof failure === 'object' ? failure : {}) as {
+        code?: unknown;
+        message?: unknown;
+        data?: unknown;
+      };
 
       // The code is the contract, so a malformed one must not become a new
       // backend code by accident. This request is identified, so it can be
@@ -235,14 +261,18 @@ export function startService(options: ServiceOptions): ServiceClient {
       }
 
       // The backend saying "your version is not mine" is the same condition as
-      // this side spotting a foreign answer, so the caller gets one code for it.
-      // The other side's version only exists inside its English sentence, which
-      // is why `declared` is absent here.
+      // this side spotting a foreign answer, so the caller gets one code for it,
+      // with the same two fields in both directions. `data` carries the versions
+      // as numbers because the sentence above stops being parseable once it is
+      // translated.
       if (code === 'protocol/version-mismatch') {
+        const declared = declaredVersion(data);
+
         entry.reject(
           new ToolchainError('backend/version-mismatch', text, {
             command: entry.method,
             expected: PROTOCOL_VERSION,
+            ...(declared === undefined ? {} : { declared }),
           }),
         );
         return;

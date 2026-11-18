@@ -73,6 +73,7 @@ def dispatch(request: Any) -> Any:
             "protocol/version-mismatch",
             f"this backend speaks protocol version {PROTOCOL_VERSION}, "
             f"the request declared {declared}",
+            data={"declared": version, "expected": PROTOCOL_VERSION},
         )
 
     name = request.get("method")
@@ -119,11 +120,15 @@ def respond(line: str) -> dict[str, Any]:
             },
         }
     except ServiceError as error:
-        return {
-            "v": PROTOCOL_VERSION,
-            "id": request_id,
-            "error": {"code": error.code, "message": error.message},
-        }
+        failure: dict[str, Any] = {"code": error.code, "message": error.message}
+
+        # `data` is open on the wire on purpose: a new error that has something
+        # renderable to say does not need a protocol change. The client keeps its
+        # own context closed, so an unknown key costs nothing.
+        if error.data is not None:
+            failure["data"] = error.data
+
+        return {"v": PROTOCOL_VERSION, "id": request_id, "error": failure}
     except Exception:
         # One broken handler must not kill a session that runs for hours.
         traceback.print_exc(file=sys.stderr)
