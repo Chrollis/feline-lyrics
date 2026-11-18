@@ -11,6 +11,9 @@ rules in force, `archive/` for what no longer changes the next step.
 - A step is one idea and one commit-sized change. Split anything larger.
 - Plan in three lines: the files and line ranges, the signature of anything new,
   and the acceptance command (`npm run typecheck`, `npm test -w @felyrics/toolchain`).
+  Add `npm run lint` whenever the step touches code: a command nobody runs is a
+  command that is quietly red, and a dead import costs more to find later than to
+  fix now.
 - Write only the files the plan named. A drive-by fix is a separate step,
   proposed first.
 - Run the acceptance check and paste its real tail. If you did not run it, say
