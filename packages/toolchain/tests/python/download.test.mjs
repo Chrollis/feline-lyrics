@@ -1,19 +1,8 @@
 import assert from 'node:assert/strict';
-import { mkdtemp, readFile, rm, stat } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
+import { readFile, stat } from 'node:fs/promises';
 import { join } from 'node:path';
 import { test } from 'node:test';
-import { download } from '../../out/index.js';
-
-async function withTempDir(fn) {
-  const dir = await mkdtemp(join(tmpdir(), 'felyrics-download-'));
-
-  try {
-    await fn(dir);
-  } finally {
-    await rm(dir, { recursive: true, force: true });
-  }
-}
+import { download, withTempDir } from '../../out/index.js';
 
 function respondWith(bytes, { contentLength = bytes.length } = {}) {
   const headers =
@@ -22,8 +11,72 @@ function respondWith(bytes, { contentLength = bytes.length } = {}) {
   return new Response(bytes, { headers });
 }
 
+test('rejects a cancelled download without retrying it', async () => {
+  await withTempDir('felyrics-download-', async (dir) => {
+    const dest = join(dir, 'uv.zip');
+    let calls = 0;
+
+    await assert.rejects(
+      download({
+        url: 'https://example.com/file',
+        dest,
+        minBytes: 1,
+        attempts: 3,
+        signal: AbortSignal.abort(),
+        fetchImpl: async () => {
+          calls += 1;
+
+          return respondWith(new Uint8Array([1, 2, 3]));
+        },
+      }),
+      /abort|cancel/i,
+    );
+
+    // A cancellation is a decision, not a stall: nothing is even requested, and
+    // the message is the caller's reason instead of "download stalled".
+    assert.equal(calls, 0);
+    await assert.rejects(stat(dest));
+    await assert.rejects(stat(`${dest}.part`));
+  });
+});
+
+test('stops a streaming download when the caller aborts', async () => {
+  await withTempDir('felyrics-download-', async (dir) => {
+    const dest = join(dir, 'uv.zip');
+    const controller = new AbortController();
+    let calls = 0;
+
+    // A body that never finishes: only the abort can end this.
+    const body = new ReadableStream({
+      start(stream) {
+        stream.enqueue(new Uint8Array([1, 2, 3]));
+      },
+    });
+    const pending = download({
+      url: 'https://example.com/file',
+      dest,
+      minBytes: 1,
+      attempts: 3,
+      idleMs: 400,
+      signal: controller.signal,
+      fetchImpl: async () => {
+        calls += 1;
+
+        return new Response(body);
+      },
+    });
+
+    setTimeout(() => {
+      controller.abort(new Error('the user cancelled the setup'));
+    }, 20);
+
+    await assert.rejects(pending, /user cancelled the setup/);
+    assert.equal(calls, 1);
+  });
+});
+
 test('writes the body to the destination', async () => {
-  await withTempDir(async (dir) => {
+  await withTempDir('felyrics-download-', async (dir) => {
     const dest = join(dir, 'runtime.tar.gz');
     const payload = new Uint8Array([1, 2, 3, 4, 5]);
 
@@ -41,7 +94,7 @@ test('writes the body to the destination', async () => {
 });
 
 test('rejects a body shorter than content-length and removes the partial file', async () => {
-  await withTempDir(async (dir) => {
+  await withTempDir('felyrics-download-', async (dir) => {
     const dest = join(dir, 'runtime.tar.gz');
 
     await assert.rejects(
@@ -62,7 +115,7 @@ test('rejects a body shorter than content-length and removes the partial file', 
 });
 
 test('rejects a tiny body when the server sends no content-length', async () => {
-  await withTempDir(async (dir) => {
+  await withTempDir('felyrics-download-', async (dir) => {
     const dest = join(dir, 'runtime.tar.gz');
 
     await assert.rejects(
@@ -80,7 +133,7 @@ test('rejects a tiny body when the server sends no content-length', async () => 
 });
 
 test('retries a 5xx and then succeeds', async () => {
-  await withTempDir(async (dir) => {
+  await withTempDir('felyrics-download-', async (dir) => {
     const dest = join(dir, 'archive.tar.gz');
     const delays = [];
     const payload = new Uint8Array([1, 2, 3, 4, 5]);
@@ -111,7 +164,7 @@ test('retries a 5xx and then succeeds', async () => {
 });
 
 test('aborts and reports a stall when no bytes arrive', async () => {
-  await withTempDir(async (dir) => {
+  await withTempDir('felyrics-download-', async (dir) => {
     const dest = join(dir, 'archive.tar.gz');
     const payload = new Uint8Array([1, 2, 3, 4, 5]);
 
@@ -140,7 +193,7 @@ test('aborts and reports a stall when no bytes arrive', async () => {
 });
 
 test('does not retry a 404', async () => {
-  await withTempDir(async (dir) => {
+  await withTempDir('felyrics-download-', async (dir) => {
     const dest = join(dir, 'archive.tar.gz');
     let calls = 0;
 
@@ -158,7 +211,7 @@ test('does not retry a 404', async () => {
 });
 
 test('removes the part file after the last failed attempt', async () => {
-  await withTempDir(async (dir) => {
+  await withTempDir('felyrics-download-', async (dir) => {
     const dest = join(dir, 'archive.tar.gz');
 
     const fetchImpl = async () => new Response('boom', { status: 503 });
@@ -179,7 +232,7 @@ test('removes the part file after the last failed attempt', async () => {
 });
 
 test('keeps the download error when cleaning up the partial file fails', async () => {
-  await withTempDir(async (dir) => {
+  await withTempDir('felyrics-download-', async (dir) => {
     const dest = join(dir, 'archive.tar.gz');
     let calls = 0;
 
@@ -209,7 +262,7 @@ test('keeps the download error when cleaning up the partial file fails', async (
 });
 
 test('does not retry a TypeError that carries no cause', async () => {
-  await withTempDir(async (dir) => {
+  await withTempDir('felyrics-download-', async (dir) => {
     const dest = join(dir, 'archive.tar.gz');
     let calls = 0;
 
@@ -234,7 +287,7 @@ test('does not retry a TypeError that carries no cause', async () => {
 });
 
 test('retries a TypeError that carries a cause, the shape fetch uses', async () => {
-  await withTempDir(async (dir) => {
+  await withTempDir('felyrics-download-', async (dir) => {
     const dest = join(dir, 'archive.tar.gz');
     const payload = new Uint8Array([1, 2, 3, 4, 5]);
     let calls = 0;

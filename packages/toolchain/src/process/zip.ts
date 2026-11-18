@@ -150,6 +150,16 @@ async function readEntry(
   }
 }
 
+/**
+ * Closing a handle we only read through must not replace the error on its way
+ * out. A damaged archive makes `close()` throw the same "Bad archive" again,
+ * which used to hide the `archive/unusable` the caller needs to decide whether
+ * the cached file is worth re-downloading.
+ */
+async function closeQuietly(zip: ZipArchive): Promise<void> {
+  await zip.close().catch(() => {});
+}
+
 /** Lists the entry names without writing anything. */
 export async function listEntries(
   archive: string,
@@ -161,7 +171,7 @@ export async function listEntries(
     const entries = await readEntries(zip, archive);
     return entries.map((entry) => entry.name);
   } finally {
-    await zip.close();
+    await closeQuietly(zip);
   }
 }
 
@@ -217,6 +227,6 @@ export async function extractZip(
 
     return entries.map((entry) => entry.name);
   } finally {
-    await zip.close();
+    await closeQuietly(zip);
   }
 }

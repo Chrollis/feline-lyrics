@@ -22,6 +22,11 @@ export interface DownloadOptions {
   readonly onProgress?: (received: number, total: number | null) => void;
   /** Replaces the partial-file cleanup; a seam for tests. */
   readonly removePartial?: RemovePartial;
+  /**
+   * Cancels the download, including one already streaming. A cancel is not a
+   * failure to retry: the loop stops on the first attempt that sees it aborted.
+   */
+  readonly signal?: AbortSignal;
 }
 
 const DEFAULT_ATTEMPTS = 3;
@@ -34,6 +39,17 @@ const sleep = (ms: number) =>
   new Promise<void>((resolve) => setTimeout(resolve, ms));
 
 const defaultRemovePartial: RemovePartial = (path) => rm(path, { force: true });
+
+/**
+ * The error a cancelled download fails with. `signal.reason` is whatever the
+ * caller passed to `abort()`; a bare `AbortController` carries a DOMException,
+ * which is still an Error and reads fine to a developer.
+ */
+function cancelled(signal: AbortSignal): Error {
+  return signal.reason instanceof Error
+    ? signal.reason
+    : new Error('the download was cancelled');
+}
 
 function defaultRetryDelay(attempt: number): number {
   const base = Math.min(MAX_BACKOFF_MS, 500 * 2 ** (attempt - 1));
@@ -74,6 +90,7 @@ interface AttemptOptions {
   readonly idleMs: number;
   readonly onProgress:
     ((received: number, total: number | null) => void) | undefined;
+  readonly signal: AbortSignal | undefined;
 }
 
 async function attemptDownload(options: AttemptOptions): Promise<number> {
@@ -82,6 +99,16 @@ async function attemptDownload(options: AttemptOptions): Promise<number> {
   const controller = new AbortController();
   let stallTimer: NodeJS.Timeout | undefined;
   let rejectStall: ((error: Error) => void) | undefined;
+
+  // The caller's cancellation reaches this attempt through the same signal the
+  // stall timer aborts, so every wait below stops for either reason.
+  const forwardAbort = () => {
+    controller.abort(options.signal?.reason);
+  };
+  options.signal?.addEventListener('abort', forwardAbort, { once: true });
+  if (options.signal?.aborted) {
+    forwardAbort();
+  }
 
   // Races every wait below, so a stall stops the attempt even when the
   // transport ignores the abort signal.
@@ -161,6 +188,7 @@ async function attemptDownload(options: AttemptOptions): Promise<number> {
     throw error;
   } finally {
     clearTimeout(stallTimer);
+    options.signal?.removeEventListener('abort', forwardAbort);
     await reader?.cancel().catch(() => {});
     // A close failure here would replace the error on its way out.
     await handle?.close().catch(() => {});
@@ -178,6 +206,7 @@ export async function download(options: DownloadOptions): Promise<number> {
     retryDelay = defaultRetryDelay,
     onProgress,
     removePartial = defaultRemovePartial,
+    signal,
   } = options;
 
   if (attempts < 1) {
@@ -191,6 +220,10 @@ export async function download(options: DownloadOptions): Promise<number> {
   // The loop is the only exit: it returns the size or throws. A `for (;;)`
   // keeps that true without a trailing throw nobody can reach.
   for (let attempt = 1; ; attempt += 1) {
+    if (signal?.aborted) {
+      throw cancelled(signal);
+    }
+
     try {
       return await attemptDownload({
         url,
@@ -199,11 +232,18 @@ export async function download(options: DownloadOptions): Promise<number> {
         minBytes,
         idleMs,
         onProgress,
+        signal,
       });
     } catch (error) {
       // Cleanup is a courtesy. If it fails, the caller must still see the
       // download failure that caused it.
       await removePartial(part).catch(() => {});
+
+      // A cancellation is a decision, not a hiccup: retrying it would ignore the
+      // caller for two more backoffs, and the stall message would be a lie.
+      if (signal?.aborted) {
+        throw cancelled(signal);
+      }
 
       // Only `fetchOnce` and the body checks produce RetryableError, so any
       // other error is ours and a retry would only flatten its stack.

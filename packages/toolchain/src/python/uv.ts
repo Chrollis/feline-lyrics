@@ -1,4 +1,5 @@
 import { existsSync, statSync } from 'node:fs';
+import { rm } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { StringDecoder } from 'node:string_decoder';
 
@@ -218,18 +219,39 @@ export async function downloadUv(
   const backend = backendPaths(ctx.paths.backendRoot);
   const archive = uvArchivePath(ctx.paths.cacheDir, target);
 
-  if (!hasCachedArchive(archive)) {
-    await download({
+  const fetchArchive = () =>
+    download({
       url: uvDownloadUrl(target.uvFilename),
       dest: archive,
       minBytes: MIN_DOWNLOAD_BYTES,
       ...(options.fetchImpl ? { fetchImpl: options.fetchImpl } : {}),
       ...(options.onProgress ? { onProgress: options.onProgress } : {}),
+      ...(ctx.signal ? { signal: ctx.signal } : {}),
     });
+
+  if (!hasCachedArchive(archive)) {
+    await fetchArchive();
   }
 
   if (!existsSync(backend.uvExe)) {
-    await extractZip(archive, dirname(backend.uvExe));
+    try {
+      await extractZip(archive, dirname(backend.uvExe));
+    } catch (error) {
+      // The cache is disposable input, so a damaged archive must heal itself
+      // instead of failing every later run. Size is the only cheap test we have
+      // (`hasCachedArchive`), and it cannot tell a truncated download from a
+      // good one -- the unpack is the first place that can.
+      if (
+        !(error instanceof ToolchainError) ||
+        error.code !== 'archive/unusable'
+      ) {
+        throw error;
+      }
+
+      await rm(archive, { force: true });
+      await fetchArchive();
+      await extractZip(archive, dirname(backend.uvExe));
+    }
   }
 
   if (!existsSync(backend.uvExe)) {
