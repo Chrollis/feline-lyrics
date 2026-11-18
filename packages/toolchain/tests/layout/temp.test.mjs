@@ -32,6 +32,17 @@ test('removes the directory when the callback throws', async () => {
   assert.equal(existsSync(seen), false);
 });
 
+test('keeps the directory alive while the callback still awaits', async () => {
+  // `return fn(dir)` instead of `return await fn(dir)` runs the `finally` as
+  // soon as the callback returns its promise, deleting the directory while the
+  // callback is still writing into it. This is the only test that notices.
+  await withTempDir('felyrics-temp-', async (dir) => {
+    await new Promise((settle) => setTimeout(settle, 20));
+
+    assert.equal(existsSync(dir), true);
+  });
+});
+
 test('gives each call its own directory', async () => {
   const first = await withTempDir('felyrics-temp-', async (dir) => dir);
   const second = await withTempDir('felyrics-temp-', async (dir) => dir);
