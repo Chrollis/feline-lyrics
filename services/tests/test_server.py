@@ -91,6 +91,12 @@ class RespondTest(unittest.TestCase):
             response["error"]["code"], "protocol/version-mismatch"
         )
         self.assertIn("protocol version 1", response["error"]["message"])
+        # Both versions travel as fields, so a client can render them without
+        # parsing the sentence above.
+        self.assertEqual(
+            response["error"]["data"],
+            {"declared": 2, "expected": PROTOCOL_VERSION},
+        )
 
     def test_a_request_without_a_version_is_refused(self):
         response = parse('{"id":10,"method":"ping"}')
@@ -99,6 +105,8 @@ class RespondTest(unittest.TestCase):
             response["error"]["code"], "protocol/version-mismatch"
         )
         self.assertIn("none", response["error"]["message"])
+        # "did not send it" is null, not a guess at a number.
+        self.assertIsNone(response["error"]["data"]["declared"])
 
     def test_a_boolean_version_is_not_the_number_one(self):
         # `True == 1` in Python, so a plain equality test would accept this and
