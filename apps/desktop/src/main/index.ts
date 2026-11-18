@@ -8,18 +8,38 @@ import type {
   AudioInfo,
   DecodedAudio,
   FrameBatch,
+  FrameFile,
   IpcResult,
   VideoInfo,
 } from '../preload/api.js';
-import { APP_ENTRY_URL } from './app-assets.js';
+import { APP_ENTRY_URL, mediaUrlFor } from './app-assets.js';
 import { registerAppScheme, serveAppProtocol } from './app-protocol.js';
-import { callBackend, pingBackend, shutdownBackend } from './backend.js';
+import {
+  callBackend,
+  pingBackend,
+  resolvePaths,
+  shutdownBackend,
+} from './backend.js';
 
 // Before `app.whenReady()`: the scheme registry is frozen at startup.
 registerAppScheme();
 
 /** Where the built renderer lives: `out/main/../renderer`. */
 const RENDERER_ROOT = join(import.meta.dirname, '../renderer');
+
+/** The backend's job directories, exactly as it was told at launch. */
+const JOBS_ROOT = join(resolvePaths().cacheDir, 'jobs');
+
+/**
+ * The backend answers with paths; the page can only load URLs. Everything that
+ * hands a file to the renderer goes through here, so no surface has to know how
+ * a job directory becomes an origin.
+ */
+type BackendAudio = Omit<DecodedAudio, 'url'>;
+
+type BackendFrames = Omit<FrameBatch, 'frames'> & {
+  readonly frames: readonly Omit<FrameFile, 'url'>[];
+};
 
 function createWindow(): void {
   const win = new BrowserWindow({
@@ -70,7 +90,7 @@ function createWindow(): void {
 }
 
 app.whenReady().then(() => {
-  serveAppProtocol(RENDERER_ROOT);
+  serveAppProtocol({ rendererRoot: RENDERER_ROOT, jobsRoot: JOBS_ROOT });
   createWindow();
 
   app.on('activate', () => {
@@ -156,9 +176,15 @@ ipcMain.handle('media:probe', (_event, path: unknown) =>
 );
 
 ipcMain.handle('media:decode', (_event, request: Record<string, unknown>) =>
-  asResult(() =>
-    callBackend<DecodedAudio>('media/decode', request, BACKEND_TIMEOUT_MS),
-  ),
+  asResult(async () => {
+    const audio = await callBackend<BackendAudio>(
+      'media/decode',
+      request,
+      BACKEND_TIMEOUT_MS,
+    );
+
+    return { ...audio, url: mediaUrlFor(JOBS_ROOT, audio.path) };
+  }),
 );
 
 ipcMain.handle('video:pick', () => asResult(() => pickFile('video')));
@@ -170,9 +196,21 @@ ipcMain.handle('video:probe', (_event, path: unknown) =>
 );
 
 ipcMain.handle('video:frames', (_event, request: Record<string, unknown>) =>
-  asResult(() =>
-    callBackend<FrameBatch>('video/frames', request, FRAMES_TIMEOUT_MS),
-  ),
+  asResult(async () => {
+    const batch = await callBackend<BackendFrames>(
+      'video/frames',
+      request,
+      FRAMES_TIMEOUT_MS,
+    );
+
+    return {
+      ...batch,
+      frames: batch.frames.map((frame) => ({
+        ...frame,
+        url: mediaUrlFor(JOBS_ROOT, frame.path),
+      })),
+    };
+  }),
 );
 
 /**

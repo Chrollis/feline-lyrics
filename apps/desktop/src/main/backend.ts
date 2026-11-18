@@ -15,8 +15,11 @@ import {
  * repository so the CLI and the app see the same backend; a packaged app keeps
  * its writable state under userData. Both are defaults: the settings surface is
  * meant to override them later.
+ *
+ * Exported because the `app://media` handler has to serve exactly the directory
+ * the backend was started with, and a second copy of these rules would drift.
  */
-function resolvePaths(): ToolchainPaths {
+export function resolvePaths(): ToolchainPaths {
   if (app.isPackaged) {
     const userData = app.getPath('userData');
 
