@@ -87,14 +87,12 @@ Rules:
 
 ## Next
 
-- The four media methods are on the bridge end to end (`FelyricsApi`, six IPC
-  handlers, a renderer that renders `IpcResult`). The click path has not been
-  run in a GUI yet -- `npm run dev` once is the remaining check. Then the `app://`
-  custom protocol (decided: CSP rides on a real origin, not on `file://`), which
-  is the last P1 in `reference/ideas/to-fix.md` along with the preload artifact
-  name.
-- After that, two Python plugins: annotate/tokenize (pure CPU, light) and
-  align/separate (`stable-ts[fw]` CPU + `demucs-infer`/torch with CPU or CUDA,
-  heavy and install-time optional). Nothing is bundled, so the heavy half can be
-  an on-demand install into its own venv.
-- Then the first real feature: lyrics parsing, and the timing pipeline after it.
+- The whole media chain is proven end to end: `app://bundle` serves the page,
+  the six IPC handlers reach the backend, and the files the backend writes are
+  loadable over `app://media/<kind>/<job>/<file>`. `reference/ideas/to-fix.md`
+  is empty; the notes start the next batch from a clean file.
+- Next is the first real feature: lyrics parsing (a file plus a line/character
+  model), then the timing pipeline on top of the audio that `media/decode`
+  already produces. Both Python plugins still come later: annotate/tokenize
+  (pure CPU, light) and align/separate (`stable-ts[fw]` CPU plus
+  `demucs-infer`/torch, heavy, install-time optional, in its own venv).
