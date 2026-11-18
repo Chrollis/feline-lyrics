@@ -83,6 +83,22 @@ async function sleepUnlessAborted(
 const defaultRemovePartial: RemovePartial = (path) => rm(path, { force: true });
 
 /**
+ * The part of a URL a log may keep: scheme, host and path, never the query.
+ * A presigned link carries its credentials there, and these contexts end up
+ * pasted into issues and chat windows. Building the error must not fail either,
+ * so an unparsable URL becomes a placeholder instead of a second throw.
+ */
+function publicUrl(url: string): string {
+  try {
+    const parsed = new URL(url);
+
+    return `${parsed.protocol}//${parsed.host}${parsed.pathname}`;
+  } catch {
+    return '(unparsable url)';
+  }
+}
+
+/**
  * The error a cancelled download fails with. The code is stable so a caller can
  * tell "the user gave up" from "the network failed"; the caller's own abort
  * reason rides along as `cause`, where it belongs, instead of replacing it.
@@ -93,7 +109,7 @@ function cancelled(signal: AbortSignal, url: string): ToolchainError {
   return new ToolchainError(
     'download/cancelled',
     'the download was cancelled',
-    { url },
+    { url: publicUrl(url) },
     cause === undefined ? undefined : { cause },
   );
 }
