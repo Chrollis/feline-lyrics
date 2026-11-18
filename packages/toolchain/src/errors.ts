@@ -22,6 +22,14 @@ export interface ToolchainErrorContext {
   readonly command?: string;
   readonly url?: string;
   readonly status?: number;
+  /**
+   * The protocol version the other side stated, when it stated one. `message` is
+   * English fallback text, so anything a caller has to render must arrive as a
+   * field: a version number parsed back out of a sentence breaks on translation.
+   */
+  readonly declared?: number;
+  /** The protocol version this side speaks. */
+  readonly expected?: number;
 }
 
 /**
