@@ -105,6 +105,23 @@ marker, the root `test` script, the package entry points -- are in
   The abort is raced against the body read and the backoff, not checked between
   chunks: a transport that ignores its signal parks the loop inside `read()`, and
   nothing of ours runs until the idle timer fires.
+- 2026-11 the stdio envelope carries `v` and each side states its own version:
+  a request declares the version the sender speaks, an answer declares the
+  receiver's, because nobody can reply in a format they do not implement. What
+  this catches is a backend process left running from an older checkout -- the
+  files on disk are current while the process that answers is not. A wrong or
+  missing `v` is `protocol/version-mismatch` on the backend and
+  `backend/version-mismatch` on the client, and the request it belongs to is
+  rejected at once instead of waiting out its deadline.
+- 2026-11 a download failure is a code, not a bare `Error`: 4xx, an empty body and
+  an exhausted retry all end as `download/failed` with the HTTP `status` kept in
+  the context, while anything the transport itself throws stays native. Without
+  it a plugin UI cannot tell "the mirror said no" from "the user pressed cancel"
+  (`download/cancelled`), which are two different sentences to show a person.
+- 2026-11 a logged url is cut to scheme, host and path: query strings on these
+  mirrors and on future signed urls carry credentials, and an error context ends
+  up in logs and screenshots. The query is never hashed either -- a digest of a
+  secret is still a secret with no reader that can use it.
 - 2026-11 the renderer bridge has one declared shape,
   `apps/desktop/src/preload/api.ts` (`FelyricsApi` + `IpcResult`), imported with
   `import type` by the preload, the renderer and the main process. Two hand-copied
