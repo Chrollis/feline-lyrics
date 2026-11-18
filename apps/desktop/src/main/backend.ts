@@ -99,15 +99,22 @@ export async function pingBackend(): Promise<unknown> {
  *
  * A failure the backend reported arrives as a `BackendError` with its `code`
  * intact, so the caller can tell "this file has no audio stream" from "the
- * process died".
+ * process died". `timeoutMs` bounds the wait, because a method that silently
+ * takes minutes (decoding a large video) would otherwise leave the renderer
+ * waiting with no way to tell it from a hang.
  */
 export async function callBackend<T>(
   method: string,
   params: Record<string, unknown> = {},
+  timeoutMs?: number,
 ): Promise<T> {
   const service = await ensureService();
 
-  return service.request<T>(method, params);
+  return service.request<T>(
+    method,
+    params,
+    timeoutMs === undefined ? {} : { timeoutMs },
+  );
 }
 
 export async function shutdownBackend(): Promise<number | null> {

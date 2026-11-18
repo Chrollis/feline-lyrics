@@ -3,6 +3,8 @@ export type ToolchainErrorCode =
   | 'archive/unsafe-entry'
   | 'target/unsupported'
   | 'backend/not-provisioned'
+  | 'backend/unavailable'
+  | 'backend/timeout'
   | 'uv/missing-binary'
   | 'uv/install-failed'
   | 'uv/venv-failed'

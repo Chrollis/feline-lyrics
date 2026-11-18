@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
 
-import { BackendError, startService } from '../../out/index.js';
+import { BackendError, startService, ToolchainError } from '../../out/index.js';
 
 // A fake backend: it answers like services/felyrics, and can misbehave on
 // request. `中` is data here, not an identifier.
@@ -18,6 +18,10 @@ for await (const raw of lines) {
 
   if (request.method === 'die') {
     process.exit(3);
+  }
+
+  if (request.method === 'hang') {
+    continue;
   }
 
   if (request.method === 'log') {
@@ -143,7 +147,45 @@ test('keeps a half-received stderr character out of the protocol channel', async
 
 test('rejects the pending request when the process exits', async () => {
   await withService({}, async (client) => {
-    await assert.rejects(client.request('die'), /exited with code 3/);
+    const error = await client.request('die').then(
+      () => null,
+      (reason) => reason,
+    );
+
+    assert.ok(error instanceof ToolchainError);
+    assert.equal(error.code, 'backend/unavailable');
+    assert.equal(error.context.status, 3);
+    assert.match(error.message, /exited with code 3/);
+  });
+});
+
+test('refuses to queue a request once the process is gone', async () => {
+  await withService({}, async (client) => {
+    await assert.rejects(client.request('die'));
+
+    await assert.rejects(client.request('alpha'), (error) => {
+      assert.ok(error instanceof ToolchainError);
+      assert.equal(error.code, 'backend/unavailable');
+      assert.equal(error.context.command, 'alpha');
+      return true;
+    });
+  });
+});
+
+test('gives up on a request the backend never answers', async () => {
+  await withService({}, async (client) => {
+    await assert.rejects(
+      client.request('hang', {}, { timeoutMs: 50 }),
+      (error) => {
+        assert.ok(error instanceof ToolchainError);
+        assert.equal(error.code, 'backend/timeout');
+        assert.equal(error.context.command, 'hang');
+        assert.match(error.message, /within 50 ms/);
+        return true;
+      },
+    );
+    // The timeout only stops the wait: the process is still usable afterwards.
+    assert.deepEqual(await client.request('alpha'), { method: 'alpha' });
   });
 });
 

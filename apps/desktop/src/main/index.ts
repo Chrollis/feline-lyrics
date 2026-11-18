@@ -104,6 +104,13 @@ async function pickFile(kind: 'audio' | 'video'): Promise<string | null> {
   return result.canceled ? null : (result.filePaths[0] ?? null);
 }
 
+// A request that never returns is worse than one that fails: the renderer shows
+// a spinner forever with nothing to branch on. Probing and decoding audio are
+// bounded by a few seconds in practice; a still batch can legitimately take
+// minutes on a long video, so it gets its own budget.
+const BACKEND_TIMEOUT_MS = 30_000;
+const FRAMES_TIMEOUT_MS = 300_000;
+
 ipcMain.handle('ping', () => 'pong');
 
 ipcMain.handle('backend:ping', () => asResult(() => pingBackend()));
@@ -113,21 +120,29 @@ ipcMain.handle('backend:ping', () => asResult(() => pingBackend()));
 ipcMain.handle('media:pick', () => asResult(() => pickFile('audio')));
 
 ipcMain.handle('media:probe', (_event, path: unknown) =>
-  asResult(() => callBackend<AudioInfo>('media/probe', { path })),
+  asResult(() =>
+    callBackend<AudioInfo>('media/probe', { path }, BACKEND_TIMEOUT_MS),
+  ),
 );
 
 ipcMain.handle('media:decode', (_event, request: Record<string, unknown>) =>
-  asResult(() => callBackend<DecodedAudio>('media/decode', request)),
+  asResult(() =>
+    callBackend<DecodedAudio>('media/decode', request, BACKEND_TIMEOUT_MS),
+  ),
 );
 
 ipcMain.handle('video:pick', () => asResult(() => pickFile('video')));
 
 ipcMain.handle('video:probe', (_event, path: unknown) =>
-  asResult(() => callBackend<VideoInfo>('video/probe', { path })),
+  asResult(() =>
+    callBackend<VideoInfo>('video/probe', { path }, BACKEND_TIMEOUT_MS),
+  ),
 );
 
 ipcMain.handle('video:frames', (_event, request: Record<string, unknown>) =>
-  asResult(() => callBackend<FrameBatch>('video/frames', request)),
+  asResult(() =>
+    callBackend<FrameBatch>('video/frames', request, FRAMES_TIMEOUT_MS),
+  ),
 );
 
 /**
