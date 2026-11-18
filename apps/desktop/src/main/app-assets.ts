@@ -75,6 +75,10 @@ const MIME_TYPES: Readonly<Record<string, string>> = {
   '.woff': 'font/woff',
   '.woff2': 'font/woff2',
   '.ttf': 'font/ttf',
+  // What the backend writes today. A media file without its type is not a
+  // "download that fails to render": `<audio>` refuses the source outright,
+  // because `application/octet-stream` is not a media type it will play.
+  '.flac': 'audio/flac',
 };
 
 export function contentTypeFor(file: string): string {

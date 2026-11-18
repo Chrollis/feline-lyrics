@@ -100,6 +100,14 @@ test('the policy allows no remote code and no inline code', () => {
   assert.match(CONTENT_SECURITY_POLICY, /img-src 'self' data: app:/);
 });
 
+test('names the media type of what the backend writes', () => {
+  // A media file served as `application/octet-stream` is refused by the
+  // element, with no visible cause: the request succeeds, the player stays shut.
+  assert.equal(contentTypeFor('audio.flac'), 'audio/flac');
+  assert.equal(contentTypeFor('0001.png'), 'image/png');
+  assert.equal(contentTypeFor('unknown.bin'), 'application/octet-stream');
+});
+
 test('serves a job file on the media host and nothing else', () => {
   // The shape the backend actually writes: one bucket per kind, then one job
   // directory, then the file (`services/felyrics/media/methods.py:52`, `:127`).
