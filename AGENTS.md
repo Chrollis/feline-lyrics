@@ -3,8 +3,8 @@
 Working agreement for a human who decides, an agent that builds, and a reviewer
 that looks for what the builder missed. This file is injected into every session,
 so it holds behaviour only: the past -- state, decisions, dead ends -- lives in
-`memories/`: `MEMORY.md` for state and the next step, `decisions.md` for the
-rules in force, `archive/` for what no longer changes the next step.
+`memories/`: `MEMORY.md` for the current state, `decisions.md` for the rules in
+force, `archive/` for what no longer changes the work.
 
 ## 1. One step: plan, write, verify, report
 
@@ -25,7 +25,9 @@ rules in force, `archive/` for what no longer changes the next step.
      this session: do not spawn a reviewer, do not wait for one, do not poll;
   3. when the human brings findings back: what the review changed, or "nothing
      fixed", with the unfixed findings moved into part 4;
-  4. what the next step is;
+  4. the next step you propose, or the question that has to be answered before
+     one exists. At a boundary -- a subsystem finished, `to-fix.md` empty --
+     naming the next step is the human's, so ask instead of assuming it;
   5. what only the human can decide, one sentence each, with the tradeoff.
   Do not restate the diff, do not narrate the wait, and do not open a new step
   between 1 and 3.
@@ -102,10 +104,12 @@ rules in force, `archive/` for what no longer changes the next step.
 
 - Read `memories/MEMORY.md` at session start, and `memories/decisions.md` before
   changing a subsystem; update them before ending a session.
-- `MEMORY.md` holds the rules, the current state and the next step;
+- `MEMORY.md` holds the rules and the current state, and no next-step section:
+  a next step the agent picks for itself is the agent's plan, not the human's,
+  and the two diverge at a boundary. When none is recorded, ask.
   `decisions.md` holds the decisions in force with their reasons; `archive/`
-  holds what no longer changes the next step. Never a changelog, never a file
-  index, never a test count. Delete what went stale.
+  holds what no longer changes the work. Never a changelog, never a file index,
+  never a test count. Delete what went stale.
 
 ## 9. Autonomy and the team
 
