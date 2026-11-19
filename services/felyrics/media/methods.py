@@ -9,6 +9,7 @@ backend's job, not the caller's.
 
 from __future__ import annotations
 
+import math
 import shutil
 import uuid
 from pathlib import Path
@@ -206,7 +207,14 @@ def _optional_number(params: dict[str, Any], name: str, default: float) -> float
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         raise ServiceError("protocol/invalid-request", f"'{name}' must be a number")
 
-    return float(value)
+    # `json` accepts NaN and Infinity as literals, and both make every comparison
+    # below false: a batch would come back empty with no error to explain it.
+    number = float(value)
+
+    if not math.isfinite(number):
+        raise ServiceError("protocol/invalid-request", f"'{name}' must be finite")
+
+    return number
 
 
 def _frame_width(params: dict[str, Any]) -> int | None:

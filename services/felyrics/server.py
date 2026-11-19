@@ -76,6 +76,15 @@ def dispatch(request: Any) -> Any:
             data={"declared": version, "expected": PROTOCOL_VERSION},
         )
 
+    # The id comes before the method: an answer nobody can match to a request is
+    # worse than a refusal, and `respond` can only echo what it can type-check.
+    request_id = request.get("id")
+
+    if isinstance(request_id, bool) or not isinstance(request_id, int):
+        raise ProtocolError(
+            "protocol/invalid-request", "request.id must be an integer"
+        )
+
     name = request.get("method")
 
     if not isinstance(name, str):
@@ -108,6 +117,12 @@ def respond(line: str) -> dict[str, Any]:
 
         if isinstance(request, dict):
             request_id = request.get("id")
+
+            # Echo only an id that could have been sent. A client that sends an
+            # object cannot be correlated, and echoing it back invites the rest
+            # of the system to trust a field the protocol never defined.
+            if isinstance(request_id, bool) or not isinstance(request_id, int):
+                request_id = None
 
         return {"v": PROTOCOL_VERSION, "id": request_id, "result": dispatch(request)}
     except json.JSONDecodeError as error:

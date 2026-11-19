@@ -3,7 +3,6 @@
 Run with: python -m unittest discover -s services/tests -v
 """
 
-import json
 import tempfile
 import unittest
 from pathlib import Path
@@ -14,17 +13,7 @@ import numpy as np
 from felyrics import runtime
 from felyrics.errors import ServiceError
 from felyrics.media import methods, video  # noqa: F401  (import registers methods)
-from felyrics.server import PROTOCOL_VERSION, respond
-from support import write_flac, write_video
-
-
-def call(name, params=None, request_id=1):
-    request = {"v": PROTOCOL_VERSION, "id": request_id, "method": name}
-
-    if params is not None:
-        request["params"] = params
-
-    return respond(json.dumps(request))
+from support import call, write_flac, write_video
 
 
 class VideoTest(unittest.TestCase):
@@ -184,6 +173,21 @@ class VideoTest(unittest.TestCase):
         response = call("video/frames", {"path": str(self.clip), "width": 8})
 
         self.assertEqual(response["error"]["code"], "protocol/invalid-request")
+
+    def test_frames_method_rejects_a_time_that_is_not_finite(self):
+        # JSON has literals for NaN and Infinity, and `json.loads` accepts them.
+        # Every bound check is false against them, so without a check of its own
+        # the request would succeed and come back with no stills and no reason.
+        for name, value in (
+            ("start", float("nan")),
+            ("start", float("inf")),
+            ("step", float("inf")),
+        ):
+            with self.subTest(name=name, value=value):
+                response = call("video/frames", {"path": str(self.clip), name: value})
+
+                self.assertEqual(response["error"]["code"], "protocol/invalid-request")
+                self.assertIn("finite", response["error"]["message"])
 
 
 if __name__ == "__main__":

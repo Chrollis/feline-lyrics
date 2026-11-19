@@ -58,7 +58,7 @@ class Audio:
 def probe(path: str | Path) -> AudioInfo:
     """Reads the stream parameters without decoding."""
 
-    with containers.open(path) as opened:
+    with containers.open_container(path) as opened:
         stream = _audio_stream(opened, path)
         context = stream.codec_context
         layout = context.layout
@@ -84,7 +84,7 @@ def decode(
     count; it does not mean "use my idea of a default".
     """
 
-    with containers.open(path) as opened:
+    with containers.open_container(path) as opened:
         stream = _audio_stream(opened, path)
         context = stream.codec_context
         target_rate = rate or int(context.sample_rate or 0)

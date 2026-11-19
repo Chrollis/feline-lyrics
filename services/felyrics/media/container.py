@@ -15,7 +15,7 @@ import av
 from ..errors import ServiceError
 
 
-def open(path: str | Path) -> av.container.InputContainer:
+def open_container(path: str | Path) -> av.container.InputContainer:
     """Opens a container for reading, or raises `media/open-failed`."""
 
     try:

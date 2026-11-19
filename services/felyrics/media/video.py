@@ -56,7 +56,7 @@ class Frame:
 def probe(path: str | Path) -> VideoInfo:
     """Reads the stream parameters without decoding."""
 
-    with containers.open(path) as opened:
+    with containers.open_container(path) as opened:
         stream = _video_stream(opened, path)
         context = stream.codec_context
 
@@ -88,7 +88,7 @@ def frames(
 
     targets = [start + index * step for index in range(count)]
 
-    with containers.open(path) as opened:
+    with containers.open_container(path) as opened:
         stream = _video_stream(opened, path)
         _seek(opened, stream, start)
 

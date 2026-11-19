@@ -126,6 +126,25 @@ class RespondTest(unittest.TestCase):
         )
         self.assertIn("'1'", response["error"]["message"])
 
+    def test_a_request_without_an_integer_id_is_refused(self):
+        # The id is how an answer is matched to a request, so it is checked
+        # before anything else is read. A value that cannot be echoed back as the
+        # same integer is refused instead of being passed through as text.
+        for line in (
+            '{"v":1,"method":"ping"}',
+            '{"v":1,"id":"seven","method":"ping"}',
+            '{"v":1,"id":true,"method":"ping"}',
+            '{"v":1,"id":{"nested":1},"method":"ping"}',
+        ):
+            with self.subTest(line=line):
+                response = parse(line)
+
+                self.assertIsNone(response["id"])
+                self.assertEqual(
+                    response["error"]["code"], "protocol/invalid-request"
+                )
+                self.assertIn("id", response["error"]["message"])
+
     def test_a_handler_error_keeps_its_code(self):
         def refuse(params):
             raise ServiceError("media/open-failed", "cannot open it")
