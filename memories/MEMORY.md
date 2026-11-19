@@ -3,7 +3,7 @@
 Working notes for whoever picks this up next: human or agent. This is not a
 design document. Code describes what exists and `git log` describes what
 changed; this file records only what neither of them can tell you -- the
-reasons, the dead ends, and what comes next.
+reasons and the dead ends.
 
 Rules:
 
@@ -13,7 +13,7 @@ Rules:
   alone does not.
 - Date the entries that can go stale, and delete them when they do.
 - No code blocks longer than three lines. The code is in the code.
-- Keep this file to rules, state and next. Decisions in force go to
+- Keep this file to rules and state. Decisions in force go to
   `memories/decisions.md`; decisions that only explain existing code, and dead
   ends, go to `memories/archive/<yyyy-mm>.md`. Leave a pointer, not a copy:
   this is a working set, not a history.
@@ -65,6 +65,11 @@ Rules:
 - Paths are inputs: the toolchain takes `{ cacheDir, servicesDir, backendRoot }`
   from the caller and derives the rest, so the CLI and the app can disagree
   about where things live without the library knowing.
+- `docs/toolchain/` is the orientation document for this half of the repo:
+  `README.md` (the two questions, the three paths, the module map, the commands),
+  `provisioning.md` (one setup run, step by step), `protocol.md` (the JSON lines
+  envelope, the client's behaviour, the two error vocabularies). It describes
+  what exists; a change that makes it wrong is part of the change.
 - `reference/` is gitignored and holds three kinds of thing: `202609/` is this
   repository's predecessor (the previous AI-built version, same architecture),
   `202606/` is an earlier Rust + Python attempt, `NicoKaraMaker3/` and
@@ -85,14 +90,3 @@ Rules:
   repository has hit, are in `memories/archive/2026-11-*.md`. Read them when a
   shape looks redundant or a failure looks familiar.
 
-## Next
-
-- The whole media chain is proven end to end: `app://bundle` serves the page,
-  the six IPC handlers reach the backend, and the files the backend writes are
-  loadable over `app://media/<kind>/<job>/<file>`. `reference/ideas/to-fix.md`
-  is empty; the notes start the next batch from a clean file.
-- Next is the first real feature: lyrics parsing (a file plus a line/character
-  model), then the timing pipeline on top of the audio that `media/decode`
-  already produces. Both Python plugins still come later: annotate/tokenize
-  (pure CPU, light) and align/separate (`stable-ts[fw]` CPU plus
-  `demucs-infer`/torch, heavy, install-time optional, in its own venv).
