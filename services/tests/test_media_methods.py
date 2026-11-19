@@ -3,7 +3,6 @@
 Run with: python -m unittest discover -s services/tests -v
 """
 
-import json
 import subprocess
 import sys
 import tempfile
@@ -14,17 +13,7 @@ from unittest import mock
 from felyrics import runtime
 from felyrics.media import methods  # noqa: F401  (import registers the methods)
 from felyrics.media.audio import probe
-from felyrics.server import PROTOCOL_VERSION, respond
-from support import write_flac
-
-
-def call(name, params=None, request_id=1):
-    request = {"v": PROTOCOL_VERSION, "id": request_id, "method": name}
-
-    if params is not None:
-        request["params"] = params
-
-    return respond(json.dumps(request))
+from support import call, write_flac
 
 
 class MediaMethodsTest(unittest.TestCase):

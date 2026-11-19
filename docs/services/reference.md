@@ -79,7 +79,7 @@ client renders belongs in `data`.
 | Code | Raised when | `data` |
 | --- | --- | --- |
 | `protocol/invalid-json` | The line is not JSON | — |
-| `protocol/invalid-request` | Not an object, no `method`, `params` not an object, an argument of the wrong type or outside its range | — |
+| `protocol/invalid-request` | Not an object, `id` missing or not an integer, no `method`, `params` not an object, an argument of the wrong type, outside its range, or not finite | — |
 | `protocol/version-mismatch` | `v` is not this backend's version | `{"declared": any, "expected": int}` |
 | `method/not-found` | No method by that name | — |
 | `internal/error` | A handler raised something no one planned for; the traceback goes to stderr | — |

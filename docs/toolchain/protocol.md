@@ -24,7 +24,7 @@ carries the protocol only — diagnostics go to stderr.
 | Field | Required | Meaning |
 | --- | --- | --- |
 | `v` | yes | Envelope version, currently `1` |
-| `id` | yes | Client-assigned, increasing; the backend returns it unchanged |
+| `id` | yes | Integer, client-assigned, increasing; the backend echoes it unchanged and refuses a request whose `id` is missing or not an integer |
 | `method` | request | A key of the backend's method table |
 | `params` | request | Object; omitted means `{}` |
 | `result` | answer | Present on success |

@@ -2,8 +2,23 @@
 
 from __future__ import annotations
 
+import json
+
 import av
 import numpy as np
+
+from felyrics.server import PROTOCOL_VERSION, respond
+
+
+def call(name, params=None, request_id=1):
+    """Runs one request through the real `respond`, as a client would."""
+
+    request = {"v": PROTOCOL_VERSION, "id": request_id, "method": name}
+
+    if params is not None:
+        request["params"] = params
+
+    return respond(json.dumps(request))
 
 
 def write_flac(path, *, rate, layout, frames, value=1000):
