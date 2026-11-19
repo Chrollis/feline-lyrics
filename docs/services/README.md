@@ -67,12 +67,19 @@ so upgrading one plugin cannot move a library under a running method.
 
 ## Scope
 
-In scope: media primitives (decode, stills, encode) and, later, lyrics parsing and
-timing.
+In scope: media capabilities that the rest of the app asks for — decode audio, hand out
+its samples, pull video stills, encode both. They are capabilities, not features: nothing
+here decides what a song is or where a lyric sits.
 
-Out of scope: the protocol itself (see the toolchain), anything that needs a window, and
-installing Python — the process is already running by the time it is asked to do
-anything.
+Out of scope:
+
+| Not here | Lives in |
+| --- | --- |
+| Lyrics parsing and timing | The JavaScript core |
+| AI models (annotation, alignment, separation) | Plugins, which may bring a Python backend of their own |
+| The protocol itself (envelope, version, error codes) | The toolchain, documented once for both sides |
+| Anything that needs a window | The renderer |
+| Installing Python | The toolchain; this process is already running by the time it is asked to do anything |
 
 ## Testing
 
