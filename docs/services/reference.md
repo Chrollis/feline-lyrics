@@ -69,7 +69,8 @@ answered it. They differ whenever a step falls between two frames: at 10 fps, `s
 asks for `0.15` and gets the frame at `0.2`.
 
 An empty result is legal — `start` past the end answers `{"dir": "", "width": 0,
-"height": 0, "frames": []}` and deletes nothing.
+"height": 0, "fps": <source fps>, "frames": []}` and deletes nothing. The source is
+still probed, so `fps` is real even when no frame was asked for.
 
 ## Errors
 

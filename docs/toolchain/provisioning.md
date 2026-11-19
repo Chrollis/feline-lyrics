@@ -33,7 +33,7 @@ isReady(marker)?  ── yes ──> return (unless force)
 | uv archive | `cacheDir/downloads/uv/<uv version>/<file>` exists and is at least 1 MiB |
 | `uv.exe` | The file exists; unpacking a running executable fails on Windows |
 | CPython | uv decides; the interpreter lives in `backendRoot/python/cpython-…-none/` |
-| venv | Never — it is rebuilt every run, because the configuration is an invariant |
+| venv | Never reused: a rebuild always runs `uv venv --clear`. A run whose marker already matches returns before this step, so "never reused" is about rebuilding, not about every command |
 | Requirements | An empty list is a no-op; otherwise uv skips what is already satisfied |
 
 `backendRoot/python/` belongs to uv. It writes `.lock`, `.temp/` and `.gitignore` there
@@ -49,6 +49,7 @@ sets:
 | Variable | Value | Effect |
 | --- | --- | --- |
 | `UV_NO_CONFIG` | `1` | Ignore any user `uv.toml` |
+| `UV_CACHE_DIR` | `cacheDir` | `uv`'s package cache, so nothing lands in the user's profile |
 | `UV_PYTHON_INSTALL_DIR` | `backendRoot/python` | Interpreters stay inside the backend |
 | `UV_PYTHON_INSTALL_MIRROR` | one mirror, tried in order | Where the interpreter comes from |
 | `UV_PYTHON_CPYTHON_BUILD` | `PYTHON_BUILD` | Pin the exact build |

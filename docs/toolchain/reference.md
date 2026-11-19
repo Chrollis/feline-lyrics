@@ -12,6 +12,7 @@ so a reader does not have to open every module.
 | `doctor` | `(toolchain: ToolchainPaths, options?: DoctorOptions) => Promise<DoctorReport>` | Read-only health check; runs binaries, reads `.pth` and marker |
 | `startService` | `(options: ServiceOptions) => ServiceClient` | Spawns the backend and speaks its line protocol |
 | `download` | `(options: DownloadOptions) => Promise<number>` | Streams one file to `dest`; resolves with the byte count |
+| `withTempDir` | `<T>(prefix: string, fn: (dir: string) => Promise<T>) => Promise<T>` | Creates a scratch directory and removes it in `finally` |
 
 `DownloadOptions`:
 
@@ -26,8 +27,6 @@ so a reader does not have to open every module.
 | `removePartial` | Replaces the cleanup of the `.part` file; a test seam |
 | `signal` | Cancels, including a stream already in flight; never retried |
 
-| `withTempDir` | `<T>(prefix: string, fn: (dir: string) => Promise<T>) => Promise<T>` | Creates a scratch directory and removes it in `finally` |
-
 ## Layout
 
 | Type | Fields |
@@ -41,8 +40,8 @@ so a reader does not have to open every module.
 | --- | --- |
 | `cachePaths(cacheDir)` | `CachePaths` under the given root |
 | `backendPaths(backendRoot, target?)` | `BackendPaths`; `target` defaults to `currentTarget()` |
-| `buildEnv(dirs, base?)` | Environment for pip: inherited vars minus `PIP_*`/`PYTHON*`/`VIRTUAL_ENV`, plus cache and temp |
-| `buildUvEnv(dirs, base?)` | Environment for uv: the same, minus `UV_*`, plus install dir, mirror, build pin, index |
+| `buildEnv(dirs, base?)` | Environment for pip: inherited vars minus `PIP_*`, `PYTHONPATH`, `PYTHONHOME`, `PYTHONUSERBASE`, `VIRTUAL_ENV`, plus no-user-site, cache and temp |
+| `buildUvEnv(dirs, base?)` | Environment for uv: the same, minus `UV_*` as well, plus its own cache, install dir, mirror, build pin, preference, no-config and index (every variable is listed in [provisioning.md](provisioning.md#environment)) |
 
 ## Python provisioning
 

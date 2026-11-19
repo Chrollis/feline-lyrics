@@ -49,7 +49,7 @@ services/
       audio.py            probe, decode, save
       video.py            probe, and a generator of stills
       image.py            pixels to PNG bytes
-  tests/                  fixtures plus four test modules
+  tests/                  fixtures plus five test modules
 ```
 
 One module per medium. Every failure crosses the protocol boundary as a `ServiceError`
