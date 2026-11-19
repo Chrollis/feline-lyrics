@@ -53,6 +53,7 @@ export {
 export { withTempDir } from './layout/temp.js';
 export {
   BackendError,
+  DEFAULT_REQUEST_TIMEOUT_MS,
   startService,
   type ServiceClient,
   type ServiceMessage,
