@@ -14,13 +14,15 @@
     "packages/*"
   ],
   "scripts": {
+    "predev": "npm run build -w @felyrics/toolchain && npm run build -w @felyrics/host",
     "dev": "npm run dev -w @felyrics/desktop",
-    "prebuild": "npm run build -w @felyrics/toolchain",
+    "prebuild": "npm run build -w @felyrics/toolchain && npm run build -w @felyrics/host",
     "build": "npm run build -w @felyrics/desktop",
     "preview": "npm run preview -w @felyrics/desktop",
     "python": "node scripts/python.mjs",
-    "pretypecheck": "npm run build -w @felyrics/toolchain",
+    "pretypecheck": "npm run build -w @felyrics/toolchain && npm run build -w @felyrics/host",
     "typecheck": "npm run typecheck --workspaces --if-present",
+    "pretest": "npm run build -w @felyrics/toolchain && npm run build -w @felyrics/host",
     "test": "npm run test --workspaces --if-present",
     "test:python": "npm run python -- -m unittest discover -s packages/host/backend/tests -v && npm run python -- -m unittest discover -s services/tests -v",
     "lint": "eslint .",
