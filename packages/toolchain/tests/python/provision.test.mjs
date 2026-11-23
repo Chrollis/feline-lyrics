@@ -83,6 +83,7 @@ test('provisions in the order that leaves the marker last', async () => {
       paths,
       tempDir,
       requirements: ['av==15.0.0'],
+      importPaths: [paths.servicesDir],
       run,
       target,
       fetchImpl: zipResponse,
@@ -92,14 +93,14 @@ test('provisions in the order that leaves the marker last', async () => {
       calls.map((call) => call.args[0]),
       ['python', 'venv', 'pip'],
     );
-    assert.equal(marker.services, resolve(paths.servicesDir));
+    assert.equal(marker.imports, resolve(paths.servicesDir));
 
     const backend = backendPaths(paths.backendRoot);
 
     assert.deepEqual(JSON.parse(readFileSync(backend.readyMarker, 'utf8')), {
       uv: marker.uv,
       python: marker.python,
-      services: marker.services,
+      imports: marker.imports,
       requirements: 'av==15.0.0',
     });
     assert.equal(
@@ -118,6 +119,7 @@ test('skips pip when nothing is declared', async () => {
       paths,
       tempDir,
       requirements: [],
+      importPaths: [paths.servicesDir],
       run,
       target,
       fetchImpl: zipResponse,
@@ -138,6 +140,7 @@ test('does nothing when the marker already matches', async () => {
       paths,
       tempDir,
       requirements: [],
+      importPaths: [paths.servicesDir],
       run: first.run,
       target,
       fetchImpl: zipResponse,
@@ -150,6 +153,7 @@ test('does nothing when the marker already matches', async () => {
       paths,
       tempDir,
       requirements: [],
+      importPaths: [paths.servicesDir],
       run: second.run,
       target,
       fetchImpl: () => {
@@ -167,6 +171,7 @@ test('force rebuilds even when the marker matches', async () => {
       paths,
       tempDir,
       requirements: [],
+      importPaths: [paths.servicesDir],
       run: fakeRun().run,
       target,
       fetchImpl: zipResponse,
@@ -179,6 +184,7 @@ test('force rebuilds even when the marker matches', async () => {
       paths,
       tempDir,
       requirements: [],
+      importPaths: [paths.servicesDir],
       run: forced.run,
       target,
       force: true,
@@ -197,6 +203,7 @@ test('drops the marker before rebuilding, so a killed run cannot look ready', as
       paths,
       tempDir,
       requirements: [],
+      importPaths: [paths.servicesDir],
       run: fakeRun().run,
       target,
       fetchImpl: zipResponse,
@@ -216,6 +223,7 @@ test('drops the marker before rebuilding, so a killed run cannot look ready', as
         paths,
         tempDir,
         requirements: [],
+        importPaths: [paths.servicesDir],
         run,
         target,
         force: true,
@@ -228,7 +236,7 @@ test('drops the marker before rebuilding, so a killed run cannot look ready', as
       await isReady(backend, {
         uv: UV_VERSION,
         python: PYTHON_VERSION,
-        services: resolve(paths.servicesDir),
+        imports: resolve(paths.servicesDir),
         requirements: '',
       }),
       false,
@@ -245,6 +253,7 @@ test('leaves no marker when a step fails', async () => {
         paths,
         tempDir,
         requirements: ['av'],
+        importPaths: [paths.servicesDir],
         run,
         target,
         fetchImpl: zipResponse,
@@ -259,12 +268,13 @@ test('leaves no marker when a step fails', async () => {
   });
 });
 
-test('re-provisions when the services directory moved', async () => {
+test('re-provisions when the import list moved', async () => {
   await withPaths(async (paths, tempDir) => {
     await provision({
       paths,
       tempDir,
       requirements: [],
+      importPaths: [paths.servicesDir],
       run: fakeRun().run,
       target,
       fetchImpl: zipResponse,
@@ -281,6 +291,7 @@ test('re-provisions when the services directory moved', async () => {
       paths: moved,
       tempDir,
       requirements: [],
+      importPaths: [moved.servicesDir],
       run: second.run,
       target,
       fetchImpl: zipResponse,

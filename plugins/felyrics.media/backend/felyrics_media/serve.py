@@ -2,7 +2,7 @@
 
 `probe` answers "what is in this file"; `decode` answers "give me those samples
 as a file I can play". Two methods rather than one `format` parameter, because a
-result that is sometimes a path and sometimes bytes is a union every client has
+result that is sometimes a URL and sometimes bytes is a union every client has
 to decode anyway -- and choosing the container is the backend's job, not the
 caller's.
 
@@ -18,7 +18,7 @@ import shutil
 from pathlib import Path
 from typing import Any
 
-from felyrics_host.ctx import BackendContext
+from felyrics_host.ctx import KIND_FILE, BackendContext
 from felyrics_host.errors import ServiceError
 
 from . import audio, image, video
@@ -65,9 +65,9 @@ def decode(params: dict[str, Any]) -> dict[str, Any]:
         shutil.rmtree(directory, ignore_errors=True)
         raise
 
-    _keep_only(directory)
+    _keep_only(directory, "audio")
     return {
-        "path": str(target),
+        "url": _context.jobUrl(directory, "audio.flac"),
         "sample_rate": decoded.sample_rate,
         "layout": decoded.layout,
         "channels": decoded.channels,
@@ -142,7 +142,7 @@ def video_frames(params: dict[str, Any]) -> dict[str, Any]:
                     "index": index,
                     "requested": shot.requested,
                     "at": shot.at,
-                    "path": str(target),
+                    "url": _context.jobUrl(directory, target.name),
                 }
             )
     except BaseException:
@@ -151,10 +151,10 @@ def video_frames(params: dict[str, Any]) -> dict[str, Any]:
         raise
 
     if directory is not None:
-        _keep_only(directory)
+        _keep_only(directory, "frames")
 
     return {
-        "dir": str(directory) if directory is not None else "",
+        "dir": _context.jobUrl(directory, "") if directory is not None else "",
         "width": image_width,
         "height": image_height,
         "fps": info.fps,
@@ -255,8 +255,8 @@ def _frame_width(params: dict[str, Any]) -> int | None:
 def _new_job(kind: str) -> Path:
     """Creates an empty job directory through the host's allocator.
 
-    The host owns the layout (`<cache>/jobs/<kind>/<job>` today); the plugin only
-    names the kind. Cleanup happens in `_keep_only` once a result is complete.
+    The host owns the layout (`<cache>/jobs/<job>` today); the plugin only names
+    the kind. Cleanup happens in `_keep_only` once a result is complete.
     """
 
     if _context is None:
@@ -265,13 +265,24 @@ def _new_job(kind: str) -> Path:
     return _context.new_job(kind)
 
 
-def _keep_only(keep: Path) -> None:
+def _keep_only(keep: Path, kind: str) -> None:
     """Drops every earlier job directory of this kind, once `keep` is complete.
 
-    Cleanup is best effort on purpose: on Windows the previous file can still be
-    open in the renderer, and losing a leak is cheaper than failing a request.
+    Job directories are flat, so the kind comes from the marker the host writes
+    into each one; the audio and the stills jobs therefore cannot delete each
+    other. Cleanup is best effort on purpose: on Windows the previous file can
+    still be open in the renderer, and losing a leak is cheaper than failing a
+    request.
     """
 
     for old in keep.parent.iterdir():
-        if old != keep:
+        if old == keep or not old.is_dir():
+            continue
+
+        try:
+            previous = (old / KIND_FILE).read_text(encoding="utf-8")
+        except OSError:
+            continue
+
+        if previous == kind:
             shutil.rmtree(old, ignore_errors=True)

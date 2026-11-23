@@ -15,7 +15,7 @@ import {
 const MARKER = {
   uv: '0.13.8',
   python: '3.12.15',
-  services: 'C:\\app\\services',
+  imports: 'C:\\app\\services',
   requirements: 'av==19.0.2\nnumpy==2.5.5',
 };
 
@@ -69,16 +69,16 @@ test('rejects a different uv version', async () => {
   });
 });
 
-test('rejects a different services directory', async () => {
+test('rejects a different import list', async () => {
   await withBackend(async (paths) => {
     await writeReadyMarker(paths, {
       ...MARKER,
-      services: 'D:\\other\\services',
+      imports: 'D:\\other\\services',
     });
 
     assert.equal(await isReady(paths, MARKER), false);
     assert.equal(
-      markerMatches({ ...MARKER, services: 'D:\\other\\services' }, MARKER),
+      markerMatches({ ...MARKER, imports: 'D:\\other\\services' }, MARKER),
       false,
     );
   });

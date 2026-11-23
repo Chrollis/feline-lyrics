@@ -1,9 +1,11 @@
 import { app } from 'electron';
 import { existsSync } from 'node:fs';
+import { join } from 'node:path';
 
 import {
   resolveHostPaths,
   startService,
+  type HostPaths,
   type ServiceClient,
 } from '@felyrics/host';
 import {
@@ -12,22 +14,26 @@ import {
   type ToolchainPaths,
 } from '@felyrics/toolchain';
 
+function hostPaths(): HostPaths {
+  return resolveHostPaths({
+    packaged: app.isPackaged,
+    appPath: app.getAppPath(),
+    resourcesPath: process.resourcesPath,
+    userData: app.getPath('userData'),
+  });
+}
+
 /**
  * Where the three directories live for this process. Development points at the
  * repository so the CLI and the app see the same backend; a packaged app keeps
  * its writable state under userData. Both are defaults: the settings surface is
  * meant to override them later.
  *
- * Exported because the `app://media` handler has to serve exactly the directory
+ * Exported because the `app://job` handler has to serve exactly the directory
  * the backend was started with, and a second copy of these rules would drift.
  */
 export function resolvePaths(): ToolchainPaths {
-  const host = resolveHostPaths({
-    packaged: app.isPackaged,
-    appPath: app.getAppPath(),
-    resourcesPath: process.resourcesPath,
-    userData: app.getPath('userData'),
-  });
+  const host = hostPaths();
 
   return {
     cacheDir: host.cacheDir,
@@ -40,8 +46,8 @@ let client: ServiceClient | null = null;
 let launching: Promise<ServiceClient> | null = null;
 
 async function launch(): Promise<ServiceClient> {
-  const paths = resolvePaths();
-  const backend = backendPaths(paths.backendRoot);
+  const host = hostPaths();
+  const backend = backendPaths(host.backendRoot);
 
   if (!existsSync(backend.venvPython)) {
     throw new ToolchainError(
@@ -53,8 +59,17 @@ async function launch(): Promise<ServiceClient> {
 
   return startService({
     pythonExe: backend.venvPython,
-    args: ['-m', 'felyrics', '--cache', paths.cacheDir],
-    cwd: paths.servicesDir,
+    args: [
+      '-m',
+      'felyrics_host',
+      '--cache',
+      host.cacheDir,
+      '--plugin',
+      'felyrics.media',
+      '--plugin-dir',
+      join(host.builtinPluginsRoot, 'felyrics.media'),
+    ],
+    cwd: host.backendRoot,
     onStderr: (line) => {
       console.error('[backend]', line);
     },

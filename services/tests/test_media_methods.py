@@ -13,7 +13,7 @@ from unittest import mock
 from felyrics import runtime
 from felyrics.media import methods  # noqa: F401  (import registers the methods)
 from felyrics.media.audio import probe
-from support import call, write_flac
+from support import call, job_dirs, job_file, write_flac
 
 
 class MediaMethodsTest(unittest.TestCase):
@@ -44,11 +44,11 @@ class MediaMethodsTest(unittest.TestCase):
         )
 
         result = response["result"]
-        target = Path(result["path"])
+        target = job_file(self.cache, result["url"])
 
         self.assertTrue(target.is_file())
         self.assertEqual(target.read_bytes()[:4], b"fLaC")
-        self.assertEqual(target.parent.parent, self.cache / "jobs" / "audio")
+        self.assertEqual(target.parent.parent, self.cache / "jobs")
         self.assertEqual(target.name, "audio.flac")
         self.assertEqual(result["sample_rate"], 16000)
         self.assertEqual(result["layout"], "mono")
@@ -61,27 +61,29 @@ class MediaMethodsTest(unittest.TestCase):
         self.assertEqual(written.layout, "mono")
 
     def test_two_decodes_do_not_share_a_directory(self):
-        first = Path(call("media/decode", {"path": str(self.source)})["result"]["path"])
-        second = Path(
-            call("media/decode", {"path": str(self.source)})["result"]["path"]
+        first = job_file(self.cache, call("media/decode", {"path": str(self.source)})["result"]["url"])
+        second = job_file(
+            self.cache,
+            call("media/decode", {"path": str(self.source)})["result"]["url"],
         )
 
         self.assertNotEqual(first.parent, second.parent)
 
     def test_a_decode_drops_the_previous_job_directory(self):
-        first = Path(call("media/decode", {"path": str(self.source)})["result"]["path"])
-        second = Path(
-            call("media/decode", {"path": str(self.source)})["result"]["path"]
+        first = job_file(self.cache, call("media/decode", {"path": str(self.source)})["result"]["url"])
+        second = job_file(
+            self.cache,
+            call("media/decode", {"path": str(self.source)})["result"]["url"],
         )
 
         self.assertFalse(first.parent.exists())
         self.assertTrue(second.parent.is_dir())
-        self.assertEqual(len(list((self.cache / "jobs" / "audio").iterdir())), 1)
+        self.assertEqual(len(job_dirs(self.cache, "audio")), 1)
 
     def test_a_failed_write_keeps_the_previous_job_directory(self):
         # The old file is dropped only once the new one is complete: a save that
         # dies halfway must not take the audio the player is using with it.
-        first = Path(call("media/decode", {"path": str(self.source)})["result"]["path"])
+        first = job_file(self.cache, call("media/decode", {"path": str(self.source)})["result"]["url"])
 
         with mock.patch.object(
             methods.audio, "save", side_effect=RuntimeError("disk full")
@@ -90,7 +92,7 @@ class MediaMethodsTest(unittest.TestCase):
 
         self.assertEqual(response["error"]["code"], "internal/error")
         self.assertTrue(first.is_file())
-        self.assertEqual(len(list((self.cache / "jobs" / "audio").iterdir())), 1)
+        self.assertEqual(len(job_dirs(self.cache, "audio")), 1)
 
     def test_a_missing_path_parameter_is_a_protocol_error(self):
         response = call("media/probe", {})

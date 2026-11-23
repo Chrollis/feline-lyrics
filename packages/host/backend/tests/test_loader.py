@@ -248,7 +248,7 @@ class LoaderTest(unittest.TestCase):
 
     def test_registration_after_freeze_is_refused(self):
         registry = Registry("fixtures.echo")
-        context = BackendContext("fixtures.echo", 1, registry)
+        context = BackendContext("fixtures.echo", 1, (), registry)
         context.method("echo", lambda params: params)
         registry.freeze()
 
@@ -259,7 +259,7 @@ class LoaderTest(unittest.TestCase):
 
     def test_a_duplicate_registration_is_refused(self):
         registry = Registry("fixtures.echo")
-        context = BackendContext("fixtures.echo", 1, registry)
+        context = BackendContext("fixtures.echo", 1, (), registry)
         context.method("echo", lambda params: params)
 
         with self.assertRaises(PluginError) as caught:
@@ -269,7 +269,7 @@ class LoaderTest(unittest.TestCase):
 
     def test_context_exposes_identity_and_api(self):
         registry = Registry("fixtures.echo")
-        context = BackendContext("fixtures.echo", 1, registry)
+        context = BackendContext("fixtures.echo", 1, (), registry)
 
         self.assertEqual(context.plugin_id, "fixtures.echo")
         self.assertEqual(context.api, 1)

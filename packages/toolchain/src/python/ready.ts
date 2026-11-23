@@ -11,8 +11,8 @@ import type { BackendPaths } from '../layout/paths.js';
 export interface ReadyMarker {
   readonly uv: string;
   readonly python: string;
-  /** The services directory the .pth points at, as an absolute path. */
-  readonly services: string;
+  /** The directories the `.pth` points at, one absolute path per line. */
+  readonly imports: string;
   /**
    * The requirement lines the venv was built from. Editing requirements.txt
    * must invalidate the marker, or `--setup` would keep short-circuiting while
@@ -31,7 +31,7 @@ function isReadyMarker(value: unknown): value is ReadyMarker {
   return (
     typeof record.uv === 'string' &&
     typeof record.python === 'string' &&
-    typeof record.services === 'string' &&
+    typeof record.imports === 'string' &&
     typeof record.requirements === 'string'
   );
 }
@@ -64,7 +64,7 @@ export function markerMatches(
     marker !== null &&
     marker.uv === expected.uv &&
     marker.python === expected.python &&
-    marker.services === expected.services &&
+    marker.imports === expected.imports &&
     marker.requirements === expected.requirements
   );
 }

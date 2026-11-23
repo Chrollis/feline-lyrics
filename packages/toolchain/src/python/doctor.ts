@@ -39,6 +39,11 @@ export interface DoctorOptions {
   readonly run?: RunBinary;
   /** Defaults to `services/requirements.txt`; tests pass a list instead. */
   readonly requirements?: readonly string[];
+  /**
+   * Directories the `.pth` must name. Defaults to `servicesDir`, where the
+   * backend sources lived before the host/plugin split.
+   */
+  readonly importPaths?: readonly string[];
 }
 
 function runBinary(file: string, args: readonly string[]): BinaryRun {
@@ -151,7 +156,7 @@ function checkImport(backend: BackendPaths, run: RunBinary): DoctorCheck {
     };
   }
 
-  const result = run(backend.venvPython, ['-c', 'import felyrics.__main__']);
+  const result = run(backend.venvPython, ['-c', 'import felyrics_host.__main__']);
 
   if (result.error || result.status !== 0) {
     return {
@@ -161,7 +166,7 @@ function checkImport(backend: BackendPaths, run: RunBinary): DoctorCheck {
     };
   }
 
-  return { label: 'import', ok: true, detail: 'felyrics.__main__' };
+  return { label: 'import', ok: true, detail: 'felyrics_host.__main__' };
 }
 
 /**
@@ -175,7 +180,9 @@ export async function doctor(
   options: DoctorOptions = {},
 ): Promise<DoctorReport> {
   const backend = backendPaths(toolchain.backendRoot);
-  const services = resolve(toolchain.servicesDir);
+  const imports = (options.importPaths ?? [toolchain.servicesDir]).map(
+    (directory) => resolve(directory),
+  );
   const run = options.run ?? runBinary;
   const checks: DoctorCheck[] = [];
   let requirements: readonly string[] = [];
@@ -211,14 +218,22 @@ export async function doctor(
 
   if (!existsSync(pth)) {
     checks.push({ label: 'pth', ok: false, detail: `missing ${pth}` });
-  } else if (!readFileSync(pth, 'utf8').includes(services)) {
-    checks.push({
-      label: 'pth',
-      ok: false,
-      detail: `does not mention ${services}`,
-    });
   } else {
-    checks.push({ label: 'pth', ok: true, detail: services });
+    const lines = readFileSync(pth, 'utf8')
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter((line) => line.length > 0);
+    const missing = imports.filter((directory) => !lines.includes(directory));
+
+    if (missing.length > 0) {
+      checks.push({
+        label: 'pth',
+        ok: false,
+        detail: `does not mention ${missing.join(', ')}`,
+      });
+    } else {
+      checks.push({ label: 'pth', ok: true, detail: imports.join(', ') });
+    }
   }
 
   checks.push(checkImport(backend, run));
@@ -227,7 +242,7 @@ export async function doctor(
   const matches = await isReady(backend, {
     uv: UV_VERSION,
     python: PYTHON_VERSION,
-    services,
+    imports: imports.join('\n'),
     requirements: requirementsFingerprint(requirements),
   });
 

@@ -5,9 +5,9 @@ import {
   APP_SCHEME,
   CONTENT_SECURITY_POLICY,
   contentTypeFor,
-  MEDIA_HOST,
+  JOB_HOST,
   resolveAssetPath,
-  resolveMediaPath,
+  resolveJobPath,
 } from './app-assets.js';
 
 /**
@@ -41,13 +41,13 @@ export function registerAppScheme(): void {
 export interface AppRoots {
   /** The built renderer; served as `app://bundle/`. */
   readonly rendererRoot: string;
-  /** The backend's job directories; served as `app://media/`. */
+  /** The host's job directories; served as `app://job/`. */
   readonly jobsRoot: string;
 }
 
 /**
  * Serve both roots over the `app` scheme: `app://bundle/` for the page and its
- * assets, `app://media/<kind>/<job>/<file>` for the files the backend produces.
+ * assets, `app://job/<job>/<file>` for the files the host allocates.
  *
  * The file is read here and handed back with an explicit `Content-Type` plus the
  * policy header. Letting `net.fetch(file://...)` do it would be shorter, but a
@@ -65,8 +65,8 @@ export function serveAppProtocol(roots: AppRoots): void {
     }
 
     const file =
-      host === MEDIA_HOST
-        ? resolveMediaPath(roots.jobsRoot, request.url)
+      host === JOB_HOST
+        ? resolveJobPath(roots.jobsRoot, request.url)
         : resolveAssetPath(roots.rendererRoot, request.url);
 
     if (file === null) {

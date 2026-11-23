@@ -18,6 +18,15 @@ const paths = {
   backendRoot: join(root, 'python'),
 };
 
+// The host and the Python half of every built-in plugin share one venv. The
+// toolchain cannot guess these: the checkout is the only thing that knows where
+// the packages live.
+const hostBackend = join(root, 'packages', 'host', 'backend');
+const mediaBackend = join(root, 'plugins', 'felyrics.media', 'backend');
+// `services` is the compatibility shell around the plugin's Python half; it
+// leaves the import path together with the directory, in the next change.
+const importPaths = [hostBackend, mediaBackend, paths.servicesDir];
+
 function fail(message) {
   console.error(message);
   process.exit(1);
@@ -44,7 +53,8 @@ async function setup(toolchain) {
     toolchain.provision({
       paths,
       tempDir,
-      requirements: toolchain.readRequirements(paths.servicesDir),
+      requirements: toolchain.readRequirements(mediaBackend),
+      importPaths,
       onOutput: (chunk, stream) => {
         (stream === 'stdout' ? process.stdout : process.stderr).write(chunk);
       },
@@ -52,11 +62,14 @@ async function setup(toolchain) {
   );
 
   console.log(`ready: uv ${marker.uv}, python ${marker.python}`);
-  console.log(`services: ${marker.services}`);
+  console.log(`imports: ${marker.imports.split('\n').join(', ')}`);
 }
 
 async function doctor(toolchain) {
-  const report = await toolchain.doctor(paths);
+  const report = await toolchain.doctor(paths, {
+    requirements: toolchain.readRequirements(mediaBackend),
+    importPaths,
+  });
 
   for (const check of report.checks) {
     console.log(

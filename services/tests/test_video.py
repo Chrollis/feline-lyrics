@@ -13,7 +13,7 @@ import numpy as np
 from felyrics import runtime
 from felyrics.errors import ServiceError
 from felyrics.media import methods, video  # noqa: F401  (import registers methods)
-from support import call, write_flac, write_video
+from support import call, job_dirs, job_file, write_flac, write_video
 
 
 class VideoTest(unittest.TestCase):
@@ -92,10 +92,15 @@ class VideoTest(unittest.TestCase):
 
         self.assertEqual(len(result["frames"]), 2)
         self.assertEqual((result["width"], result["height"]), (64, 48))
-        self.assertEqual(Path(result["dir"]).parent, self.cache / "jobs" / "frames")
+        self.assertTrue(result["dir"].startswith("app://job/"))
+        self.assertTrue(result["dir"].endswith("/"))
+
+        directory = job_file(self.cache, result["dir"] + "x").parent
+
+        self.assertEqual(directory, job_dirs(self.cache, "frames")[0])
 
         for entry in result["frames"]:
-            written = Path(entry["path"])
+            written = job_file(self.cache, entry["url"])
 
             self.assertTrue(written.is_file())
             self.assertEqual(written.read_bytes()[:8], b"\x89PNG\r\n\x1a\n")
@@ -107,7 +112,7 @@ class VideoTest(unittest.TestCase):
 
         def dying(*args, **kwargs):
             yield video.Frame(requested=0.0, at=0.0, pixels=np.zeros((4, 6, 3), np.uint8))
-            on_disk.extend(sorted((self.cache / "jobs" / "frames").rglob("*.png")))
+            on_disk.extend(sorted(job_dirs(self.cache, "frames")[0].rglob("*.png")))
             raise RuntimeError("the decoder died")
 
         with mock.patch.object(methods.video, "frames", dying):
@@ -120,7 +125,7 @@ class VideoTest(unittest.TestCase):
         # A request that dies halfway is a request whose paths nobody received,
         # so the batch it was going to replace must still be on disk.
         call("video/frames", {"path": str(self.clip), "step": 0.1, "count": 2})
-        before = sorted((self.cache / "jobs" / "frames").rglob("*.png"))
+        before = sorted(job_dirs(self.cache, "frames")[0].rglob("*.png"))
 
         def dying(*args, **kwargs):
             yield video.Frame(requested=0.0, at=0.0, pixels=np.zeros((4, 6, 3), np.uint8))
@@ -130,14 +135,14 @@ class VideoTest(unittest.TestCase):
             response = call("video/frames", {"path": str(self.clip), "count": 3})
 
         self.assertEqual(response["error"]["code"], "felyrics.media/decode-failed")
-        self.assertEqual(sorted((self.cache / "jobs" / "frames").rglob("*.png")), before)
-        self.assertEqual(len(list((self.cache / "jobs" / "frames").iterdir())), 1)
+        self.assertEqual(sorted(job_dirs(self.cache, "frames")[0].rglob("*.png")), before)
+        self.assertEqual(len(job_dirs(self.cache, "frames")), 1)
 
     def test_an_empty_frame_request_keeps_the_previous_stills(self):
         # `start` past the end of the clip asks for nothing; it must not wipe the
         # stills the timeline is showing, and it has no directory to hand back.
         call("video/frames", {"path": str(self.clip), "step": 0.1, "count": 2})
-        before = sorted((self.cache / "jobs" / "frames").rglob("*.png"))
+        before = sorted(job_dirs(self.cache, "frames")[0].rglob("*.png"))
 
         result = call(
             "video/frames", {"path": str(self.clip), "start": 5.0, "count": 2}
@@ -145,17 +150,17 @@ class VideoTest(unittest.TestCase):
 
         self.assertEqual(result["frames"], [])
         self.assertEqual(result["dir"], "")
-        self.assertEqual(sorted((self.cache / "jobs" / "frames").rglob("*.png")), before)
+        self.assertEqual(sorted(job_dirs(self.cache, "frames")[0].rglob("*.png")), before)
 
     def test_a_frame_request_keeps_the_decoded_audio(self):
         # The renderer can still be playing the decoded audio while the timeline
         # asks for thumbnails, so each kind of result clears only its own bucket.
-        audio = Path(call("media/decode", {"path": str(self.song)})["result"]["path"])
+        audio = job_file(self.cache, call("media/decode", {"path": str(self.song)})["result"]["url"])
         call("video/frames", {"path": str(self.clip), "count": 1})
 
         self.assertTrue(audio.is_file())
-        self.assertEqual(len(list((self.cache / "jobs" / "audio").iterdir())), 1)
-        self.assertEqual(len(list((self.cache / "jobs" / "frames").iterdir())), 1)
+        self.assertEqual(len(job_dirs(self.cache, "audio")), 1)
+        self.assertEqual(len(job_dirs(self.cache, "frames")), 1)
 
     def test_frames_method_rejects_a_count_over_the_cap(self):
         response = call(

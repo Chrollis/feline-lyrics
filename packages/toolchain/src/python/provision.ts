@@ -26,11 +26,17 @@ export interface ProvisionOptions {
   /** Scratch directory for uv; the caller creates and removes it. */
   readonly tempDir: string;
   /**
-   * Exact requirement strings, already read from the services manifest. They are
+   * Exact requirement strings, already read from the plugin manifests. They are
    * required, not optional: an omitted list silently means "no dependencies",
    * which builds a venv whose only symptom is a failing `import av` in --doctor.
    */
   readonly requirements: readonly string[];
+  /**
+   * Directories written into the venv's `.pth`: the host backend and the Python
+   * half of every plugin provisioned into this venv. The toolchain cannot derive
+   * them -- the caller knows where its checkouts live.
+   */
+  readonly importPaths: readonly string[];
   /** Rebuild even when the marker says the backend is ready. */
   readonly force?: boolean;
   readonly fetchImpl?: typeof fetch;
@@ -56,10 +62,11 @@ export async function provision(
 ): Promise<ReadyMarker> {
   const backend = backendPaths(options.paths.backendRoot);
   const requirements = options.requirements;
+  const imports = options.importPaths.map((directory) => resolve(directory));
   const marker: ReadyMarker = {
     uv: UV_VERSION,
     python: PYTHON_VERSION,
-    services: resolve(options.paths.servicesDir),
+    imports: imports.join('\n'),
     requirements: requirementsFingerprint(requirements),
   };
 
@@ -87,7 +94,7 @@ export async function provision(
   });
   await installPython(ctx);
   await createVenv(ctx);
-  writePth(options.paths, backend);
+  writePth(backend, options.importPaths);
   await installPackages(ctx, requirements);
   await writeReadyMarker(backend, marker);
 

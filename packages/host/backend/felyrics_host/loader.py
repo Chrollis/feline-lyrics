@@ -158,7 +158,14 @@ def _call_serve(manifest: PluginManifest, registry: Registry) -> None:
         )
 
     try:
-        serve(BackendContext(manifest.id, manifest.api, registry))
+        serve(
+            BackendContext(
+                manifest.id,
+                manifest.api,
+                manifest.jobs,
+                registry,
+            )
+        )
     except PluginError:
         raise
     except Exception as error:

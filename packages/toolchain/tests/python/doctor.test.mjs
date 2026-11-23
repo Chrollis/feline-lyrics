@@ -40,7 +40,7 @@ async function withBackend(fn) {
   await writeReadyMarker(backend, {
     uv: UV_VERSION,
     python: PYTHON_VERSION,
-    services: resolve(toolchain.servicesDir),
+    imports: resolve(toolchain.servicesDir),
     requirements: 'av==19.0.2\nnumpy==2.5.5',
   });
 
@@ -169,7 +169,7 @@ test('catches a backend package that does not import', async () => {
   await withBackend(async (toolchain) => {
     const { run: base } = fakeRun();
     const run = (file, args) =>
-      args[1]?.includes('felyrics.__main__')
+      args[1]?.includes('felyrics_host.__main__')
         ? {
             status: 1,
             output: "ModuleNotFoundError: No module named 'does_not_exist'",
@@ -185,12 +185,12 @@ test('catches a backend package that does not import', async () => {
   });
 });
 
-test('fails when the marker records another services directory', async () => {
+test('fails when the marker records another import list', async () => {
   await withBackend(async (toolchain, backend) => {
     await writeReadyMarker(backend, {
       uv: UV_VERSION,
       python: PYTHON_VERSION,
-      services: 'C:\\elsewhere',
+      imports: 'C:\\elsewhere',
       requirements: 'av==19.0.2\nnumpy==2.5.5',
     });
 

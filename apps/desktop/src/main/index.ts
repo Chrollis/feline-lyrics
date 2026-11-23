@@ -9,11 +9,10 @@ import type {
   AudioInfo,
   DecodedAudio,
   FrameBatch,
-  FrameFile,
   IpcResult,
   VideoInfo,
 } from '../preload/api.js';
-import { APP_ENTRY_URL, mediaUrlFor } from './app-assets.js';
+import { APP_ENTRY_URL } from './app-assets.js';
 import { registerAppScheme, serveAppProtocol } from './app-protocol.js';
 import {
   callBackend,
@@ -30,17 +29,6 @@ const RENDERER_ROOT = join(import.meta.dirname, '../renderer');
 
 /** The backend's job directories, exactly as it was told at launch. */
 const JOBS_ROOT = join(resolvePaths().cacheDir, 'jobs');
-
-/**
- * The backend answers with paths; the page can only load URLs. Everything that
- * hands a file to the renderer goes through here, so no surface has to know how
- * a job directory becomes an origin.
- */
-type BackendAudio = Omit<DecodedAudio, 'url'>;
-
-type BackendFrames = Omit<FrameBatch, 'frames'> & {
-  readonly frames: readonly Omit<FrameFile, 'url'>[];
-};
 
 function createWindow(): void {
   const win = new BrowserWindow({
@@ -167,51 +155,49 @@ ipcMain.handle('ping', () => 'pong');
 ipcMain.handle('backend:ping', () => asResult(() => pingBackend()));
 
 // The path arrives as `unknown` on purpose: the backend validates it and answers
-// `protocol/invalid-request`, so there is no second, weaker parser here.
+// `felyrics.media/bad-request`, so there is no second, weaker parser here.
 ipcMain.handle('media:pick', () => asResult(() => pickFile('audio')));
 
 ipcMain.handle('media:probe', (_event, path: unknown) =>
   asResult(() =>
-    callBackend<AudioInfo>('media/probe', { path }, BACKEND_TIMEOUT_MS),
+    callBackend<AudioInfo>(
+      'felyrics.media/probe',
+      { path },
+      BACKEND_TIMEOUT_MS,
+    ),
   ),
 );
 
 ipcMain.handle('media:decode', (_event, request: Record<string, unknown>) =>
-  asResult(async () => {
-    const audio = await callBackend<BackendAudio>(
-      'media/decode',
+  asResult(() =>
+    callBackend<DecodedAudio>(
+      'felyrics.media/decode',
       request,
       BACKEND_TIMEOUT_MS,
-    );
-
-    return { ...audio, url: mediaUrlFor(JOBS_ROOT, audio.path) };
-  }),
+    ),
+  ),
 );
 
 ipcMain.handle('video:pick', () => asResult(() => pickFile('video')));
 
 ipcMain.handle('video:probe', (_event, path: unknown) =>
   asResult(() =>
-    callBackend<VideoInfo>('video/probe', { path }, BACKEND_TIMEOUT_MS),
+    callBackend<VideoInfo>(
+      'felyrics.media/video-probe',
+      { path },
+      BACKEND_TIMEOUT_MS,
+    ),
   ),
 );
 
 ipcMain.handle('video:frames', (_event, request: Record<string, unknown>) =>
-  asResult(async () => {
-    const batch = await callBackend<BackendFrames>(
-      'video/frames',
+  asResult(() =>
+    callBackend<FrameBatch>(
+      'felyrics.media/video-frames',
       request,
       FRAMES_TIMEOUT_MS,
-    );
-
-    return {
-      ...batch,
-      frames: batch.frames.map((frame) => ({
-        ...frame,
-        url: mediaUrlFor(JOBS_ROOT, frame.path),
-      })),
-    };
-  }),
+    ),
+  ),
 );
 
 /**

@@ -1,0 +1,5 @@
+# The media plugin's native dependencies: av (libav bindings) and the numpy
+# bridge it decodes into. The host provisions one venv per plugin group, so a
+# plugin's requirements live with the plugin, not with the application.
+av==19.0.2
+numpy==2.5.5

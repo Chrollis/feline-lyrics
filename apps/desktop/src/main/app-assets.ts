@@ -1,4 +1,4 @@
-import { extname, relative, resolve, sep } from 'node:path';
+import { extname, resolve, sep } from 'node:path';
 
 /**
  * The renderer is served from a real origin instead of `file://`.
@@ -24,19 +24,12 @@ export const APP_ENTRY_URL = `${APP_ORIGIN}/index.html`;
 /**
  * The backend writes its results into the cache, outside the bundle, so they
  * need an origin of their own. A second host on the same scheme keeps one
- * handler and one policy: `app://media/<kind>/<job>/<file>` can only reach a
- * job directory, and the page keeps its `'self'`.
+ * handler and one policy: `app://job/<job>/<file>` can only reach a file inside
+ * one job directory, and the page keeps its `'self'`.
  */
-export const MEDIA_HOST = 'media';
+export const JOB_HOST = 'job';
 
-export const MEDIA_ORIGIN = `${APP_SCHEME}://${MEDIA_HOST}`;
-
-/**
- * The backend keeps one bucket per kind of result, so the two halves of a
- * decode cannot delete each other (`services/felyrics/media/methods.py:52`,
- * `:127`). A kind that is not in this list has no directory to serve.
- */
-const JOB_KINDS: ReadonlySet<string> = new Set(['audio', 'frames']);
+export const JOB_ORIGIN = `${APP_SCHEME}://${JOB_HOST}`;
 
 /** Job directories are `uuid4().hex`, so this is exactly what may be served. */
 const JOB_ID = /^[0-9a-f]{32}$/;
@@ -137,15 +130,15 @@ export function resolveAssetPath(root: string, url: string): string | null {
 }
 
 /**
- * Map an `app://media/<kind>/<job>/<file>` URL to a file inside one job
- * directory, or `null` when it must not be served.
+ * Map an `app://job/<job>/<file>` URL to a file inside one job directory, or
+ * `null` when it must not be served.
  *
- * Exactly three segments are allowed -- a known kind, a job id, one file name --
- * because that is the shape the backend writes. The renderer never gets to name
- * a path, only a job and a file inside it. That keeps the media origin from
- * becoming a way to read the cache, or the disk.
+ * Exactly two segments are allowed -- a job id and one file name -- because that
+ * is the shape the backend writes. The renderer never gets to name a path, only
+ * a job and a file inside it. That keeps the job origin from becoming a way to
+ * read the cache, or the disk.
  */
-export function resolveMediaPath(jobsRoot: string, url: string): string | null {
+export function resolveJobPath(jobsRoot: string, url: string): string | null {
   let parsed: URL;
 
   try {
@@ -154,7 +147,7 @@ export function resolveMediaPath(jobsRoot: string, url: string): string | null {
     return null;
   }
 
-  if (parsed.protocol !== `${APP_SCHEME}:` || parsed.host !== MEDIA_HOST) {
+  if (parsed.protocol !== `${APP_SCHEME}:` || parsed.host !== JOB_HOST) {
     return null;
   }
 
@@ -171,17 +164,17 @@ export function resolveMediaPath(jobsRoot: string, url: string): string | null {
     .split('/')
     .filter((segment) => segment.length > 0 && segment !== '.');
 
-  if (segments.length !== 3) {
+  if (segments.length !== 2) {
     return null;
   }
 
-  const [kind, job, file] = segments as [string, string, string];
+  const [job, file] = segments as [string, string];
 
-  if (!JOB_KINDS.has(kind) || !JOB_ID.test(job) || file === '..') {
+  if (!JOB_ID.test(job) || file === '..') {
     return null;
   }
 
-  const target = resolve(jobsRoot, kind, job, file);
+  const target = resolve(jobsRoot, job, file);
   const base = resolve(jobsRoot);
 
   if (!target.startsWith(base + sep)) {
@@ -189,31 +182,4 @@ export function resolveMediaPath(jobsRoot: string, url: string): string | null {
   }
 
   return target;
-}
-
-/**
- * The inverse of `resolveMediaPath`: the URL a backend result is reachable at,
- * or `null` when the file is not inside a job directory (in which case the
- * renderer gets no URL instead of a guess).
- */
-export function mediaUrlFor(jobsRoot: string, file: string): string | null {
-  const target = relative(resolve(jobsRoot), resolve(file));
-
-  if (target.startsWith('..') || target.includes(':') || target === '') {
-    return null;
-  }
-
-  const segments = target.split(sep).filter((segment) => segment.length > 0);
-
-  if (segments.length !== 3) {
-    return null;
-  }
-
-  const [kind, job, name] = segments as [string, string, string];
-
-  if (!JOB_KINDS.has(kind) || !JOB_ID.test(job)) {
-    return null;
-  }
-
-  return `${MEDIA_ORIGIN}/${kind}/${job}/${encodeURIComponent(name)}`;
 }

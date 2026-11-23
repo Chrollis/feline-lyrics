@@ -89,7 +89,7 @@ export function App() {
             .then((result) => {
               setAudioLog(show(result));
               // The proof that the whole chain works: the page loads the file
-              // the backend wrote, over `app://media`, not from disk.
+              // the backend wrote, over `app://job`, not from disk.
               setAudioUrl(result.ok ? result.value.url : null);
             });
         }}

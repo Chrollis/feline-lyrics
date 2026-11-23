@@ -7,10 +7,9 @@ import {
   APP_ORIGIN,
   CONTENT_SECURITY_POLICY,
   contentTypeFor,
-  MEDIA_ORIGIN,
-  mediaUrlFor,
+  JOB_ORIGIN,
   resolveAssetPath,
-  resolveMediaPath,
+  resolveJobPath,
 } from '../src/main/app-assets.ts';
 
 const root = join(resolve('.'), 'out', 'renderer');
@@ -95,7 +94,7 @@ test('the policy allows no remote code and no inline code', () => {
   assert.match(CONTENT_SECURITY_POLICY, /style-src 'self'/);
   assert.match(CONTENT_SECURITY_POLICY, /object-src 'none'/);
   assert.doesNotMatch(CONTENT_SECURITY_POLICY, /unsafe-inline|unsafe-eval|\*/);
-  // The backend's PNGs live on `app://media`, so an `img` tag is blocked unless
+  // The backend's PNGs live on `app://job`, so an `img` tag is blocked unless
   // the scheme is named here. The audio tag was already covered by media-src.
   assert.match(CONTENT_SECURITY_POLICY, /img-src 'self' data: app:/);
 });
@@ -108,92 +107,47 @@ test('names the media type of what the backend writes', () => {
   assert.equal(contentTypeFor('unknown.bin'), 'application/octet-stream');
 });
 
-test('serves a job file on the media host and nothing else', () => {
-  // The shape the backend actually writes: one bucket per kind, then one job
-  // directory, then the file (`services/felyrics/media/methods.py:52`, `:127`).
+test('serves a job file on the job host and nothing else', () => {
+  // The shape the host actually writes: one job directory, then the file.
   assert.equal(
-    resolveMediaPath(jobsRoot, `${MEDIA_ORIGIN}/frames/${job}/0001.png`),
-    join(jobsRoot, 'frames', job, '0001.png'),
+    resolveJobPath(jobsRoot, `${JOB_ORIGIN}/${job}/0001.png`),
+    join(jobsRoot, job, '0001.png'),
   );
   assert.equal(
-    resolveMediaPath(jobsRoot, `${MEDIA_ORIGIN}/audio/${job}/audio.flac`),
-    join(jobsRoot, 'audio', job, 'audio.flac'),
+    resolveJobPath(jobsRoot, `${JOB_ORIGIN}/${job}/audio.flac`),
+    join(jobsRoot, job, 'audio.flac'),
   );
 });
 
-test('refuses anything that is not one kind, one job and one file', () => {
-  assert.equal(resolveMediaPath(jobsRoot, `${MEDIA_ORIGIN}/`), null);
-  assert.equal(resolveMediaPath(jobsRoot, `${MEDIA_ORIGIN}/frames`), null);
+test('refuses anything that is not one job and one file', () => {
+  assert.equal(resolveJobPath(jobsRoot, `${JOB_ORIGIN}/`), null);
+  assert.equal(resolveJobPath(jobsRoot, `${JOB_ORIGIN}/${job}`), null);
   assert.equal(
-    resolveMediaPath(jobsRoot, `${MEDIA_ORIGIN}/frames/${job}`),
+    resolveJobPath(jobsRoot, `${JOB_ORIGIN}/${job}/nested/0001.png`),
     null,
   );
   assert.equal(
-    resolveMediaPath(jobsRoot, `${MEDIA_ORIGIN}/frames/${job}/nested/0001.png`),
+    resolveJobPath(jobsRoot, `${JOB_ORIGIN}/not-a-job-id/0001.png`),
+    null,
+  );
+  // The old kind bucket is now a job id nobody wrote, not a directory to serve.
+  assert.equal(
+    resolveJobPath(jobsRoot, `${JOB_ORIGIN}/frames/${job}/0001.png`),
     null,
   );
   assert.equal(
-    resolveMediaPath(jobsRoot, `${MEDIA_ORIGIN}/frames/not-a-job-id/0001.png`),
+    resolveJobPath(jobsRoot, `${JOB_ORIGIN}/${job}/..%5csecret.txt`),
     null,
   );
-  // A kind with no bucket behind it would be a directory nobody wrote, and a
-  // free-form first segment is the start of a path traversal.
-  assert.equal(
-    resolveMediaPath(jobsRoot, `${MEDIA_ORIGIN}/video/${job}/0001.png`),
-    null,
-  );
-  assert.equal(
-    resolveMediaPath(jobsRoot, `${MEDIA_ORIGIN}/${job}/0001.png`),
-    null,
-  );
-  assert.equal(
-    resolveMediaPath(jobsRoot, `${MEDIA_ORIGIN}/frames/${job}/..%5csecret.txt`),
-    null,
-  );
-  assert.equal(
-    resolveMediaPath(jobsRoot, `${MEDIA_ORIGIN}/frames/${job}/%zz.png`),
-    null,
-  );
+  assert.equal(resolveJobPath(jobsRoot, `${JOB_ORIGIN}/${job}/%zz.png`), null);
 });
 
 test('keeps the two hosts apart', () => {
-  // The bundle host must not reach the cache, and the media host must not reach
+  // The bundle host must not reach the cache, and the job host must not reach
   // the bundle: an origin that serves both would undo the separation.
   assert.equal(
-    resolveAssetPath(root, `${MEDIA_ORIGIN}/frames/${job}/0001.png`),
+    resolveAssetPath(root, `${JOB_ORIGIN}/${job}/0001.png`),
     null,
   );
-  assert.equal(resolveMediaPath(jobsRoot, `${APP_ORIGIN}/index.html`), null);
-});
-
-test('turns a backend result into the url the page may load', () => {
-  assert.equal(
-    mediaUrlFor(jobsRoot, join(jobsRoot, 'frames', job, '0001.png')),
-    `${MEDIA_ORIGIN}/frames/${job}/0001.png`,
-  );
-  // Anything that is not one bucket, one job directory and one file inside it
-  // has no URL; the renderer gets `null` rather than a guess that would 404
-  // later -- a wrong guess is invisible, a `null` is not.
-  assert.equal(
-    mediaUrlFor(jobsRoot, join(jobsRoot, 'frames', job, 'deep', '0001.png')),
-    null,
-  );
-  assert.equal(
-    mediaUrlFor(jobsRoot, join(jobsRoot, 'elsewhere', job, 'x')),
-    null,
-  );
-  assert.equal(
-    mediaUrlFor(jobsRoot, join(jobsRoot, 'frames', 'not-a-job-id', 'x')),
-    null,
-  );
-  assert.equal(mediaUrlFor(jobsRoot, join(root, 'index.html')), null);
-  assert.equal(mediaUrlFor(jobsRoot, resolve('C:/Windows/win.ini')), null);
-});
-
-test('round-trips every url the bridge hands out', () => {
-  const file = join(jobsRoot, 'audio', job, 'frame 1.png');
-  const url = mediaUrlFor(jobsRoot, file);
-
-  assert.ok(url);
-  assert.equal(resolveMediaPath(jobsRoot, url), file);
+  assert.equal(resolveJobPath(jobsRoot, `${APP_ORIGIN}/index.html`), null);
 });

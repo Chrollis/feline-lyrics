@@ -7,10 +7,10 @@
  * only fails at runtime as "is not a function". Both sides import this file, so
  * the compiler sees one shape.
  *
- * The result types mirror what `services/felyrics/media/methods.py` returns. They
- * are declared here rather than derived from the toolchain because the toolchain
- * only sees `unknown`: the protocol is JSON, and the shape of an answer is the
- * contract between the backend and this bridge.
+ * The result types mirror what the media plugin returns. They are declared here
+ * rather than derived from the host because the host only sees `unknown`: the
+ * protocol is JSON, and the shape of an answer is the contract between the
+ * plugin and this bridge.
  */
 
 /** What a handler returns. A rejection would reach the renderer as a plain string. */
@@ -28,15 +28,13 @@ export interface AudioInfo {
 }
 
 /**
- * `media/decode`: the written file plus what it actually contains.
+ * `felyrics.media/decode`: the written file plus what it actually contains.
  *
- * `path` is where the file is on disk; `url` is where the page may load it from
- * (`app://media/<kind>/<job>/<file>`), and is `null` if the file somehow landed
- * outside a job directory. Only `url` is usable in an `img`/`audio`/`video` tag.
+ * `url` is where the page may load the file from (`app://job/<job>/audio.flac`);
+ * the host builds it, so no surface has to derive an origin from a path.
  */
 export interface DecodedAudio {
-  readonly path: string;
-  readonly url: string | null;
+  readonly url: string;
   readonly sample_rate: number;
   readonly layout: string;
   readonly channels: number;
@@ -44,7 +42,7 @@ export interface DecodedAudio {
   readonly duration: number;
 }
 
-/** `video/probe`: the video stream parameters, without decoding a frame. */
+/** `felyrics.media/video-probe`: the video stream parameters, without decoding a frame. */
 export interface VideoInfo {
   readonly width: number;
   readonly height: number;
@@ -53,15 +51,16 @@ export interface VideoInfo {
   readonly codec: string;
 }
 
-/** One still: where it is, what was asked for, and where it really sits. */
+/**
+ * One still: what was asked for, where it really sits, and where the page may
+ * load it from. The `url` is `app://job/<job>/<name>`; there is no second path
+ * the renderer could be tempted to use.
+ */
 export interface FrameFile {
   readonly index: number;
   readonly requested: number;
   readonly at: number;
-  /** Where the PNG is on disk. Not loadable from the page; use `url`. */
-  readonly path: string;
-  /** `app://media/<kind>/<job>/<file>`, or `null` when it is not in a job. */
-  readonly url: string | null;
+  readonly url: string;
 }
 
 /**

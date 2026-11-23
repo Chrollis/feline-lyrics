@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from urllib.parse import urlparse
 
 import av
 import numpy as np
@@ -19,6 +20,33 @@ def call(name, params=None, request_id=1):
         request["params"] = params
 
     return respond(json.dumps(request))
+
+
+def job_file(cache, url):
+    """Turns `app://job/<hex>/<name>` into the file on disk."""
+
+    parts = urlparse(url).path.strip("/").split("/")
+
+    if len(parts) != 2:
+        raise AssertionError(f"not a job url: {url}")
+
+    return cache / "jobs" / parts[0] / parts[1]
+
+
+def job_dirs(cache, kind):
+    """The flat job directories whose `.kind` marker names `kind`."""
+
+    root = cache / "jobs"
+
+    if not root.is_dir():
+        return []
+
+    return [
+        entry
+        for entry in root.iterdir()
+        if entry.is_dir()
+        and (entry / ".kind").read_text(encoding="utf-8") == kind
+    ]
 
 
 def write_flac(path, *, rate, layout, frames, value=1000):
