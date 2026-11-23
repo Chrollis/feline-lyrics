@@ -82,7 +82,7 @@ class VideoTest(unittest.TestCase):
         with self.assertRaises(ServiceError) as caught:
             video.probe(audio_only)
 
-        self.assertEqual(caught.exception.code, "media/no-video-stream")
+        self.assertEqual(caught.exception.code, "felyrics.media/no-video-stream")
 
     def test_frames_method_writes_one_png_per_still(self):
         response = call(
@@ -124,12 +124,12 @@ class VideoTest(unittest.TestCase):
 
         def dying(*args, **kwargs):
             yield video.Frame(requested=0.0, at=0.0, pixels=np.zeros((4, 6, 3), np.uint8))
-            raise ServiceError("media/decode-failed", "the decoder died")
+            raise ServiceError("felyrics.media/decode-failed", "the decoder died")
 
         with mock.patch.object(methods.video, "frames", dying):
             response = call("video/frames", {"path": str(self.clip), "count": 3})
 
-        self.assertEqual(response["error"]["code"], "media/decode-failed")
+        self.assertEqual(response["error"]["code"], "felyrics.media/decode-failed")
         self.assertEqual(sorted((self.cache / "jobs" / "frames").rglob("*.png")), before)
         self.assertEqual(len(list((self.cache / "jobs" / "frames").iterdir())), 1)
 
@@ -162,17 +162,17 @@ class VideoTest(unittest.TestCase):
             "video/frames", {"path": str(self.clip), "count": video.MAX_FRAMES + 1}
         )
 
-        self.assertEqual(response["error"]["code"], "protocol/invalid-request")
+        self.assertEqual(response["error"]["code"], "felyrics.media/bad-request")
 
     def test_frames_method_rejects_a_non_positive_step(self):
         response = call("video/frames", {"path": str(self.clip), "step": 0})
 
-        self.assertEqual(response["error"]["code"], "protocol/invalid-request")
+        self.assertEqual(response["error"]["code"], "felyrics.media/bad-request")
 
     def test_frames_method_rejects_a_width_outside_the_range(self):
         response = call("video/frames", {"path": str(self.clip), "width": 8})
 
-        self.assertEqual(response["error"]["code"], "protocol/invalid-request")
+        self.assertEqual(response["error"]["code"], "felyrics.media/bad-request")
 
     def test_frames_method_rejects_a_time_that_is_not_finite(self):
         # JSON has literals for NaN and Infinity, and `json.loads` accepts them.
@@ -186,7 +186,7 @@ class VideoTest(unittest.TestCase):
             with self.subTest(name=name, value=value):
                 response = call("video/frames", {"path": str(self.clip), name: value})
 
-                self.assertEqual(response["error"]["code"], "protocol/invalid-request")
+                self.assertEqual(response["error"]["code"], "felyrics.media/bad-request")
                 self.assertIn("finite", response["error"]["message"])
 
 

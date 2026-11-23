@@ -95,17 +95,17 @@ class MediaMethodsTest(unittest.TestCase):
     def test_a_missing_path_parameter_is_a_protocol_error(self):
         response = call("media/probe", {})
 
-        self.assertEqual(response["error"]["code"], "protocol/invalid-request")
+        self.assertEqual(response["error"]["code"], "felyrics.media/bad-request")
 
     def test_a_missing_file_is_a_media_error(self):
         response = call("media/probe", {"path": str(self.dir / "nope.flac")})
 
-        self.assertEqual(response["error"]["code"], "media/open-failed")
+        self.assertEqual(response["error"]["code"], "felyrics.media/open-failed")
 
     def test_a_rate_that_is_not_a_number_is_a_protocol_error(self):
         response = call("media/decode", {"path": str(self.source), "rate": "fast"})
 
-        self.assertEqual(response["error"]["code"], "protocol/invalid-request")
+        self.assertEqual(response["error"]["code"], "felyrics.media/bad-request")
 
 
 class EntryPointTest(unittest.TestCase):

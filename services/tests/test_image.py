@@ -35,7 +35,7 @@ class EncodePngTest(unittest.TestCase):
         with self.assertRaises(ServiceError) as caught:
             encode_png(pixels, width=5, height=4)
 
-        self.assertEqual(caught.exception.code, "media/unsupported-format")
+        self.assertEqual(caught.exception.code, "felyrics.media/unsupported-format")
 
     def test_rejects_a_dtype_that_is_not_uint8(self):
         pixels = np.zeros((4, 5, 3), dtype=np.float32)
@@ -43,7 +43,7 @@ class EncodePngTest(unittest.TestCase):
         with self.assertRaises(ServiceError) as caught:
             encode_png(pixels, width=5, height=4)
 
-        self.assertEqual(caught.exception.code, "media/unsupported-format")
+        self.assertEqual(caught.exception.code, "felyrics.media/unsupported-format")
 
 
 if __name__ == "__main__":

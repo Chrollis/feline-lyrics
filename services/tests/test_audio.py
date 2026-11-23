@@ -69,7 +69,7 @@ class AudioTest(unittest.TestCase):
         with self.assertRaises(ServiceError) as caught:
             decode(self.dir / "nope.flac")
 
-        self.assertEqual(caught.exception.code, "media/open-failed")
+        self.assertEqual(caught.exception.code, "felyrics.media/open-failed")
 
     def test_a_file_that_is_not_media_is_a_media_error(self):
         source = self.dir / "notes.txt"
@@ -78,7 +78,7 @@ class AudioTest(unittest.TestCase):
         with self.assertRaises(ServiceError) as caught:
             probe(source)
 
-        self.assertEqual(caught.exception.code, "media/open-failed")
+        self.assertEqual(caught.exception.code, "felyrics.media/open-failed")
 
     def test_an_unknown_layout_is_refused(self):
         source = self.dir / "music.flac"
@@ -87,7 +87,7 @@ class AudioTest(unittest.TestCase):
         with self.assertRaises(ServiceError) as caught:
             decode(source, layout="no-such-layout")
 
-        self.assertEqual(caught.exception.code, "media/unsupported-format")
+        self.assertEqual(caught.exception.code, "felyrics.media/unsupported-format")
 
 
 if __name__ == "__main__":

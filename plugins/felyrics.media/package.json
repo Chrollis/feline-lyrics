@@ -1,0 +1,63 @@
+{
+  "name": "@felyrics/media",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Media probe and decode methods for felyrics.",
+  "license": "MPL-2.0",
+  "author": "felyrics",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist"
+  ],
+  "felyrics": {
+    "api": 1,
+    "host": "renderer",
+    "backend": {
+      "python": "felyrics_media.serve:serve"
+    },
+    "engines": {
+      "python": ">=3.12"
+    },
+    "contributes": {
+      "methods": [
+        "probe",
+        "decode",
+        "video-probe",
+        "video-frames"
+      ],
+      "internal": [
+        "probe",
+        "decode",
+        "video-probe",
+        "video-frames"
+      ],
+      "jobs": [
+        "audio",
+        "frames"
+      ],
+      "errors": [
+        "bad-request",
+        "unknown-rate",
+        "unsupported-format",
+        "decode-failed",
+        "encode-failed",
+        "unknown-layout",
+        "no-audio-stream",
+        "no-video-stream",
+        "open-failed"
+      ]
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "clean": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\"",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "pretest": "npm run build",
+    "test": "node --test \"tests/**/*.test.mjs\""
+  },
+  "dependencies": {
+    "@felyrics/host": "*"
+  }
+}
