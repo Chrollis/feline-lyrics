@@ -52,14 +52,6 @@ export {
 } from './python/doctor.js';
 export { withTempDir } from './layout/temp.js';
 export {
-  BackendError,
-  DEFAULT_REQUEST_TIMEOUT_MS,
-  startService,
-  type ServiceClient,
-  type ServiceMessage,
-  type ServiceOptions,
-} from './python/service.js';
-export {
   extractZip,
   listEntries,
   openZip,

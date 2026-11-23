@@ -1,12 +1,14 @@
 import { app } from 'electron';
 import { existsSync } from 'node:fs';
-import { join, resolve } from 'node:path';
 
 import {
-  backendPaths,
+  resolveHostPaths,
   startService,
-  ToolchainError,
   type ServiceClient,
+} from '@felyrics/host';
+import {
+  backendPaths,
+  ToolchainError,
   type ToolchainPaths,
 } from '@felyrics/toolchain';
 
@@ -20,22 +22,17 @@ import {
  * the backend was started with, and a second copy of these rules would drift.
  */
 export function resolvePaths(): ToolchainPaths {
-  if (app.isPackaged) {
-    const userData = app.getPath('userData');
-
-    return {
-      cacheDir: join(userData, 'cache'),
-      backendRoot: join(userData, 'backend'),
-      servicesDir: join(process.resourcesPath, 'services'),
-    };
-  }
-
-  const repoRoot = resolve(app.getAppPath(), '..', '..');
+  const host = resolveHostPaths({
+    packaged: app.isPackaged,
+    appPath: app.getAppPath(),
+    resourcesPath: process.resourcesPath,
+    userData: app.getPath('userData'),
+  });
 
   return {
-    cacheDir: join(repoRoot, 'cache'),
-    backendRoot: join(repoRoot, 'python'),
-    servicesDir: join(repoRoot, 'services'),
+    cacheDir: host.cacheDir,
+    backendRoot: host.backendRoot,
+    servicesDir: host.servicesDir,
   };
 }
 

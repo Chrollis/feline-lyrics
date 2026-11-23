@@ -2,7 +2,8 @@ import { app, BrowserWindow, dialog, ipcMain } from 'electron';
 import type { OpenDialogOptions } from 'electron';
 import { join } from 'node:path';
 
-import { BackendError, ToolchainError } from '@felyrics/toolchain';
+import { BackendError } from '@felyrics/host';
+import { ToolchainError } from '@felyrics/toolchain';
 
 import type {
   AudioInfo,
