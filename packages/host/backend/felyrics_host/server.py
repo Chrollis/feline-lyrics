@@ -18,6 +18,12 @@ Handler = Callable[[dict[str, Any]], Any]
 
 METHODS: dict[str, Handler] = {}
 
+# Methods a loaded plugin registered. `METHODS` stays the host's own table and
+# the legacy decorator path the services shell still uses; the host never
+# writes into it on a plugin's behalf. The table is flat until the TypeScript
+# host routes per plugin, so a duplicate name is refused at load time.
+PLUGIN_METHODS: dict[str, Handler] = {}
+
 # Both sides state the version they speak, and each one answers in its own: an
 # implementation cannot reply in a format it does not know. The field is what
 # catches a backend process left running from an older checkout, which the files
@@ -51,7 +57,7 @@ def dispatch(request: Any) -> Any:
 
     if not isinstance(request, dict):
         raise ProtocolError(
-            "protocol/invalid-request", "request must be a JSON object"
+            "protocol/bad-request", "request must be a JSON object"
         )
 
     version = request.get("v")
@@ -82,26 +88,31 @@ def dispatch(request: Any) -> Any:
 
     if isinstance(request_id, bool) or not isinstance(request_id, int):
         raise ProtocolError(
-            "protocol/invalid-request", "request.id must be an integer"
+            "protocol/bad-request", "request.id must be an integer"
         )
 
     name = request.get("method")
 
     if not isinstance(name, str):
         raise ProtocolError(
-            "protocol/invalid-request", "request.method must be a string"
+            "protocol/bad-request", "request.method must be a string"
         )
 
-    handler = METHODS.get(name)
+    handler = PLUGIN_METHODS.get(name)
 
     if handler is None:
-        raise ProtocolError("method/not-found", f"no method named {name!r}")
+        handler = METHODS.get(name)
+
+    if handler is None:
+        raise ProtocolError(
+            "protocol/unknown-method", f"no method named {name!r}"
+        )
 
     params = request.get("params", {})
 
     if not isinstance(params, dict):
         raise ProtocolError(
-            "protocol/invalid-request", "request.params must be an object"
+            "protocol/bad-request", "request.params must be an object"
         )
 
     return handler(params)
@@ -130,7 +141,7 @@ def respond(line: str) -> dict[str, Any]:
             "v": PROTOCOL_VERSION,
             "id": None,
             "error": {
-                "code": "protocol/invalid-json",
+                "code": "protocol/bad-request",
                 "message": f"line is not JSON: {error}",
             },
         }

@@ -17,6 +17,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from felyrics_host.errors import ServiceError
 from felyrics_host.server import (
     METHODS,
+    PLUGIN_METHODS,
     PROTOCOL_VERSION,
     ProtocolError,
     respond,
@@ -43,24 +44,34 @@ class RespondTest(unittest.TestCase):
         response = parse("{not json")
 
         self.assertIsNone(response["id"])
-        self.assertEqual(response["error"]["code"], "protocol/invalid-json")
+        self.assertEqual(response["error"]["code"], "protocol/bad-request")
 
     def test_non_object_request_is_refused(self):
         response = parse("[1,2,3]")
 
-        self.assertEqual(response["error"]["code"], "protocol/invalid-request")
+        self.assertEqual(response["error"]["code"], "protocol/bad-request")
 
     def test_unknown_method_is_named(self):
         response = parse('{"v":1,"id":2,"method":"nope"}')
 
         self.assertEqual(response["id"], 2)
-        self.assertEqual(response["error"]["code"], "method/not-found")
+        self.assertEqual(response["error"]["code"], "protocol/unknown-method")
         self.assertIn("nope", response["error"]["message"])
 
     def test_params_must_be_an_object(self):
         response = parse('{"v":1,"id":3,"method":"ping","params":[1]}')
 
-        self.assertEqual(response["error"]["code"], "protocol/invalid-request")
+        self.assertEqual(response["error"]["code"], "protocol/bad-request")
+
+    def test_a_plugin_method_is_dispatched(self):
+        PLUGIN_METHODS["echo"] = lambda params: {"echo": params}
+
+        try:
+            response = parse('{"v":1,"id":6,"method":"echo","params":{"hi":1}}')
+        finally:
+            del PLUGIN_METHODS["echo"]
+
+        self.assertEqual(response["result"], {"echo": {"hi": 1}})
 
     def test_handler_crash_answers_without_dying(self):
         def boom(params):
@@ -146,7 +157,7 @@ class RespondTest(unittest.TestCase):
 
                 self.assertIsNone(response["id"])
                 self.assertEqual(
-                    response["error"]["code"], "protocol/invalid-request"
+                    response["error"]["code"], "protocol/bad-request"
                 )
                 self.assertIn("id", response["error"]["message"])
 
