@@ -32,7 +32,7 @@ async function withPaths(fn) {
   const root = mkdtempSync(join(tmpdir(), 'felyrics-provision-'));
   const paths = {
     cacheDir: join(root, 'cache'),
-    servicesDir: join(root, 'services'),
+    imports: join(root, 'imports'),
     backendRoot: join(root, 'backend'),
   };
   const tempDir = join(root, 'tmp');
@@ -83,7 +83,7 @@ test('provisions in the order that leaves the marker last', async () => {
       paths,
       tempDir,
       requirements: ['av==15.0.0'],
-      importPaths: [paths.servicesDir],
+      importPaths: [paths.imports],
       run,
       target,
       fetchImpl: zipResponse,
@@ -93,7 +93,7 @@ test('provisions in the order that leaves the marker last', async () => {
       calls.map((call) => call.args[0]),
       ['python', 'venv', 'pip'],
     );
-    assert.equal(marker.imports, resolve(paths.servicesDir));
+    assert.equal(marker.imports, resolve(paths.imports));
 
     const backend = backendPaths(paths.backendRoot);
 
@@ -105,7 +105,7 @@ test('provisions in the order that leaves the marker last', async () => {
     });
     assert.equal(
       readFileSync(join(backend.sitePackages, PTH_FILENAME), 'utf8'),
-      `${resolve(paths.servicesDir)}\n`,
+      `${resolve(paths.imports)}\n`,
     );
     assert.ok(existsSync(backend.uvExe));
   });
@@ -119,7 +119,7 @@ test('skips pip when nothing is declared', async () => {
       paths,
       tempDir,
       requirements: [],
-      importPaths: [paths.servicesDir],
+      importPaths: [paths.imports],
       run,
       target,
       fetchImpl: zipResponse,
@@ -140,7 +140,7 @@ test('does nothing when the marker already matches', async () => {
       paths,
       tempDir,
       requirements: [],
-      importPaths: [paths.servicesDir],
+      importPaths: [paths.imports],
       run: first.run,
       target,
       fetchImpl: zipResponse,
@@ -153,7 +153,7 @@ test('does nothing when the marker already matches', async () => {
       paths,
       tempDir,
       requirements: [],
-      importPaths: [paths.servicesDir],
+      importPaths: [paths.imports],
       run: second.run,
       target,
       fetchImpl: () => {
@@ -171,7 +171,7 @@ test('force rebuilds even when the marker matches', async () => {
       paths,
       tempDir,
       requirements: [],
-      importPaths: [paths.servicesDir],
+      importPaths: [paths.imports],
       run: fakeRun().run,
       target,
       fetchImpl: zipResponse,
@@ -184,7 +184,7 @@ test('force rebuilds even when the marker matches', async () => {
       paths,
       tempDir,
       requirements: [],
-      importPaths: [paths.servicesDir],
+      importPaths: [paths.imports],
       run: forced.run,
       target,
       force: true,
@@ -203,7 +203,7 @@ test('drops the marker before rebuilding, so a killed run cannot look ready', as
       paths,
       tempDir,
       requirements: [],
-      importPaths: [paths.servicesDir],
+      importPaths: [paths.imports],
       run: fakeRun().run,
       target,
       fetchImpl: zipResponse,
@@ -223,7 +223,7 @@ test('drops the marker before rebuilding, so a killed run cannot look ready', as
         paths,
         tempDir,
         requirements: [],
-        importPaths: [paths.servicesDir],
+        importPaths: [paths.imports],
         run,
         target,
         force: true,
@@ -236,7 +236,7 @@ test('drops the marker before rebuilding, so a killed run cannot look ready', as
       await isReady(backend, {
         uv: UV_VERSION,
         python: PYTHON_VERSION,
-        imports: resolve(paths.servicesDir),
+        imports: resolve(paths.imports),
         requirements: '',
       }),
       false,
@@ -253,7 +253,7 @@ test('leaves no marker when a step fails', async () => {
         paths,
         tempDir,
         requirements: ['av'],
-        importPaths: [paths.servicesDir],
+        importPaths: [paths.imports],
         run,
         target,
         fetchImpl: zipResponse,
@@ -274,7 +274,7 @@ test('re-provisions when the import list moved', async () => {
       paths,
       tempDir,
       requirements: [],
-      importPaths: [paths.servicesDir],
+      importPaths: [paths.imports],
       run: fakeRun().run,
       target,
       fetchImpl: zipResponse,
@@ -283,7 +283,7 @@ test('re-provisions when the import list moved', async () => {
 
     const moved = {
       ...paths,
-      servicesDir: join(paths.backendRoot, '..', 'services-elsewhere'),
+      imports: join(paths.backendRoot, '..', 'imports-elsewhere'),
     };
     const second = fakeRun();
 
@@ -291,7 +291,7 @@ test('re-provisions when the import list moved', async () => {
       paths: moved,
       tempDir,
       requirements: [],
-      importPaths: [moved.servicesDir],
+      importPaths: [moved.imports],
       run: second.run,
       target,
       fetchImpl: zipResponse,

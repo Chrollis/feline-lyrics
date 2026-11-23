@@ -69,7 +69,7 @@ class HostMainTest(unittest.TestCase):
         )
         return directory
 
-    def run_host(self, arguments, stdin, *, timeout=20):
+    def environment(self):
         environment = dict(os.environ)
         prior = environment.get("PYTHONPATH")
         environment["PYTHONPATH"] = (
@@ -77,6 +77,9 @@ class HostMainTest(unittest.TestCase):
         )
         environment["PYTHONDONTWRITEBYTECODE"] = "1"
 
+        return environment
+
+    def run_host(self, arguments, stdin, *, timeout=20):
         return subprocess.run(
             [
                 sys.executable,
@@ -90,8 +93,20 @@ class HostMainTest(unittest.TestCase):
             text=True,
             capture_output=True,
             timeout=timeout,
-            env=environment,
+            env=self.environment(),
         )
+
+    def test_the_cache_directory_is_required(self):
+        result = subprocess.run(
+            [sys.executable, "-m", "felyrics_host"],
+            input="",
+            text=True,
+            capture_output=True,
+            env=self.environment(),
+        )
+
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("--cache", result.stderr)
 
     def test_ping_and_protocol_errors_share_one_loop(self):
         result = self.run_host(

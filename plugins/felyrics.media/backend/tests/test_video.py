@@ -1,6 +1,6 @@
 """Tests for the video decoder and the two protocol methods on top of it.
 
-Run with: python -m unittest discover -s services/tests -v
+Run with: python -m unittest discover -s plugins/felyrics.media/backend/tests -v
 """
 
 import tempfile
@@ -10,10 +10,10 @@ from unittest import mock
 
 import numpy as np
 
-from felyrics import runtime
-from felyrics.errors import ServiceError
-from felyrics.media import methods, video  # noqa: F401  (import registers methods)
 from support import call, job_dirs, job_file, write_flac, write_video
+from felyrics_host import runtime
+from felyrics_host.errors import ServiceError
+from felyrics_media import video
 
 
 class VideoTest(unittest.TestCase):
@@ -86,7 +86,7 @@ class VideoTest(unittest.TestCase):
 
     def test_frames_method_writes_one_png_per_still(self):
         response = call(
-            "video/frames", {"path": str(self.clip), "step": 0.1, "count": 2}
+            "video-frames", {"path": str(self.clip), "step": 0.1, "count": 2}
         )
         result = response["result"]
 
@@ -115,8 +115,8 @@ class VideoTest(unittest.TestCase):
             on_disk.extend(sorted(job_dirs(self.cache, "frames")[0].rglob("*.png")))
             raise RuntimeError("the decoder died")
 
-        with mock.patch.object(methods.video, "frames", dying):
-            response = call("video/frames", {"path": str(self.clip), "count": 3})
+        with mock.patch.object(video, "frames", dying):
+            response = call("video-frames", {"path": str(self.clip), "count": 3})
 
         self.assertEqual(response["error"]["code"], "internal/error")
         self.assertEqual(len(on_disk), 1)
@@ -124,15 +124,15 @@ class VideoTest(unittest.TestCase):
     def test_a_failed_frame_request_keeps_the_previous_stills(self):
         # A request that dies halfway is a request whose paths nobody received,
         # so the batch it was going to replace must still be on disk.
-        call("video/frames", {"path": str(self.clip), "step": 0.1, "count": 2})
+        call("video-frames", {"path": str(self.clip), "step": 0.1, "count": 2})
         before = sorted(job_dirs(self.cache, "frames")[0].rglob("*.png"))
 
         def dying(*args, **kwargs):
             yield video.Frame(requested=0.0, at=0.0, pixels=np.zeros((4, 6, 3), np.uint8))
             raise ServiceError("felyrics.media/decode-failed", "the decoder died")
 
-        with mock.patch.object(methods.video, "frames", dying):
-            response = call("video/frames", {"path": str(self.clip), "count": 3})
+        with mock.patch.object(video, "frames", dying):
+            response = call("video-frames", {"path": str(self.clip), "count": 3})
 
         self.assertEqual(response["error"]["code"], "felyrics.media/decode-failed")
         self.assertEqual(sorted(job_dirs(self.cache, "frames")[0].rglob("*.png")), before)
@@ -141,11 +141,11 @@ class VideoTest(unittest.TestCase):
     def test_an_empty_frame_request_keeps_the_previous_stills(self):
         # `start` past the end of the clip asks for nothing; it must not wipe the
         # stills the timeline is showing, and it has no directory to hand back.
-        call("video/frames", {"path": str(self.clip), "step": 0.1, "count": 2})
+        call("video-frames", {"path": str(self.clip), "step": 0.1, "count": 2})
         before = sorted(job_dirs(self.cache, "frames")[0].rglob("*.png"))
 
         result = call(
-            "video/frames", {"path": str(self.clip), "start": 5.0, "count": 2}
+            "video-frames", {"path": str(self.clip), "start": 5.0, "count": 2}
         )["result"]
 
         self.assertEqual(result["frames"], [])
@@ -155,8 +155,8 @@ class VideoTest(unittest.TestCase):
     def test_a_frame_request_keeps_the_decoded_audio(self):
         # The renderer can still be playing the decoded audio while the timeline
         # asks for thumbnails, so each kind of result clears only its own bucket.
-        audio = job_file(self.cache, call("media/decode", {"path": str(self.song)})["result"]["url"])
-        call("video/frames", {"path": str(self.clip), "count": 1})
+        audio = job_file(self.cache, call("decode", {"path": str(self.song)})["result"]["url"])
+        call("video-frames", {"path": str(self.clip), "count": 1})
 
         self.assertTrue(audio.is_file())
         self.assertEqual(len(job_dirs(self.cache, "audio")), 1)
@@ -164,18 +164,18 @@ class VideoTest(unittest.TestCase):
 
     def test_frames_method_rejects_a_count_over_the_cap(self):
         response = call(
-            "video/frames", {"path": str(self.clip), "count": video.MAX_FRAMES + 1}
+            "video-frames", {"path": str(self.clip), "count": video.MAX_FRAMES + 1}
         )
 
         self.assertEqual(response["error"]["code"], "felyrics.media/bad-request")
 
     def test_frames_method_rejects_a_non_positive_step(self):
-        response = call("video/frames", {"path": str(self.clip), "step": 0})
+        response = call("video-frames", {"path": str(self.clip), "step": 0})
 
         self.assertEqual(response["error"]["code"], "felyrics.media/bad-request")
 
     def test_frames_method_rejects_a_width_outside_the_range(self):
-        response = call("video/frames", {"path": str(self.clip), "width": 8})
+        response = call("video-frames", {"path": str(self.clip), "width": 8})
 
         self.assertEqual(response["error"]["code"], "felyrics.media/bad-request")
 
@@ -189,7 +189,7 @@ class VideoTest(unittest.TestCase):
             ("step", float("inf")),
         ):
             with self.subTest(name=name, value=value):
-                response = call("video/frames", {"path": str(self.clip), name: value})
+                response = call("video-frames", {"path": str(self.clip), name: value})
 
                 self.assertEqual(response["error"]["code"], "felyrics.media/bad-request")
                 self.assertIn("finite", response["error"]["message"])

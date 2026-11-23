@@ -15,8 +15,6 @@ import {
 export interface ToolchainPaths {
   /** Downloaded archives and tool caches, shared by the whole application. */
   readonly cacheDir: string;
-  /** Read-only sources the backend runs from. */
-  readonly servicesDir: string;
   /** Where the Python backend lives: uv, the interpreter, the venv, the marker. */
   readonly backendRoot: string;
 }

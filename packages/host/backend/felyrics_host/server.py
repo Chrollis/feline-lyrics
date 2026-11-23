@@ -18,10 +18,9 @@ Handler = Callable[[dict[str, Any]], Any]
 
 METHODS: dict[str, Handler] = {}
 
-# Methods a loaded plugin registered. `METHODS` stays the host's own table and
-# the legacy decorator path the services shell still uses; the host never
-# writes into it on a plugin's behalf. The table is flat until the TypeScript
-# host routes per plugin, so a duplicate name is refused at load time.
+# Methods a loaded plugin registered. `METHODS` stays the host's own table; the
+# host never writes into it on a plugin's behalf. The table is flat until the
+# TypeScript host routes per plugin, so a duplicate name is refused at load time.
 PLUGIN_METHODS: dict[str, Handler] = {}
 
 # Both sides state the version they speak, and each one answers in its own: an

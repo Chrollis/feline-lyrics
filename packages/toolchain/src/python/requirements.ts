@@ -7,8 +7,8 @@ export const REQUIREMENTS_FILENAME = 'requirements.txt';
  * One requirement per line, exactly as pip reads it. Blank lines and comments
  * are dropped; everything else is kept verbatim, so a pin stays a pin.
  */
-export function readRequirements(servicesDir: string): string[] {
-  const file = join(servicesDir, REQUIREMENTS_FILENAME);
+export function readRequirements(directory: string): string[] {
+  const file = join(directory, REQUIREMENTS_FILENAME);
   const lines = readFileSync(file, 'utf8').split(/\r?\n/);
 
   return lines

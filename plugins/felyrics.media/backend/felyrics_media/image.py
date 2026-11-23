@@ -5,7 +5,7 @@ encoder is already installed, so this module does not pull in Pillow just for on
 format, and the pixels never leave numpy until they are encoded.
 
 This is the replacement for `encode_png` in the previous project's
-`services/felyrics/video.py:24-39`; the name changed because a single still image
+`felyrics_media/video.py:24-39`; the name changed because a single still image
 is not a video.
 """
 

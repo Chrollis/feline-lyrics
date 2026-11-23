@@ -1,6 +1,6 @@
 """Audio decoding tests. Standard library plus av and numpy.
 
-Run with: python -m unittest discover -s services/tests -v
+Run with: python -m unittest discover -s plugins/felyrics.media/backend/tests -v
 """
 
 import tempfile
@@ -9,9 +9,9 @@ from pathlib import Path
 
 import numpy as np
 
-from felyrics.errors import ServiceError
-from felyrics.media.audio import decode, probe
 from support import write_flac
+from felyrics_host.errors import ServiceError
+from felyrics_media.audio import decode, probe
 
 
 class AudioTest(unittest.TestCase):

@@ -39,7 +39,6 @@ async function withRoot(fn) {
   const ctx = {
     paths: {
       cacheDir: join(root, 'cache'),
-      servicesDir: join(root, 'services'),
       backendRoot: join(root, 'backend'),
     },
     tempDir: join(root, 'tmp'),
@@ -75,7 +74,6 @@ test('points uv at the backend, the shared cache and the mirrors', () => {
   const ctx = {
     paths: {
       cacheDir: join(root, 'cache'),
-      servicesDir: join(root, 'services'),
       backendRoot: join(root, 'backend'),
     },
     tempDir: join(root, 'tmp'),

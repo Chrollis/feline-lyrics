@@ -10,11 +10,6 @@ export interface HostPaths {
   readonly cacheDir: string;
   /** Where the Python interpreter and the venv live. */
   readonly backendRoot: string;
-  /**
-   * Transitional: the Python service the backend runs from until the loader owns
-   * the plugin roots. Removed when the services package retires.
-   */
-  readonly servicesDir: string;
   /** Plugins that ship with the application, read-only. */
   readonly builtinPluginsRoot: string;
   /** Plugins the user installed, writable. */
@@ -46,7 +41,6 @@ export function resolveHostPaths(inputs: HostPathInputs): HostPaths {
     return {
       cacheDir: join(userData, 'cache'),
       backendRoot: join(userData, 'backend'),
-      servicesDir: join(resources, 'services'),
       builtinPluginsRoot: join(resources, 'plugins'),
       userPluginsRoot: join(userData, 'plugins'),
     };
@@ -58,7 +52,6 @@ export function resolveHostPaths(inputs: HostPathInputs): HostPaths {
   return {
     cacheDir: join(repoRoot, 'cache'),
     backendRoot: join(repoRoot, 'python'),
-    servicesDir: join(repoRoot, 'services'),
     builtinPluginsRoot: join(repoRoot, 'plugins'),
     userPluginsRoot: join(resolve(inputs.userData), 'plugins'),
   };

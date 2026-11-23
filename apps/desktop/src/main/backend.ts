@@ -38,7 +38,6 @@ export function resolvePaths(): ToolchainPaths {
   return {
     cacheDir: host.cacheDir,
     backendRoot: host.backendRoot,
-    servicesDir: host.servicesDir,
   };
 }
 

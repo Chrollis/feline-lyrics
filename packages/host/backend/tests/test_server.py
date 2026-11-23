@@ -10,7 +10,7 @@ import unittest
 from contextlib import redirect_stderr
 from pathlib import Path
 
-# The venv's import path still points at `services/` until provisioning carries
+# The venv's import path names both package roots once provisioning has run.
 # the host backend, so this suite finds its package from the checkout.
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 

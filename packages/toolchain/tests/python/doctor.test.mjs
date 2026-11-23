@@ -9,25 +9,22 @@ import {
   doctor,
   PTH_FILENAME,
   PYTHON_VERSION,
-  REQUIREMENTS_FILENAME,
   UV_VERSION,
   writeReadyMarker,
 } from '../../out/index.js';
 
+const REQUIREMENTS = ['av==19.0.2', 'numpy==2.5.5'];
+
 async function withBackend(fn) {
   const root = mkdtempSync(join(tmpdir(), 'felyrics-doctor-'));
+  const importsDir = join(root, 'imports');
   const toolchain = {
     cacheDir: join(root, 'cache'),
-    servicesDir: join(root, 'services'),
     backendRoot: join(root, 'backend'),
   };
   const backend = backendPaths(toolchain.backendRoot);
 
-  mkdirSync(toolchain.servicesDir, { recursive: true });
-  writeFileSync(
-    join(toolchain.servicesDir, REQUIREMENTS_FILENAME),
-    'av==19.0.2\nnumpy==2.5.5\n',
-  );
+  mkdirSync(importsDir, { recursive: true });
   mkdirSync(dirname(backend.uvExe), { recursive: true });
   mkdirSync(dirname(backend.venvPython), { recursive: true });
   writeFileSync(backend.uvExe, '');
@@ -35,20 +32,29 @@ async function withBackend(fn) {
   mkdirSync(backend.sitePackages, { recursive: true });
   writeFileSync(
     join(backend.sitePackages, PTH_FILENAME),
-    `${resolve(toolchain.servicesDir)}\n`,
+    `${resolve(importsDir)}\n`,
   );
   await writeReadyMarker(backend, {
     uv: UV_VERSION,
     python: PYTHON_VERSION,
-    imports: resolve(toolchain.servicesDir),
-    requirements: 'av==19.0.2\nnumpy==2.5.5',
+    imports: resolve(importsDir),
+    requirements: REQUIREMENTS.join('\n'),
   });
 
   try {
-    await fn(toolchain, backend);
+    await fn(toolchain, backend, importsDir);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
+}
+
+function options(importsDir, run, extra = {}) {
+  return {
+    run,
+    requirements: REQUIREMENTS,
+    importPaths: [importsDir],
+    ...extra,
+  };
 }
 
 function fakeRun(output = '') {
@@ -74,10 +80,10 @@ function byLabel(report, label) {
 }
 
 test('reports every check when the backend is healthy', async () => {
-  await withBackend(async (toolchain) => {
+  await withBackend(async (toolchain, _backend, importsDir) => {
     const { run } = fakeRun();
 
-    const report = await doctor(toolchain, { run });
+    const report = await doctor(toolchain, options(importsDir, run));
 
     assert.equal(report.ok, true);
     assert.deepEqual(
@@ -98,14 +104,14 @@ test('reports every check when the backend is healthy', async () => {
 });
 
 test('fails when a declared dependency cannot be imported', async () => {
-  await withBackend(async (toolchain) => {
+  await withBackend(async (toolchain, _backend, importsDir) => {
     const { run: version } = fakeRun();
     const run = (file, args) =>
       args[0] === '-c'
         ? { status: 1, output: "ModuleNotFoundError: No module named 'av'" }
         : version(file, args);
 
-    const report = await doctor(toolchain, { run });
+    const report = await doctor(toolchain, options(importsDir, run));
     const dependencies = byLabel(report, 'dependencies');
 
     assert.equal(report.ok, false);
@@ -115,11 +121,11 @@ test('fails when a declared dependency cannot be imported', async () => {
 });
 
 test('accepts a backend with nothing to import', async () => {
-  await withBackend(async (toolchain) => {
-    const report = await doctor(toolchain, {
-      run: fakeRun().run,
-      requirements: [],
-    });
+  await withBackend(async (toolchain, _backend, importsDir) => {
+    const report = await doctor(
+      toolchain,
+      options(importsDir, fakeRun().run, { requirements: [] }),
+    );
 
     assert.deepEqual(byLabel(report, 'dependencies'), {
       label: 'dependencies',
@@ -130,10 +136,13 @@ test('accepts a backend with nothing to import', async () => {
 });
 
 test('fails the uv check when the binary is missing', async () => {
-  await withBackend(async (toolchain, backend) => {
+  await withBackend(async (toolchain, backend, importsDir) => {
     rmSync(backend.uvExe);
 
-    const report = await doctor(toolchain, { run: fakeRun().run });
+    const report = await doctor(
+      toolchain,
+      options(importsDir, fakeRun().run),
+    );
     const uv = byLabel(report, 'uv');
 
     assert.equal(report.ok, false);
@@ -143,10 +152,10 @@ test('fails the uv check when the binary is missing', async () => {
 });
 
 test('fails when the interpreter reports another version', async () => {
-  await withBackend(async (toolchain) => {
+  await withBackend(async (toolchain, _backend, importsDir) => {
     const run = () => ({ status: 0, output: 'Python 3.11.9' });
 
-    const report = await doctor(toolchain, { run });
+    const report = await doctor(toolchain, options(importsDir, run));
     const python = byLabel(report, 'python');
 
     assert.equal(python.ok, false);
@@ -155,10 +164,13 @@ test('fails when the interpreter reports another version', async () => {
 });
 
 test('fails when the pth points somewhere else', async () => {
-  await withBackend(async (toolchain, backend) => {
+  await withBackend(async (toolchain, backend, importsDir) => {
     writeFileSync(join(backend.sitePackages, PTH_FILENAME), 'C:\\elsewhere\n');
 
-    const report = await doctor(toolchain, { run: fakeRun().run });
+    const report = await doctor(
+      toolchain,
+      options(importsDir, fakeRun().run),
+    );
 
     assert.equal(report.ok, false);
     assert.match(byLabel(report, 'pth').detail, /does not mention/);
@@ -166,7 +178,7 @@ test('fails when the pth points somewhere else', async () => {
 });
 
 test('catches a backend package that does not import', async () => {
-  await withBackend(async (toolchain) => {
+  await withBackend(async (toolchain, _backend, importsDir) => {
     const { run: base } = fakeRun();
     const run = (file, args) =>
       args[1]?.includes('felyrics_host.__main__')
@@ -176,7 +188,7 @@ test('catches a backend package that does not import', async () => {
           }
         : base(file, args);
 
-    const report = await doctor(toolchain, { run });
+    const report = await doctor(toolchain, options(importsDir, run));
     const imported = byLabel(report, 'import');
 
     assert.equal(report.ok, false);
@@ -186,15 +198,18 @@ test('catches a backend package that does not import', async () => {
 });
 
 test('fails when the marker records another import list', async () => {
-  await withBackend(async (toolchain, backend) => {
+  await withBackend(async (toolchain, backend, importsDir) => {
     await writeReadyMarker(backend, {
       uv: UV_VERSION,
       python: PYTHON_VERSION,
       imports: 'C:\\elsewhere',
-      requirements: 'av==19.0.2\nnumpy==2.5.5',
+      requirements: REQUIREMENTS.join('\n'),
     });
 
-    const report = await doctor(toolchain, { run: fakeRun().run });
+    const report = await doctor(
+      toolchain,
+      options(importsDir, fakeRun().run),
+    );
 
     assert.equal(report.ok, false);
     assert.match(byLabel(report, 'marker').detail, /elsewhere/);

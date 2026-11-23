@@ -7,8 +7,6 @@ import { backendPaths, type BackendPaths } from '../layout/paths.js';
 import { PTH_FILENAME } from './pth.js';
 import { isReady, readReadyMarker } from './ready.js';
 import {
-  readRequirements,
-  REQUIREMENTS_FILENAME,
   requirementModule,
   requirementsFingerprint,
 } from './requirements.js';
@@ -37,13 +35,10 @@ export type RunBinary = (file: string, args: readonly string[]) => BinaryRun;
 
 export interface DoctorOptions {
   readonly run?: RunBinary;
-  /** Defaults to `services/requirements.txt`; tests pass a list instead. */
-  readonly requirements?: readonly string[];
-  /**
-   * Directories the `.pth` must name. Defaults to `servicesDir`, where the
-   * backend sources lived before the host/plugin split.
-   */
-  readonly importPaths?: readonly string[];
+  /** Requirement lines the venv must satisfy; the caller owns where they live. */
+  readonly requirements: readonly string[];
+  /** Directories the `.pth` must name; the caller owns the checkout layout. */
+  readonly importPaths: readonly string[];
 }
 
 function runBinary(file: string, args: readonly string[]): BinaryRun {
@@ -177,15 +172,13 @@ function checkImport(backend: BackendPaths, run: RunBinary): DoctorCheck {
  */
 export async function doctor(
   toolchain: ToolchainPaths,
-  options: DoctorOptions = {},
+  options: DoctorOptions,
 ): Promise<DoctorReport> {
   const backend = backendPaths(toolchain.backendRoot);
-  const imports = (options.importPaths ?? [toolchain.servicesDir]).map(
-    (directory) => resolve(directory),
-  );
+  const imports = options.importPaths.map((directory) => resolve(directory));
   const run = options.run ?? runBinary;
   const checks: DoctorCheck[] = [];
-  let requirements: readonly string[] = [];
+  const requirements = options.requirements;
 
   checks.push(
     checkVersion('uv', backend.uvExe, ['--version'], UV_VERSION, run),
@@ -198,21 +191,7 @@ export async function doctor(
     ),
   );
 
-  if (options.requirements) {
-    requirements = options.requirements;
-    checks.push(checkDependencies(backend, requirements, run));
-  } else {
-    try {
-      requirements = readRequirements(toolchain.servicesDir);
-      checks.push(checkDependencies(backend, requirements, run));
-    } catch {
-      checks.push({
-        label: 'dependencies',
-        ok: false,
-        detail: `missing ${join(toolchain.servicesDir, REQUIREMENTS_FILENAME)}`,
-      });
-    }
-  }
+  checks.push(checkDependencies(backend, requirements, run));
 
   const pth = join(backend.sitePackages, PTH_FILENAME);
 

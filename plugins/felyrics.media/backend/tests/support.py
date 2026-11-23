@@ -1,25 +1,58 @@
-"""Fixtures shared by the service tests."""
+"""Fixtures shared by the media plugin tests."""
 
 from __future__ import annotations
 
-import json
+import sys
+from pathlib import Path
 from urllib.parse import urlparse
 
 import av
 import numpy as np
 
-from felyrics.server import PROTOCOL_VERSION, respond
+# The tests live inside the plugin, but they exercise the host's allocator and
+# the plugin's serve() entry point, so both package roots go on the path before
+# anything imports them. The checkout is the only thing that knows the layout.
+PLUGIN_ROOT = Path(__file__).resolve().parents[2]
+REPO_ROOT = PLUGIN_ROOT.parents[1]
+
+for directory in (
+    REPO_ROOT / "packages" / "host" / "backend",
+    PLUGIN_ROOT / "backend",
+):
+    if str(directory) not in sys.path:
+        sys.path.insert(0, str(directory))
+
+from felyrics_host.errors import ServiceError  # noqa: E402
+from felyrics_host.loader import load_plugin  # noqa: E402
 
 
-def call(name, params=None, request_id=1):
-    """Runs one request through the real `respond`, as a client would."""
+def call(name, params=None):
+    """Runs one internal method through the plugin's real `serve` registry.
 
-    request = {"v": PROTOCOL_VERSION, "id": request_id, "method": name}
+    The host's protocol loop has its own tests; these tests are about what
+    `serve` registers, so the handler is invoked directly and the two failure
+    shapes a client would see are reproduced here.
+    """
 
-    if params is not None:
-        request["params"] = params
+    loaded = load_plugin(PLUGIN_ROOT)
+    handler = loaded.registry.handlers()[name]
 
-    return respond(json.dumps(request))
+    try:
+        return {"result": handler({} if params is None else params)}
+    except ServiceError as error:
+        failure = {"code": error.code, "message": error.message}
+
+        if error.data is not None:
+            failure["data"] = error.data
+
+        return {"error": failure}
+    except Exception:
+        return {
+            "error": {
+                "code": "internal/error",
+                "message": "the handler raised",
+            }
+        }
 
 
 def job_file(cache, url):

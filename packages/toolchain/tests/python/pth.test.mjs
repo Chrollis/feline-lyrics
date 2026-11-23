@@ -6,25 +6,21 @@ import { test } from 'node:test';
 
 import { backendPaths, PTH_FILENAME, writePth } from '../../out/index.js';
 
-function withRoot(fn) {
+function withBackend(fn) {
   const root = mkdtempSync(join(tmpdir(), 'felyrics-pth-'));
-  const toolchain = {
-    cacheDir: join(root, 'cache'),
-    servicesDir: join(root, 'services'),
-    backendRoot: join(root, 'backend'),
-  };
+  const backend = backendPaths(join(root, 'backend'));
 
   try {
-    return fn(toolchain, backendPaths(toolchain.backendRoot));
+    return fn(backend, root);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
 }
 
 test('writes one absolute line per import directory', () => {
-  withRoot((toolchain, backend) => {
-    const host = join(toolchain.servicesDir, 'host');
-    const plugin = join(toolchain.servicesDir, 'plugin');
+  withBackend((backend, root) => {
+    const host = join(root, 'packages', 'host', 'backend');
+    const plugin = join(root, 'plugins', 'felyrics.media', 'backend');
     const file = writePth(backend, [host, plugin]);
 
     assert.equal(file, join(backend.sitePackages, PTH_FILENAME));
@@ -36,22 +32,22 @@ test('writes one absolute line per import directory', () => {
 });
 
 test('creates site-packages when the venv has none yet', () => {
-  withRoot((toolchain, backend) => {
+  withBackend((backend, root) => {
     assert.equal(existsSync(backend.sitePackages), false);
 
-    writePth(backend, [toolchain.servicesDir]);
+    writePth(backend, [join(root, 'packages', 'host', 'backend')]);
 
     assert.equal(existsSync(backend.sitePackages), true);
   });
 });
 
 test('resolves a relative import directory', () => {
-  withRoot((_toolchain, backend) => {
-    writePth(backend, ['services', 'plugins/media/backend']);
+  withBackend((backend) => {
+    writePth(backend, ['packages/host/backend', 'plugins/felyrics.media/backend']);
 
     assert.equal(
       readFileSync(join(backend.sitePackages, PTH_FILENAME), 'utf8'),
-      `${resolve('services')}\n${resolve('plugins/media/backend')}\n`,
+      `${resolve('packages/host/backend')}\n${resolve('plugins/felyrics.media/backend')}\n`,
     );
   });
 });

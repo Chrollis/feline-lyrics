@@ -14,7 +14,6 @@ const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 // directory for the backend) and never reaches this file.
 const paths = {
   cacheDir: join(root, 'cache'),
-  servicesDir: join(root, 'services'),
   backendRoot: join(root, 'python'),
 };
 
@@ -23,9 +22,7 @@ const paths = {
 // the packages live.
 const hostBackend = join(root, 'packages', 'host', 'backend');
 const mediaBackend = join(root, 'plugins', 'felyrics.media', 'backend');
-// `services` is the compatibility shell around the plugin's Python half; it
-// leaves the import path together with the directory, in the next change.
-const importPaths = [hostBackend, mediaBackend, paths.servicesDir];
+const importPaths = [hostBackend, mediaBackend];
 
 function fail(message) {
   console.error(message);

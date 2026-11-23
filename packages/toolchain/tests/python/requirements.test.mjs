@@ -10,27 +10,27 @@ import {
   requirementModule,
 } from '../../out/index.js';
 
-function withServices(fn) {
+function withRequirements(fn) {
   const root = mkdtempSync(join(tmpdir(), 'felyrics-requirements-'));
-  const services = join(root, 'services');
+  const directory = join(root, 'backend');
 
-  mkdirSync(services, { recursive: true });
+  mkdirSync(directory, { recursive: true });
 
   try {
-    return fn(services);
+    return fn(directory);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
 }
 
 test('reads one requirement per line', () => {
-  withServices((services) => {
+  withRequirements((directory) => {
     writeFileSync(
-      join(services, REQUIREMENTS_FILENAME),
+      join(directory, REQUIREMENTS_FILENAME),
       'av==19.0.2\nnumpy==2.5.5\n',
     );
 
-    assert.deepEqual(readRequirements(services), [
+    assert.deepEqual(readRequirements(directory), [
       'av==19.0.2',
       'numpy==2.5.5',
     ]);
@@ -38,23 +38,23 @@ test('reads one requirement per line', () => {
 });
 
 test('drops comments and blank lines', () => {
-  withServices((services) => {
+  withRequirements((directory) => {
     writeFileSync(
-      join(services, REQUIREMENTS_FILENAME),
+      join(directory, REQUIREMENTS_FILENAME),
       '# native dependencies\n\nav==19.0.2\n   \nnumpy\n',
     );
 
-    assert.deepEqual(readRequirements(services), ['av==19.0.2', 'numpy']);
+    assert.deepEqual(readRequirements(directory), ['av==19.0.2', 'numpy']);
   });
 });
 
 test('keeps extras and markers verbatim', () => {
-  withServices((services) => {
+  withRequirements((directory) => {
     const line = 'stable-ts[fw]==2.17.0; python_version < "3.13"';
 
-    writeFileSync(join(services, REQUIREMENTS_FILENAME), `${line}\n`);
+    writeFileSync(join(directory, REQUIREMENTS_FILENAME), `${line}\n`);
 
-    assert.deepEqual(readRequirements(services), [line]);
+    assert.deepEqual(readRequirements(directory), [line]);
   });
 });
 
@@ -64,10 +64,10 @@ test('reads the import name from a requirement', () => {
   assert.equal(requirementModule('stable-ts[fw]>=2'), 'stable-ts');
 });
 
-test('throws when the services directory has no requirements file', () => {
-  withServices((services) => {
+test('throws when the directory has no requirements file', () => {
+  withRequirements((directory) => {
     assert.throws(
-      () => readRequirements(join(services, 'nope')),
+      () => readRequirements(join(directory, 'nope')),
       (error) => error.code === 'ENOENT',
     );
   });

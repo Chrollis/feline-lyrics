@@ -1,5 +1,0 @@
-# Native dependencies of the application itself: av (libav bindings) and its
-# numpy bridge. Plugin dependencies are declared by the plugin manifest and
-# installed into that plugin's own venv, so they do not belong here.
-av==19.0.2
-numpy==2.5.5

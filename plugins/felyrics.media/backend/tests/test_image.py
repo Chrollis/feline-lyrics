@@ -1,14 +1,14 @@
 """PNG encoding tests.
 
-Run with: python -m unittest discover -s services/tests -v
+Run with: python -m unittest discover -s plugins/felyrics.media/backend/tests -v
 """
 
 import unittest
 
 import numpy as np
 
-from felyrics.errors import ServiceError
-from felyrics.media.image import encode_png
+from felyrics_host.errors import ServiceError
+from felyrics_media.image import encode_png
 
 MAGIC = b"\x89PNG\r\n\x1a\n"
 
