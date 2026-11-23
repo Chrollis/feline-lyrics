@@ -1,0 +1,4 @@
+[project]
+name = "felyrics-host"
+version = "0.0.0"
+description = "The protocol loop, its errors and the process settings the host owns."

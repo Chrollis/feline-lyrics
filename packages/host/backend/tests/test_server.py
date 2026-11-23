@@ -1,6 +1,6 @@
-"""Protocol tests for the stdio backend. Standard library only.
+"""Protocol tests for the host runtime. Standard library only.
 
-Run with: python -m unittest discover -s services/tests -v
+Run with: python -m unittest discover -s packages/host/backend/tests -v
 """
 
 import io
@@ -8,9 +8,14 @@ import json
 import sys
 import unittest
 from contextlib import redirect_stderr
+from pathlib import Path
 
-from felyrics.errors import ServiceError
-from felyrics.server import (
+# The venv's import path still points at `services/` until provisioning carries
+# the host backend, so this suite finds its package from the checkout.
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+from felyrics_host.errors import ServiceError
+from felyrics_host.server import (
     METHODS,
     PROTOCOL_VERSION,
     ProtocolError,
