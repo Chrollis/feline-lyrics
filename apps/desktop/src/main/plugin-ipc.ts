@@ -30,7 +30,11 @@ export async function asResult<T>(
   }
 }
 
-/** A request the renderer may send; `timeoutMs` is left to the host default. */
+/**
+ * A request the renderer may send. There is no host default timeout: the caller
+ * that needs a budget passes one, and a call without `timeoutMs` waits as long
+ * as the plugin takes (B §6: the caller owns the budget).
+ */
 export interface PluginCall {
   readonly name: string;
   readonly params: Readonly<Record<string, unknown>>;
