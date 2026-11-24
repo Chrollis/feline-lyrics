@@ -22,7 +22,8 @@ import {
   resolvePaths,
   shutdownBackend,
 } from './backend.js';
-import { runStartup, type StartupStatus } from './startup.js';
+import { enableBuiltinHosts } from './plugin-boot.js';
+import { describeFailure, runStartup, type StartupStatus } from './startup.js';
 
 // Before `app.whenReady()`: the scheme registry is frozen at startup.
 registerAppScheme();
@@ -116,7 +117,22 @@ async function start(force = false): Promise<void> {
       onStatus: publishStatus,
     });
 
-    await enableBuiltinPlugins();
+    try {
+      await enableBuiltinPlugins();
+    } catch (error) {
+      // A builtin plugin is part of the product: if it cannot start, the app
+      // has nothing to offer, so startup fails at the progress window instead
+      // of opening a window with dead buttons.
+      const failure = describeFailure(error);
+      publishStatus({
+        phase: 'failed',
+        title: 'A builtin plugin could not start',
+        code: failure.code,
+        message: failure.message,
+        log: latestStatus?.log ?? [],
+      });
+      throw error;
+    }
 
     // Create the main window before closing the progress window: a gap with no
     // window would fire `window-all-closed` and quit the app mid-startup.
@@ -151,7 +167,7 @@ async function enableBuiltinPlugins(): Promise<void> {
     console.error('[plugin]', issue.directory, issue.code, issue.message);
   }
 
-  pluginHosts = new PluginHosts(
+  const hosts = new PluginHosts(
     discovery.plugins.map((plugin) => plugin.manifest),
     {
       createChannel: (manifest): PluginTransport =>
@@ -177,22 +193,8 @@ async function enableBuiltinPlugins(): Promise<void> {
     },
   );
 
-  for (const plugin of discovery.plugins) {
-    // A user plugin is discovered and listed, but only a builtin one is enabled
-    // without asking: the user's package runs in its own backend later (step 5),
-    // and enabling it silently would run third-party code at boot.
-    if (plugin.root !== 'builtin' || plugin.manifest.host !== 'utility') {
-      continue;
-    }
-
-    try {
-      await pluginHosts.enable(plugin.manifest.id);
-    } catch (error) {
-      // A broken builtin plugin fails its own state; the window still opens so
-      // the failure can be read instead of showing a blank app.
-      console.error('[plugin]', plugin.manifest.id, error);
-    }
-  }
+  pluginHosts = hosts;
+  await enableBuiltinHosts(hosts, discovery.plugins);
 }
 
 /** Hosts plus the directories discovery could not turn into a plugin. */

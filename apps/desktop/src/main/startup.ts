@@ -56,7 +56,7 @@ export interface StartupOptions {
 }
 
 /** The line the window shows, and the line a failed install writes to disk. */
-function describe(error: unknown): { code: string; message: string } {
+export function describeFailure(error: unknown): { code: string; message: string } {
   if (error instanceof ManifestError || error instanceof BackendError) {
     return { code: error.code, message: error.message };
   }
@@ -187,7 +187,7 @@ export async function runStartup(options: StartupOptions): Promise<void> {
 
     status({ phase: 'ready', title: 'Ready', log });
   } catch (error) {
-    const failure = describe(error);
+    const failure = describeFailure(error);
 
     push(`${failure.code}: ${failure.message}`);
     await appendLog(options.userDataDir, log);
