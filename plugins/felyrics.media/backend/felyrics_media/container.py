@@ -16,7 +16,7 @@ from felyrics_host.errors import ServiceError
 
 
 def open_container(path: str | Path) -> av.container.InputContainer:
-    """Opens a container for reading, or raises `media/open-failed`."""
+    """Opens a container for reading, or raises `felyrics.media/open-failed`."""
 
     try:
         return av.open(str(path))

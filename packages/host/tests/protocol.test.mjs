@@ -108,7 +108,7 @@ for await (const raw of lines) {
     process.stdout.write(
       reply({
         id: request.id,
-        error: { code: 'media/open-failed', message: 'cannot open the file' },
+        error: { code: 'felyrics.media/open-failed', message: 'cannot open the file' },
       }),
     );
     continue;
@@ -401,7 +401,7 @@ test('keeps the backend error code when a request fails', async () => {
     );
 
     assert.ok(error instanceof BackendError);
-    assert.equal(error.code, 'media/open-failed');
+    assert.equal(error.code, 'felyrics.media/open-failed');
     assert.equal(error.message, 'cannot open the file');
   });
 });

@@ -93,7 +93,7 @@ interface Pending {
  * A failure the backend reported, with the protocol's `code` kept as a field.
  *
  * The code is the part a caller branches on, so folding it into the message
- * (`"media/open-failed: cannot open ..."`) would leave every backend failure
+ * (`"felyrics.media/open-failed: cannot open ..."`) would leave every backend failure
  * indistinguishable from a crash by the time it reaches the renderer.
  *
  * The vocabulary belongs to the backend (`felyrics.media/open-failed`,
