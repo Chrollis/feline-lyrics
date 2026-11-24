@@ -1,7 +1,4 @@
 import { protocol } from 'electron';
-import { readFile } from 'node:fs/promises';
-
-import { JOB_HOST, resolveJobFile } from '@felyrics/host';
 
 import {
   APP_SCHEME,
@@ -9,6 +6,9 @@ import {
   contentTypeFor,
   resolveAssetPath,
 } from './app-assets.js';
+import { answerAppRequest, type AppRoots } from './app-response.js';
+
+export type { AppRoots };
 
 /**
  * Must run before `app.whenReady()`: Electron freezes the scheme registry at
@@ -37,59 +37,24 @@ export function registerAppScheme(): void {
   ]);
 }
 
-/** The two roots the `app` scheme serves. They never overlap on disk. */
-export interface AppRoots {
-  /** The built renderer; served as `app://bundle/`. */
-  readonly rendererRoot: string;
-  /** The host's job directories; served as `app://job/`. */
-  readonly jobsRoot: string;
-}
+const ASSETS = {
+  resolveAssetPath,
+  contentTypeFor,
+  contentSecurityPolicy: CONTENT_SECURITY_POLICY,
+};
 
 /**
  * Serve both roots over the `app` scheme: `app://bundle/` for the page and its
  * assets, `app://job/<job>/<file>` for the files the host allocates.
  *
- * The file is read here and handed back with an explicit `Content-Type` plus the
- * policy header. Letting `net.fetch(file://...)` do it would be shorter, but a
- * `.js` answered as `application/octet-stream` makes `<script type="module">`
- * fail with a mime error that points nowhere near the cause.
+ * The file is read in `answerAppRequest` and handed back with an explicit
+ * `Content-Type` plus the policy header. Letting `net.fetch(file://...)` do it
+ * would be shorter, but a `.js` answered as `application/octet-stream` makes
+ * `<script type="module">` fail with a mime error that points nowhere near the
+ * cause.
  */
 export function serveAppProtocol(roots: AppRoots): void {
-  protocol.handle(APP_SCHEME, async (request) => {
-    let host: string;
-
-    try {
-      host = new URL(request.url).host;
-    } catch {
-      return new Response('not found', { status: 404 });
-    }
-
-    const file =
-      host === JOB_HOST
-        ? resolveJobFile(roots.jobsRoot, request.url)
-        : resolveAssetPath(roots.rendererRoot, request.url);
-
-    if (file === null) {
-      return new Response('not found', { status: 404 });
-    }
-
-    let body: Buffer;
-
-    try {
-      body = await readFile(file);
-    } catch {
-      // Missing and unreadable are the same answer here: the page asked for a
-      // file that is not there. A 500 would make a stale build look like a bug
-      // in the handler.
-      return new Response('not found', { status: 404 });
-    }
-
-    return new Response(new Uint8Array(body), {
-      status: 200,
-      headers: {
-        'Content-Type': contentTypeFor(file),
-        'Content-Security-Policy': CONTENT_SECURITY_POLICY,
-      },
-    });
-  });
+  protocol.handle(APP_SCHEME, (request) =>
+    answerAppRequest(roots, request.url, ASSETS),
+  );
 }
