@@ -20,8 +20,8 @@ export const COMMANDS = [
 ] as const;
 
 /**
- * A still batch can legitimately take minutes on a long video; every other
- * method is bounded by the host's default budget.
+ * A still batch can legitimately take minutes on a long video, so this call
+ * carries its own budget; every other backend call has none.
  */
 export const FRAMES_BUDGET_MS = 300_000;
 
