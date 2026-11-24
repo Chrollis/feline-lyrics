@@ -497,7 +497,9 @@ export class PluginHandle {
           kind: 'host-reply',
           seq: event.seq,
           result: await backend.call(
-            name,
+            // The shared backend process keys its handlers by `(plugin, short)`;
+            // the plugin's source still says just `probe` or `decode`.
+            `${this.manifest.id}/${name}`,
             params as PluginParams,
             timeoutMs === undefined ? {} : { timeoutMs },
           ),

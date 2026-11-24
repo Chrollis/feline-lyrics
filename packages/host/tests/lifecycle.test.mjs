@@ -153,7 +153,7 @@ export async function activate(ctx) {
   assert.deepEqual(await handle.request('fixtures.echo/echo', { value: 3 }), {
     echo: 3,
   });
-  assert.deepEqual(calls, [['echo', { value: 3 }, {}]]);
+  assert.deepEqual(calls, [['fixtures.echo/echo', { value: 3 }, {}]]);
 });
 
 test('a plugin with no backend route is refused, not hung', async (t) => {

@@ -58,8 +58,10 @@ def main(argv: list[str] | None = None) -> int:
             for name, handler in plugin.registry.handlers().items():
                 # The backend speaks internal short names only: the public
                 # `<id>/<short>` form belongs to the TypeScript face, which
-                # forwards the short name after its own lookup.
-                if name in METHODS or name in PLUGIN_METHODS:
+                # forwards the short name after its own lookup. The internal
+                # name is scoped to the plugin, so two plugins may both use
+                # `probe` without colliding.
+                if (plugin.manifest.id, name) in PLUGIN_METHODS:
                     raise PluginError(
                         "core/methods-mismatch",
                         f"method {name!r} from {plugin.manifest.id} is "
@@ -72,7 +74,7 @@ def main(argv: list[str] | None = None) -> int:
                         ],
                     )
 
-                PLUGIN_METHODS[name] = PluginMethod(
+                PLUGIN_METHODS[(plugin.manifest.id, name)] = PluginMethod(
                     plugin.manifest.id,
                     frozenset(plugin.manifest.errors),
                     handler,

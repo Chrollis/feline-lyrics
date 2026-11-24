@@ -29,10 +29,11 @@ class PluginMethod:
     handler: Handler
 
 
-# Methods a loaded plugin registered. `METHODS` stays the host's own table; the
-# host never writes into it on a plugin's behalf. The table is flat until the
-# TypeScript host routes per plugin, so a duplicate name is refused at load time.
-PLUGIN_METHODS: dict[str, PluginMethod] = {}
+# Methods a loaded plugin registered, keyed by `(plugin id, short name)`. The
+# internal name is scoped to its plugin: two plugins may both have `probe`, and
+# no plugin name can shadow a host method. `METHODS` stays the host's own table;
+# the host never writes into it on a plugin's behalf.
+PLUGIN_METHODS: dict[tuple[str, str], PluginMethod] = {}
 
 # Both sides state the version they speak, and each one answers in its own: an
 # implementation cannot reply in a format it does not know. The field is what
@@ -115,7 +116,10 @@ def dispatch(request: Any) -> Any:
             "protocol/bad-request", "request.params must be an object"
         )
 
-    plugin_method = PLUGIN_METHODS.get(name)
+    plugin_id, separator, short = name.partition("/")
+    plugin_method = (
+        PLUGIN_METHODS.get((plugin_id, short)) if separator else None
+    )
 
     if plugin_method is not None:
         try:

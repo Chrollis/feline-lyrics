@@ -120,19 +120,55 @@ class HostMainTest(unittest.TestCase):
         self.assertEqual(lines[0]["result"], {"pong": True})
         self.assertEqual(lines[1]["error"]["code"], "protocol/bad-request")
 
-    def test_a_plugin_method_is_reachable_by_its_short_name(self):
+    def test_a_plugin_method_is_reachable_by_its_scoped_name(self):
         plugin = self.write_plugin()
 
         result = self.run_host(
             ["--plugin-dir", str(plugin)],
             '{"v":1,"id":1,"method":"ping"}\n'
-            '{"v":1,"id":2,"method":"echo","params":{"hi":1}}\n',
+            '{"v":1,"id":2,"method":"fixtures.echo/echo","params":{"hi":1}}\n',
         )
 
         self.assertEqual(result.returncode, 0, result.stderr)
         lines = [json.loads(line) for line in result.stdout.splitlines()]
 
         self.assertEqual(lines[1]["result"], {"echo": {"hi": 1}})
+
+    def test_two_plugins_may_share_a_short_name(self):
+        first = self.write_plugin(
+            "fixtures.one",
+            module="one_plugin",
+            source="""
+            def serve(ctx):
+                ctx.method("probe", lambda params: {"from": "one"})
+            """,
+            methods=("probe",),
+        )
+        second = self.write_plugin(
+            "fixtures.two",
+            module="two_plugin",
+            source="""
+            def serve(ctx):
+                ctx.method("probe", lambda params: {"from": "two"})
+            """,
+            methods=("probe",),
+        )
+
+        result = self.run_host(
+            ["--plugin-dir", str(first), "--plugin-dir", str(second)],
+            '{"v":1,"id":1,"method":"fixtures.one/probe"}\n'
+            '{"v":1,"id":2,"method":"fixtures.two/probe"}\n'
+            '{"v":1,"id":3,"method":"probe"}\n',
+        )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        lines = [json.loads(line) for line in result.stdout.splitlines()]
+
+        self.assertEqual(lines[0]["result"], {"from": "one"})
+        self.assertEqual(lines[1]["result"], {"from": "two"})
+        self.assertEqual(
+            lines[2]["error"]["code"], "protocol/unknown-method"
+        )
 
     def test_a_broken_manifest_exits_before_plugin_code(self):
         plugin = self.write_plugin(
@@ -181,8 +217,8 @@ class HostMainTest(unittest.TestCase):
                 "--plugin",
                 "fixtures.other",
             ],
-            '{"v":1,"id":1,"method":"echo"}\n'
-            '{"v":1,"id":2,"method":"other"}\n',
+            '{"v":1,"id":1,"method":"fixtures.echo/echo"}\n'
+            '{"v":1,"id":2,"method":"fixtures.other/other"}\n',
         )
 
         self.assertEqual(result.returncode, 0, result.stderr)

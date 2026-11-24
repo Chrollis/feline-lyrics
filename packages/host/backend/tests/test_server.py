@@ -65,29 +65,37 @@ class RespondTest(unittest.TestCase):
         self.assertEqual(response["error"]["code"], "protocol/bad-request")
 
     def test_a_plugin_method_is_dispatched(self):
-        PLUGIN_METHODS["echo"] = PluginMethod(
+        PLUGIN_METHODS[("fixtures.echo", "echo")] = PluginMethod(
             "fixtures.echo", frozenset(), lambda params: {"echo": params}
         )
 
         try:
-            response = parse('{"v":1,"id":6,"method":"echo","params":{"hi":1}}')
+            response = parse(
+                '{"v":1,"id":6,"method":"fixtures.echo/echo","params":{"hi":1}}'
+            )
         finally:
-            del PLUGIN_METHODS["echo"]
+            del PLUGIN_METHODS[("fixtures.echo", "echo")]
 
         self.assertEqual(response["result"], {"echo": {"hi": 1}})
+
+        # A bare short name is not the backend's wire form any more: the
+        # TypeScript face owns the public table and always sends `<id>/<short>`.
+        bare = parse('{"v":1,"id":6,"method":"echo"}')
+
+        self.assertEqual(bare["error"]["code"], "protocol/unknown-method")
 
     def test_a_declared_plugin_error_keeps_its_code(self):
         def refuse(params):
             raise ServiceError("fixtures.echo/open-failed", "cannot open it")
 
-        PLUGIN_METHODS["refuse"] = PluginMethod(
+        PLUGIN_METHODS[("fixtures.echo", "refuse")] = PluginMethod(
             "fixtures.echo", frozenset({"open-failed"}), refuse
         )
 
         try:
-            response = parse('{"v":1,"id":7,"method":"refuse"}')
+            response = parse('{"v":1,"id":7,"method":"fixtures.echo/refuse"}')
         finally:
-            del PLUGIN_METHODS["refuse"]
+            del PLUGIN_METHODS[("fixtures.echo", "refuse")]
 
         self.assertEqual(
             response["error"],
@@ -98,14 +106,14 @@ class RespondTest(unittest.TestCase):
         def refuse(params):
             raise ServiceError("fixtures.echo/surprise", "not in the manifest")
 
-        PLUGIN_METHODS["refuse"] = PluginMethod(
+        PLUGIN_METHODS[("fixtures.echo", "refuse")] = PluginMethod(
             "fixtures.echo", frozenset({"open-failed"}), refuse
         )
 
         try:
-            response = parse('{"v":1,"id":8,"method":"refuse"}')
+            response = parse('{"v":1,"id":8,"method":"fixtures.echo/refuse"}')
         finally:
-            del PLUGIN_METHODS["refuse"]
+            del PLUGIN_METHODS[("fixtures.echo", "refuse")]
 
         self.assertEqual(response["error"]["code"], "core/internal")
         self.assertIn("fixtures.echo/surprise", response["error"]["message"])
@@ -117,14 +125,14 @@ class RespondTest(unittest.TestCase):
         def refuse(params):
             raise ServiceError("someone.else/open-failed", "not yours")
 
-        PLUGIN_METHODS["refuse"] = PluginMethod(
+        PLUGIN_METHODS[("fixtures.echo", "refuse")] = PluginMethod(
             "fixtures.echo", frozenset({"open-failed"}), refuse
         )
 
         try:
-            response = parse('{"v":1,"id":9,"method":"refuse"}')
+            response = parse('{"v":1,"id":9,"method":"fixtures.echo/refuse"}')
         finally:
-            del PLUGIN_METHODS["refuse"]
+            del PLUGIN_METHODS[("fixtures.echo", "refuse")]
 
         self.assertEqual(response["error"]["code"], "core/internal")
         self.assertEqual(
@@ -136,12 +144,12 @@ class RespondTest(unittest.TestCase):
         def refuse(params):
             raise ServiceError("core/not-ready", "the job kind is not declared")
 
-        PLUGIN_METHODS["refuse"] = PluginMethod("fixtures.echo", frozenset(), refuse)
+        PLUGIN_METHODS[("fixtures.echo", "refuse")] = PluginMethod("fixtures.echo", frozenset(), refuse)
 
         try:
-            response = parse('{"v":1,"id":10,"method":"refuse"}')
+            response = parse('{"v":1,"id":10,"method":"fixtures.echo/refuse"}')
         finally:
-            del PLUGIN_METHODS["refuse"]
+            del PLUGIN_METHODS[("fixtures.echo", "refuse")]
 
         self.assertEqual(response["error"]["code"], "core/not-ready")
 
