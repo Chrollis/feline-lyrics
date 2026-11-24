@@ -94,7 +94,6 @@ async function start(t, source, overrides = {}, options = {}) {
   const handle = new PluginHandle(manifest(directory, overrides), {
     createChannel: () => channels.host,
     activationTimeoutMs: 200,
-    requestTimeoutMs: 200,
     disposalTimeoutMs: 200,
     ...options,
   });
@@ -121,6 +120,48 @@ export async function activate(ctx) {
   assert.deepEqual(handle.publicMethods, ['fixtures.echo/echo']);
   assert.deepEqual(await handle.request('fixtures.echo/echo', { value: 2 }), {
     echo: 2,
+  });
+});
+
+test('a request without a timeout is not cut by a host clock', async (t) => {
+  const handle = await start(
+    t,
+    `
+export async function activate(ctx) {
+  ctx.method('slow', async () => {
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    return { waited: true };
+  });
+}
+`,
+    { methods: ['slow'] },
+  );
+
+  await handle.enable();
+  assert.deepEqual(await handle.request('fixtures.echo/slow', {}), {
+    waited: true,
+  });
+});
+
+test('an explicit timeout still stops a slow request', async (t) => {
+  const handle = await start(
+    t,
+    `
+export async function activate(ctx) {
+  ctx.method('slow', async () => {
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    return {};
+  });
+}
+`,
+    { methods: ['slow'] },
+  );
+
+  await handle.enable();
+  await assert.rejects(handle.request('fixtures.echo/slow', {}, 5), (error) => {
+    assert.equal(error.code, 'core/timeout');
+
+    return true;
   });
 });
 
@@ -470,7 +511,6 @@ test('the host table lists plugins and routes by id', async (t) => {
   const hosts = new PluginHosts([manifest(directory)], {
     createChannel: () => channels.host,
     activationTimeoutMs: 200,
-    requestTimeoutMs: 200,
   });
 
   await hosts.enable('fixtures.echo');

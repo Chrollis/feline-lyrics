@@ -1,6 +1,6 @@
 import type { CommandContribution, PluginManifest } from './manifest.js';
 import type { PluginHostServices, PluginParams } from './plugin.js';
-import { BackendError, DEFAULT_REQUEST_TIMEOUT_MS } from './protocol.js';
+import { BackendError } from './protocol.js';
 import {
   UTILITY_PROTOCOL_VERSION,
   type PluginEvent,
@@ -49,7 +49,6 @@ export interface PluginHandleOptions {
   /** Host-owned work a plugin may ask for, e.g. the native file picker. */
   readonly host?: PluginHostServices;
   readonly activationTimeoutMs?: number;
-  readonly requestTimeoutMs?: number;
   readonly disposalTimeoutMs?: number;
 }
 
@@ -321,12 +320,17 @@ export class PluginHandle {
     }
 
     try {
-      return await withTimeout(
-        answer,
-        timeoutMs ?? this.options.requestTimeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS,
-        'core/timeout',
-        `${label} did not answer`,
-      );
+      // Public calls carry no host timeout: the plugin owns its budget, and a
+      // slow frame decode must not be killed by a clock nobody asked for.
+      // Only an explicit timeoutMs arms a timer.
+      return timeoutMs === undefined
+        ? await answer
+        : await withTimeout(
+            answer,
+            timeoutMs,
+            'core/timeout',
+            `${label} did not answer`,
+          );
     } catch (error) {
       this.pending.delete(seq);
       throw describeError(error);
