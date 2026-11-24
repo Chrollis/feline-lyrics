@@ -9,9 +9,7 @@ import {
   PluginHosts,
   type PluginTransport,
 } from '@felyrics/host';
-import { ToolchainError } from '@felyrics/toolchain';
-
-import type { IpcResult } from '../preload/api.js';
+import { asResult, parsePluginCall, parsePluginCommand } from './plugin-ipc.js';
 import { APP_ENTRY_URL } from './app-assets.js';
 import { registerAppScheme, serveAppProtocol } from './app-protocol.js';
 import {
@@ -184,39 +182,9 @@ async function requestPlugin(request: unknown): Promise<unknown> {
     throw new BackendError('core/not-ready', 'the plugin hosts are not enabled');
   }
 
-  if (typeof request !== 'object' || request === null) {
-    throw new BackendError('protocol/bad-request', 'request must be an object');
-  }
+  const { name, params, timeoutMs } = parsePluginCall(request);
 
-  const { name, params, timeoutMs } = request as {
-    name?: unknown;
-    params?: unknown;
-    timeoutMs?: unknown;
-  };
-
-  if (typeof name !== 'string') {
-    throw new BackendError('protocol/bad-request', 'name must be a string');
-  }
-
-  const answer = params ?? {};
-
-  if (typeof answer !== 'object' || answer === null || Array.isArray(answer)) {
-    throw new BackendError('protocol/bad-request', 'params must be an object');
-  }
-
-  if (
-    timeoutMs !== undefined &&
-    (typeof timeoutMs !== 'number' ||
-      !Number.isFinite(timeoutMs) ||
-      timeoutMs <= 0)
-  ) {
-    throw new BackendError(
-      'protocol/bad-request',
-      'timeoutMs must be a positive number',
-    );
-  }
-
-  return pluginHosts.request(name, answer as Record<string, unknown>, timeoutMs);
+  return pluginHosts.request(name, params as Record<string, unknown>, timeoutMs);
 }
 
 /** One command invocation; commands take no parameters. */
@@ -225,30 +193,7 @@ async function commandPlugin(request: unknown): Promise<unknown> {
     throw new BackendError('core/not-ready', 'the plugin hosts are not enabled');
   }
 
-  if (typeof request !== 'object' || request === null) {
-    throw new BackendError('protocol/bad-request', 'request must be an object');
-  }
-
-  const { name, timeoutMs } = request as {
-    name?: unknown;
-    timeoutMs?: unknown;
-  };
-
-  if (typeof name !== 'string') {
-    throw new BackendError('protocol/bad-request', 'name must be a string');
-  }
-
-  if (
-    timeoutMs !== undefined &&
-    (typeof timeoutMs !== 'number' ||
-      !Number.isFinite(timeoutMs) ||
-      timeoutMs <= 0)
-  ) {
-    throw new BackendError(
-      'protocol/bad-request',
-      'timeoutMs must be a positive number',
-    );
-  }
+  const { name, timeoutMs } = parsePluginCommand(request);
 
   return pluginHosts.command(name, timeoutMs);
 }
@@ -355,30 +300,6 @@ app.on('window-all-closed', () => {
     app.quit();
   }
 });
-
-/**
- * A rejected handler crosses the IPC boundary as a plain string, so the code the
- * toolchain carries is lost exactly here. Hand back the failure as a value
- * instead: the renderer can branch on `code` without parsing a message.
- *
- * Two vocabularies reach this point: the toolchain's own (`uv/*`, `target/*`) and
- * the backend's (`media/*`, `protocol/*`). Both keep their code; anything else is
- * a bug here, not a diagnosis.
- */
-async function asResult<T>(run: () => Promise<T>): Promise<IpcResult<T>> {
-  try {
-    return { ok: true, value: await run() };
-  } catch (error) {
-    return {
-      ok: false,
-      code:
-        error instanceof ToolchainError || error instanceof BackendError
-          ? error.code
-          : 'ipc/unexpected',
-      message: error instanceof Error ? error.message : String(error),
-    };
-  }
-}
 
 const OPEN_FILE_FILTERS = {
   audio: [
