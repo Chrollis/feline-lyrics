@@ -1,7 +1,11 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
-import { enableBuiltinHosts } from '../src/main/plugin-boot.ts';
+import {
+  enableBuiltinHosts,
+  restartBuiltinHosts,
+  shutdownHosts,
+} from '../src/main/plugin-boot.ts';
 
 function plugin(id, host, root) {
   return { manifest: { id, host }, root };
@@ -59,4 +63,55 @@ test('a failed user plugin is not enabled and cannot fail the startup', async ()
   await enableBuiltinHosts(target, [
     plugin('someone.echo', 'utility', 'user'),
   ]);
+});
+
+test('a retry stops the previous hosts before creating the next table', async () => {
+  const order = [];
+  const previous = {
+    list: () => [{ id: 'felyrics.media', state: 'ACTIVE' }],
+    disable: async (id) => {
+      order.push(`disable:${id}`);
+    },
+  };
+
+  const next = {
+    enable: async (id) => {
+      order.push(`enable:${id}`);
+    },
+  };
+
+  const hosts = await restartBuiltinHosts(
+    previous,
+    [plugin('felyrics.media', 'utility', 'builtin')],
+    () => {
+      order.push('create');
+
+      return next;
+    },
+  );
+
+  assert.equal(hosts, next);
+  assert.deepEqual(order, ['disable:felyrics.media', 'create', 'enable:felyrics.media']);
+});
+
+test('a shutdown skips hosts that stopped and survives a failed stop', async () => {
+  const disabled = [];
+
+  await shutdownHosts({
+    list: () => [
+      { id: 'a', state: 'ACTIVE' },
+      { id: 'b', state: 'DISPOSED' },
+      { id: 'c', state: 'FAILED' },
+      { id: 'd', state: 'LOADING' },
+    ],
+    disable: async (id) => {
+      disabled.push(id);
+
+      if (id === 'd') {
+        throw new Error('the child did not answer');
+      }
+    },
+  });
+
+  assert.deepEqual(disabled, ['a', 'd']);
 });

@@ -21,7 +21,7 @@ import {
   resolvePaths,
   shutdownBackend,
 } from './backend.js';
-import { enableBuiltinHosts } from './plugin-boot.js';
+import { restartBuiltinHosts, shutdownHosts } from './plugin-boot.js';
 import type { PluginSummary } from '../preload/api.js';
 import { describeFailure, runStartup, type StartupStatus } from './startup.js';
 
@@ -108,6 +108,10 @@ async function start(force = false): Promise<void> {
   starting = true;
 
   try {
+    // A retry replaces the host table; stopping the previous hosts first is
+    // what keeps the old utility processes from piling up behind the new one.
+    await shutdownPlugins();
+
     const marker = await runStartup({
       paths: resolvePaths(),
       userDataDir: app.getPath('userData'),
@@ -170,34 +174,38 @@ async function enableBuiltinPlugins(pythonVersion: string): Promise<void> {
     console.error('[plugin]', issue.directory, issue.code, issue.message);
   }
 
-  const hosts = new PluginHosts(
-    discovery.plugins.map((plugin) => plugin.manifest),
-    {
-      createChannel: (manifest): PluginTransport =>
-        createUtilityChannel({
-          fork: () =>
-            utilityProcess.fork(UTILITY_ENTRY, [], { serviceName: manifest.id }),
-        }),
-      // The plugin never touches a window: the picker is a host service, answered
-      // in the main process where the dialog lives.
-      host: {
-        pickFile: (options) => pickFile(options.kind),
-        // One Python process holds every builtin plugin's backend for now, so the
-        // host is the only party that can route a call to it.
-        backend: {
-          call: (name, params, options) =>
-            callBackend(
-              name,
-              params as Record<string, unknown>,
-              options?.timeoutMs ?? BACKEND_TIMEOUT_MS,
-            ),
+  pluginHosts = await restartBuiltinHosts(
+    pluginHosts ?? undefined,
+    discovery.plugins,
+    () =>
+      new PluginHosts(
+        discovery.plugins.map((plugin) => plugin.manifest),
+        {
+          createChannel: (manifest): PluginTransport =>
+            createUtilityChannel({
+              fork: () =>
+                utilityProcess.fork(UTILITY_ENTRY, [], {
+                  serviceName: manifest.id,
+                }),
+            }),
+          // The plugin never touches a window: the picker is a host service,
+          // answered in the main process where the dialog lives.
+          host: {
+            pickFile: (options) => pickFile(options.kind),
+            // One Python process holds every builtin plugin's backend for now,
+            // so the host is the only party that can route a call to it.
+            backend: {
+              call: (name, params, options) =>
+                callBackend(
+                  name,
+                  params as Record<string, unknown>,
+                  options?.timeoutMs ?? BACKEND_TIMEOUT_MS,
+                ),
+            },
+          },
         },
-      },
-    },
+      ),
   );
-
-  pluginHosts = hosts;
-  await enableBuiltinHosts(hosts, discovery.plugins);
 }
 
 /** Hosts plus the directories discovery could not turn into a plugin. */
@@ -227,19 +235,16 @@ async function commandPlugin(request: unknown): Promise<unknown> {
   return pluginHosts.command(name, timeoutMs);
 }
 
-/** Closes plugin hosts on the way out; the process exit is the real deadline. */
-function shutdownPlugins(): void {
+/**
+ * Closes plugin hosts on the way out; the process exit is the real deadline.
+ * The table is cleared before the async stops so a second quit is a no-op.
+ */
+async function shutdownPlugins(): Promise<void> {
   const hosts = pluginHosts;
   pluginHosts = null;
 
-  if (hosts === null) {
-    return;
-  }
-
-  for (const plugin of hosts.list()) {
-    if (plugin.state === 'ACTIVE' || plugin.state === 'LOADING') {
-      void hosts.disable(plugin.id).catch(() => {});
-    }
+  if (hosts !== null) {
+    await shutdownHosts(hosts);
   }
 }
 
@@ -402,6 +407,6 @@ ipcMain.handle('bootstrap:open-log', async () => {
  * the process exits on its own instead of being killed mid-write.
  */
 app.on('before-quit', () => {
-  shutdownPlugins();
+  void shutdownPlugins();
   void shutdownBackend();
 });
