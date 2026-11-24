@@ -1,4 +1,9 @@
 export {
+  createUtilityChannel,
+  type UtilityChannelOptions,
+  type UtilityChild,
+} from './channel.js';
+export {
   discoverPluginDirectories,
   discoverPlugins,
   type DiscoveryOptions,

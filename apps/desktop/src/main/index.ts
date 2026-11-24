@@ -1,8 +1,14 @@
-import { app, BrowserWindow, dialog, ipcMain } from 'electron';
+import { app, BrowserWindow, dialog, ipcMain, utilityProcess } from 'electron';
 import type { OpenDialogOptions } from 'electron';
 import { join } from 'node:path';
 
-import { BackendError } from '@felyrics/host';
+import {
+  BackendError,
+  createUtilityChannel,
+  discoverPlugins,
+  PluginHosts,
+  type PluginTransport,
+} from '@felyrics/host';
 import { ToolchainError } from '@felyrics/toolchain';
 
 import type {
@@ -17,6 +23,7 @@ import { registerAppScheme, serveAppProtocol } from './app-protocol.js';
 import {
   callBackend,
   pingBackend,
+  hostPaths,
   resolvePaths,
   shutdownBackend,
 } from './backend.js';
@@ -27,8 +34,101 @@ registerAppScheme();
 /** Where the built renderer lives: `out/main/../renderer`. */
 const RENDERER_ROOT = join(import.meta.dirname, '../renderer');
 
+/** The plugin host entry, built beside this file as `out/main/utility.js`. */
+const UTILITY_ENTRY = join(import.meta.dirname, 'utility.js');
+
 /** The backend's job directories, exactly as it was told at launch. */
 const JOBS_ROOT = join(resolvePaths().cacheDir, 'jobs');
+
+let pluginHosts: PluginHosts | null = null;
+
+/**
+ * Discovers the builtin plugins and starts the ones whose TS face runs in a
+ * utility process. A `renderer`-host plugin stays `PENDING` until the renderer
+ * host exists; discovery has already proved its manifest.
+ */
+async function enableBuiltinPlugins(): Promise<void> {
+  const manifests = await discoverPlugins([hostPaths().builtinPluginsRoot]);
+
+  pluginHosts = new PluginHosts(manifests, {
+    createChannel: (manifest): PluginTransport =>
+      createUtilityChannel({
+        fork: () =>
+          utilityProcess.fork(UTILITY_ENTRY, [], { serviceName: manifest.id }),
+      }),
+  });
+
+  for (const manifest of manifests) {
+    if (manifest.host !== 'utility') {
+      continue;
+    }
+
+    try {
+      await pluginHosts.enable(manifest.id);
+    } catch (error) {
+      // A broken builtin plugin fails its own state; the window still opens so
+      // the failure can be read instead of showing a blank app.
+      console.error('[plugin]', manifest.id, error);
+    }
+  }
+}
+
+/** One public method call, validated before it reaches the lifecycle. */
+async function requestPlugin(request: unknown): Promise<unknown> {
+  if (pluginHosts === null) {
+    throw new BackendError('core/not-ready', 'the plugin hosts are not enabled');
+  }
+
+  if (typeof request !== 'object' || request === null) {
+    throw new BackendError('protocol/bad-request', 'request must be an object');
+  }
+
+  const { name, params, timeoutMs } = request as {
+    name?: unknown;
+    params?: unknown;
+    timeoutMs?: unknown;
+  };
+
+  if (typeof name !== 'string') {
+    throw new BackendError('protocol/bad-request', 'name must be a string');
+  }
+
+  const answer = params ?? {};
+
+  if (typeof answer !== 'object' || answer === null || Array.isArray(answer)) {
+    throw new BackendError('protocol/bad-request', 'params must be an object');
+  }
+
+  if (
+    timeoutMs !== undefined &&
+    (typeof timeoutMs !== 'number' ||
+      !Number.isFinite(timeoutMs) ||
+      timeoutMs <= 0)
+  ) {
+    throw new BackendError(
+      'protocol/bad-request',
+      'timeoutMs must be a positive number',
+    );
+  }
+
+  return pluginHosts.request(name, answer as Record<string, unknown>, timeoutMs);
+}
+
+/** Closes plugin hosts on the way out; the process exit is the real deadline. */
+function shutdownPlugins(): void {
+  const hosts = pluginHosts;
+  pluginHosts = null;
+
+  if (hosts === null) {
+    return;
+  }
+
+  for (const plugin of hosts.list()) {
+    if (plugin.state === 'ACTIVE' || plugin.state === 'LOADING') {
+      void hosts.disable(plugin.id).catch(() => {});
+    }
+  }
+}
 
 function createWindow(): void {
   const win = new BrowserWindow({
@@ -78,8 +178,15 @@ function createWindow(): void {
   }
 }
 
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
   serveAppProtocol({ rendererRoot: RENDERER_ROOT, jobsRoot: JOBS_ROOT });
+
+  try {
+    await enableBuiltinPlugins();
+  } catch (error) {
+    console.error('[plugin] discovery failed', error);
+  }
+
   createWindow();
 
   app.on('activate', () => {
@@ -200,10 +307,19 @@ ipcMain.handle('video:frames', (_event, request: Record<string, unknown>) =>
   ),
 );
 
+ipcMain.handle('plugin:list', () =>
+  asResult(async () => pluginHosts?.list() ?? []),
+);
+
+ipcMain.handle('plugin:request', (_event, request: unknown) =>
+  asResult(() => requestPlugin(request)),
+);
+
 /**
  * Closing stdin is how the backend learns to stop: its read loop ends on EOF, so
  * the process exits on its own instead of being killed mid-write.
  */
 app.on('before-quit', () => {
+  shutdownPlugins();
   void shutdownBackend();
 });

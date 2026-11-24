@@ -10,6 +10,10 @@ import type { FelyricsApi } from './api.js';
 const api: FelyricsApi = {
   ping: () => ipcRenderer.invoke('ping'),
   backendPing: () => ipcRenderer.invoke('backend:ping'),
+  plugins: {
+    list: () => ipcRenderer.invoke('plugin:list'),
+    request: (request) => ipcRenderer.invoke('plugin:request', request),
+  },
   media: {
     pick: () => ipcRenderer.invoke('media:pick'),
     probe: (path) => ipcRenderer.invoke('media:probe', path),

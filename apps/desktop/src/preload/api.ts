@@ -90,9 +90,33 @@ export interface FrameRequest {
   readonly width?: number;
 }
 
+/**
+ * One plugin as the host reports it. `state` is the lifecycle state
+ * (`PENDING`/`LOADING`/`ACTIVE`/`FAILED`/`UNLOADING`/`DISPOSED`); `methods` are
+ * public names, `<id>/<short>`, so the renderer never assembles one.
+ */
+export interface PluginSummary {
+  readonly id: string;
+  readonly state: string;
+  readonly methods: readonly string[];
+  readonly commands: readonly { readonly id: string; readonly title: string }[];
+}
+
+/** What the renderer may ask a plugin. `params` is the method's JSON object. */
+export interface PluginRequest {
+  readonly name: string;
+  readonly params?: Record<string, unknown>;
+  readonly timeoutMs?: number;
+}
+
 export interface FelyricsApi {
   ping(): Promise<string>;
   backendPing(): Promise<IpcResult<{ readonly pong: boolean }>>;
+  plugins: {
+    /** Every discovered plugin, active or not, with its public method names. */
+    list(): Promise<IpcResult<readonly PluginSummary[]>>;
+    request(request: PluginRequest): Promise<IpcResult<unknown>>;
+  };
   media: {
     /** Opens the native picker; `null` when the user cancels. */
     pick(): Promise<IpcResult<string | null>>;

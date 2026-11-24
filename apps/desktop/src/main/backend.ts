@@ -14,7 +14,17 @@ import {
   type ToolchainPaths,
 } from '@felyrics/toolchain';
 
-function hostPaths(): HostPaths {
+/**
+ * Where the four directories live for this process. Development points at the
+ * repository so the CLI and the app see the same backend; a packaged app keeps
+ * its writable state under userData. Both are defaults: the settings surface is
+ * meant to override them later.
+ *
+ * Exported because the plugin hosts and the `app://job` handler have to serve
+ * exactly the directories the backend was started with, and a second copy of
+ * these rules would drift.
+ */
+export function hostPaths(): HostPaths {
   return resolveHostPaths({
     packaged: app.isPackaged,
     appPath: app.getAppPath(),
