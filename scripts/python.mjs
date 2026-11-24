@@ -3,7 +3,7 @@
 // packages/toolchain, so the app can provision with different directories.
 
 import { spawnSync } from 'node:child_process';
-import { existsSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -17,12 +17,76 @@ const paths = {
   backendRoot: join(root, 'python'),
 };
 
-// The host and the Python half of every built-in plugin share one venv. The
-// toolchain cannot guess these: the checkout is the only thing that knows where
-// the packages live.
+// The host is a native dependency: its backend is not a plugin and never appears
+// under a plugin root, so only the checkout can name it.
 const hostBackend = join(root, 'packages', 'host', 'backend');
-const mediaBackend = join(root, 'plugins', 'felyrics.media', 'backend');
-const importPaths = [hostBackend, mediaBackend];
+const pluginsRoot = join(root, 'plugins');
+
+/**
+ * The plugins a development environment must satisfy. The directory name is the
+ * plugin id -- the manifest says the same, and checking that belongs to the
+ * loader, not to this shim. Requirements are in the plugin's `backend/` because
+ * each plugin owns what it needs.
+ */
+function pluginSpecs(toolchain) {
+  const specs = [];
+
+  for (const entry of readdirSync(pluginsRoot, { withFileTypes: true })) {
+    if (!entry.isDirectory()) {
+      continue;
+    }
+
+    const directory = join(pluginsRoot, entry.name);
+    const manifestFile = join(directory, 'package.json');
+
+    if (!existsSync(manifestFile)) {
+      continue;
+    }
+
+    let manifest;
+
+    try {
+      manifest = JSON.parse(readFileSync(manifestFile, 'utf8'));
+    } catch (error) {
+      fail(`cannot read ${manifestFile}: ${error.message}`);
+    }
+
+    const python = manifest.felyrics?.backend?.python;
+    const requirementsFile = join(directory, 'backend', 'requirements.txt');
+
+    specs.push({
+      id: entry.name,
+      ...(typeof python === 'string' ? { python } : {}),
+      requirements: existsSync(requirementsFile)
+        ? toolchain.readRequirements(join(directory, 'backend'))
+        : [],
+    });
+  }
+
+  specs.sort((left, right) => left.id.localeCompare(right.id));
+
+  return specs;
+}
+
+/**
+ * The shared environment: every backend directory the venv imports from, and
+ * every requirement the plugins declare. The order is the plugin id order so the
+ * marker fingerprint does not change when the filesystem lists differently.
+ */
+function environment(toolchain) {
+  const specs = pluginSpecs(toolchain);
+  const backends = specs
+    .map((spec) => join(pluginsRoot, spec.id, 'backend'))
+    .filter((directory) => existsSync(directory));
+
+  return {
+    specs,
+    importPaths: [hostBackend, ...backends],
+    requirements: [
+      ...new Set(specs.flatMap((spec) => spec.requirements)),
+    ],
+  };
+}
 
 function fail(message) {
   console.error(message);
@@ -44,14 +108,16 @@ async function loadToolchain() {
 }
 
 async function setup(toolchain) {
+  const env = environment(toolchain);
+
   // The scratch directory is the caller's: the toolchain never remembers it,
   // so a killed run cannot leave a directory behind that nobody owns.
   const marker = await toolchain.withTempDir('felyrics-', (tempDir) =>
     toolchain.provision({
       paths,
       tempDir,
-      requirements: toolchain.readRequirements(mediaBackend),
-      importPaths,
+      requirements: env.requirements,
+      importPaths: env.importPaths,
       onOutput: (chunk, stream) => {
         (stream === 'stdout' ? process.stdout : process.stderr).write(chunk);
       },
@@ -63,9 +129,11 @@ async function setup(toolchain) {
 }
 
 async function doctor(toolchain) {
+  const env = environment(toolchain);
   const report = await toolchain.doctor(paths, {
-    requirements: toolchain.readRequirements(mediaBackend),
-    importPaths,
+    requirements: env.requirements,
+    importPaths: env.importPaths,
+    plugins: env.specs,
   });
 
   for (const check of report.checks) {

@@ -38,7 +38,7 @@ export { PTH_FILENAME, writePth } from './python/pth.js';
 export {
   REQUIREMENTS_FILENAME,
   readRequirements,
-  requirementModule,
+  requirementName,
   requirementsFingerprint,
 } from './python/requirements.js';
 export { provision, type ProvisionOptions } from './python/provision.js';
@@ -48,6 +48,7 @@ export {
   type DoctorCheck,
   type DoctorOptions,
   type DoctorReport,
+  type PluginDoctorSpec,
   type RunBinary,
 } from './python/doctor.js';
 export { withTempDir } from './layout/temp.js';

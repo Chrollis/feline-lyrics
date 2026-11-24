@@ -7,7 +7,7 @@ import { test } from 'node:test';
 import {
   readRequirements,
   REQUIREMENTS_FILENAME,
-  requirementModule,
+  requirementName,
 } from '../../out/index.js';
 
 function withRequirements(fn) {
@@ -58,10 +58,17 @@ test('keeps extras and markers verbatim', () => {
   });
 });
 
-test('reads the import name from a requirement', () => {
-  assert.equal(requirementModule('av==19.0.2'), 'av');
-  assert.equal(requirementModule('numpy'), 'numpy');
-  assert.equal(requirementModule('stable-ts[fw]>=2'), 'stable-ts');
+test('reads the distribution name from a requirement', () => {
+  assert.equal(requirementName('av==19.0.2'), 'av');
+  assert.equal(requirementName('numpy'), 'numpy');
+  assert.equal(requirementName('stable-ts[fw]>=2'), 'stable-ts');
+  assert.equal(requirementName('Stable_TS.name'), 'stable-ts-name');
+});
+
+test('skips a requirement that names no single distribution', () => {
+  assert.equal(requirementName('-e .'), '');
+  assert.equal(requirementName('-r other.txt'), '');
+  assert.equal(requirementName('pkg @ https://example.com/pkg.whl'), '');
 });
 
 test('throws when the directory has no requirements file', () => {

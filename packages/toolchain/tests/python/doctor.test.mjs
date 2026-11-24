@@ -14,6 +14,11 @@ import {
 } from '../../out/index.js';
 
 const REQUIREMENTS = ['av==19.0.2', 'numpy==2.5.5'];
+const PLUGIN = {
+  id: 'felyrics.media',
+  python: 'felyrics_media.serve:serve',
+  requirements: ['av==19.0.2', 'numpy==2.5.5'],
+};
 
 async function withBackend(fn) {
   const root = mkdtempSync(join(tmpdir(), 'felyrics-doctor-'));
@@ -53,22 +58,27 @@ function options(importsDir, run, extra = {}) {
     run,
     requirements: REQUIREMENTS,
     importPaths: [importsDir],
+    plugins: [],
     ...extra,
   };
 }
 
-function fakeRun(output = '') {
+function fakeRun() {
   const calls = [];
   const run = (file, args) => {
     calls.push({ file, args });
 
+    // The dependency probe prints the missing names (none here); every other
+    // call is a version or an import.
+    if (args[1]?.includes('importlib.metadata')) {
+      return { status: 0, output: '' };
+    }
+
     return {
       status: 0,
-      output:
-        output ||
-        (file.endsWith('uv.exe')
-          ? `uv ${UV_VERSION} (abc)`
-          : `Python ${PYTHON_VERSION}`),
+      output: file.endsWith('uv.exe')
+        ? `uv ${UV_VERSION} (abc)`
+        : `Python ${PYTHON_VERSION}`,
     };
   };
 
@@ -93,7 +103,7 @@ test('reports every check when the backend is healthy', async () => {
     assert.deepEqual(byLabel(report, 'dependencies'), {
       label: 'dependencies',
       ok: true,
-      detail: 'av, numpy',
+      detail: 'installed: av, numpy',
     });
     assert.deepEqual(byLabel(report, 'marker'), {
       label: 'marker',
@@ -103,20 +113,48 @@ test('reports every check when the backend is healthy', async () => {
   });
 });
 
-test('fails when a declared dependency cannot be imported', async () => {
+test('imports every plugin backend by name', async () => {
+  await withBackend(async (toolchain, _backend, importsDir) => {
+    const { calls, run } = fakeRun();
+
+    const report = await doctor(
+      toolchain,
+      options(importsDir, run, { plugins: [PLUGIN] }),
+    );
+
+    assert.equal(report.ok, true);
+    assert.deepEqual(byLabel(report, 'import felyrics.media'), {
+      label: 'import felyrics.media',
+      ok: true,
+      detail: 'felyrics_media.serve:serve',
+    });
+    const pluginCall = calls.find((call) =>
+      call.args[2]?.startsWith('felyrics_media'),
+    );
+
+    assert.ok(pluginCall);
+  });
+});
+
+test('fails when a declared distribution is missing', async () => {
   await withBackend(async (toolchain, _backend, importsDir) => {
     const { run: version } = fakeRun();
     const run = (file, args) =>
-      args[0] === '-c'
-        ? { status: 1, output: "ModuleNotFoundError: No module named 'av'" }
+      args[1]?.includes('importlib.metadata')
+        ? { status: 0, output: 'stable-ts' }
         : version(file, args);
 
-    const report = await doctor(toolchain, options(importsDir, run));
+    const report = await doctor(
+      toolchain,
+      options(importsDir, run, {
+        requirements: ['stable-ts[fw]>=2'],
+      }),
+    );
     const dependencies = byLabel(report, 'dependencies');
 
     assert.equal(report.ok, false);
     assert.equal(dependencies.ok, false);
-    assert.match(dependencies.detail, /No module named 'av'/);
+    assert.match(dependencies.detail, /missing: stable-ts/);
   });
 });
 
@@ -177,11 +215,11 @@ test('fails when the pth points somewhere else', async () => {
   });
 });
 
-test('catches a backend package that does not import', async () => {
+test('catches a host entry that does not import', async () => {
   await withBackend(async (toolchain, _backend, importsDir) => {
     const { run: base } = fakeRun();
     const run = (file, args) =>
-      args[1]?.includes('felyrics_host.__main__')
+      args[2] === 'felyrics_host.__main__'
         ? {
             status: 1,
             output: "ModuleNotFoundError: No module named 'does_not_exist'",
@@ -194,6 +232,49 @@ test('catches a backend package that does not import', async () => {
     assert.equal(report.ok, false);
     assert.equal(imported.ok, false);
     assert.match(imported.detail, /does_not_exist/);
+  });
+});
+
+test('catches a plugin entry that does not import', async () => {
+  await withBackend(async (toolchain, _backend, importsDir) => {
+    const { run: base } = fakeRun();
+    const run = (file, args) =>
+      args[2] === 'felyrics_media.serve:serve'
+        ? {
+            status: 1,
+            output: "ModuleNotFoundError: No module named 'felyrics_media'",
+          }
+        : base(file, args);
+
+    const report = await doctor(
+      toolchain,
+      options(importsDir, run, { plugins: [PLUGIN] }),
+    );
+    const imported = byLabel(report, 'import felyrics.media');
+
+    assert.equal(report.ok, false);
+    assert.equal(imported.ok, false);
+    assert.match(imported.detail, /No module named 'felyrics_media'/);
+  });
+});
+
+test('catches a plugin entry that is not callable', async () => {
+  await withBackend(async (toolchain, _backend, importsDir) => {
+    const { run: base } = fakeRun();
+    const run = (file, args) =>
+      args[2] === 'felyrics_media.serve:serve'
+        ? { status: 1, output: 'TypeError: serve is not callable' }
+        : base(file, args);
+
+    const report = await doctor(
+      toolchain,
+      options(importsDir, run, { plugins: [PLUGIN] }),
+    );
+
+    assert.match(
+      byLabel(report, 'import felyrics.media').detail,
+      /not callable/,
+    );
   });
 });
 

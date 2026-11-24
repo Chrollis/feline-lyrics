@@ -6,10 +6,7 @@ import type { ToolchainPaths } from '../layout/paths.js';
 import { backendPaths, type BackendPaths } from '../layout/paths.js';
 import { PTH_FILENAME } from './pth.js';
 import { isReady, readReadyMarker } from './ready.js';
-import {
-  requirementModule,
-  requirementsFingerprint,
-} from './requirements.js';
+import { requirementName, requirementsFingerprint } from './requirements.js';
 import { PYTHON_VERSION, UV_VERSION } from './target.js';
 
 /** One line of the report: what was checked, whether it held, and why. */
@@ -33,13 +30,29 @@ export interface BinaryRun {
 
 export type RunBinary = (file: string, args: readonly string[]) => BinaryRun;
 
+/**
+ * What a doctor run needs from one plugin: enough to check that the environment
+ * can load it, without asking the toolchain to parse a manifest.
+ */
+export interface PluginDoctorSpec {
+  readonly id: string;
+  /** The `module:attribute` the loader will call; absent for a non-python backend. */
+  readonly python?: string;
+  /** Requirement lines this plugin adds to the shared environment. */
+  readonly requirements: readonly string[];
+}
+
 export interface DoctorOptions {
   readonly run?: RunBinary;
   /** Requirement lines the venv must satisfy; the caller owns where they live. */
   readonly requirements: readonly string[];
   /** Directories the `.pth` must name; the caller owns the checkout layout. */
   readonly importPaths: readonly string[];
+  /** The plugins whose backends share this environment. */
+  readonly plugins: readonly PluginDoctorSpec[];
 }
+
+const HOST_ENTRY = 'felyrics_host.__main__';
 
 function runBinary(file: string, args: readonly string[]): BinaryRun {
   const result = spawnSync(file, [...args], { encoding: 'utf8' });
@@ -98,17 +111,20 @@ function checkVersion(
 }
 
 /**
- * Importing is the only honest test of "is this installed": `uv pip list` reports
- * what the metadata claims, while an import runs the code the backend will run.
+ * Asks the installed metadata, not the import system: the distribution name is
+ * what `pip install` recorded, and `stable-ts` installs `stable_ts`, so importing
+ * guessed import names would report a healthy environment as broken.
  */
 function checkDependencies(
   backend: BackendPaths,
   requirements: readonly string[],
   run: RunBinary,
 ): DoctorCheck {
-  const modules = [...new Set(requirements.map(requirementModule))];
+  const names = [
+    ...new Set(requirements.map(requirementName).filter((name) => name !== '')),
+  ];
 
-  if (modules.length === 0) {
+  if (names.length === 0) {
     return { label: 'dependencies', ok: true, detail: 'none declared' };
   }
 
@@ -120,48 +136,88 @@ function checkDependencies(
     };
   }
 
-  const result = run(backend.venvPython, [
-    '-c',
-    `import ${modules.join(', ')}`,
-  ]);
+  const script = [
+    'import importlib.metadata as metadata, sys',
+    'missing = []',
+    'for name in sys.argv[1:]:',
+    '    try:',
+    '        metadata.version(name)',
+    '    except metadata.PackageNotFoundError:',
+    '        missing.append(name)',
+    "print(','.join(missing))",
+  ].join('\n');
+  const result = run(backend.venvPython, ['-c', script, ...names]);
 
   if (result.error || result.status !== 0) {
     return {
       label: 'dependencies',
       ok: false,
-      detail: failureDetail(result) ?? result.error ?? 'import failed',
+      detail: failureDetail(result) ?? result.error ?? 'metadata lookup failed',
     };
   }
 
-  return { label: 'dependencies', ok: true, detail: modules.join(', ') };
+  const missing = result.output
+    .split(',')
+    .map((name) => name.trim())
+    .filter((name) => name !== '');
+
+  if (missing.length > 0) {
+    return {
+      label: 'dependencies',
+      ok: false,
+      detail: `missing: ${missing.join(', ')}`,
+    };
+  }
+
+  return { label: 'dependencies', ok: true, detail: `installed: ${names.join(', ')}` };
 }
 
 /**
- * The `.pth` check only proves a line of text; this runs the line. Importing the
- * entry point also runs the imports it declares at module level (the media
- * methods register there), so one command covers "the package resolves" and
- * "what it pulls in still loads".
+ * Importing is the only honest test of "is this installed": the marker and the
+ * package list describe what was written, while an import runs the code the
+ * backend will run. The attribute is checked too, because a manifest can name a
+ * `serve` that the module forgot to define.
  */
-function checkImport(backend: BackendPaths, run: RunBinary): DoctorCheck {
+function checkImport(
+  label: string,
+  backend: BackendPaths,
+  target: string,
+  run: RunBinary,
+): DoctorCheck {
   if (!existsSync(backend.venvPython)) {
     return {
-      label: 'import',
+      label,
       ok: false,
       detail: `missing ${backend.venvPython}`,
     };
   }
 
-  const result = run(backend.venvPython, ['-c', 'import felyrics_host.__main__']);
+  const [module] = target.split(':');
+
+  if (module === undefined || !/^[A-Za-z_][A-Za-z0-9_.]*$/.test(module)) {
+    return { label, ok: false, detail: `invalid target ${target}` };
+  }
+
+  const script = [
+    'import importlib, sys',
+    'module_name, _, attribute = sys.argv[1].partition(":")',
+    'module = importlib.import_module(module_name)',
+    'if attribute:',
+    '    value = getattr(module, attribute)',
+    '    if not callable(value):',
+    '        raise TypeError(f"{attribute} is not callable")',
+  ].join('\n');
+  const result = run(backend.venvPython, ['-c', script, target]);
 
   if (result.error || result.status !== 0) {
     return {
-      label: 'import',
+      label,
       ok: false,
       detail: failureDetail(result) ?? result.error ?? 'import failed',
     };
   }
 
-  return { label: 'import', ok: true, detail: 'felyrics_host.__main__' };
+  return { label, ok: true, detail: target };
 }
 
 /**
@@ -215,7 +271,15 @@ export async function doctor(
     }
   }
 
-  checks.push(checkImport(backend, run));
+  checks.push(checkImport('import', backend, HOST_ENTRY, run));
+
+  for (const plugin of options.plugins) {
+    if (plugin.python !== undefined) {
+      checks.push(
+        checkImport(`import ${plugin.id}`, backend, plugin.python, run),
+      );
+    }
+  }
 
   const marker = await readReadyMarker(backend);
   const matches = await isReady(backend, {

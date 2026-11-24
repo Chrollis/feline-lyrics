@@ -17,13 +17,30 @@ export function readRequirements(directory: string): string[] {
 }
 
 /**
- * The import name of a requirement: `av==19.0.2` -> `av`, `numpy` -> `numpy`.
- * Version bounds, extras and environment markers are cut off. A distribution
- * whose import name differs from its package name would need a mapping table,
- * and there is none yet.
+ * The distribution name a requirement line installs, canonical per PEP 503:
+ * `stable-ts[fw]>=2` -> `stable-ts`, `My_Pkg.Name` -> `my-pkg-name`.
+ *
+ * The distribution name is what `importlib.metadata` answers for; the import
+ * name is the plugin's business, because its entry module imports whatever it
+ * needs. A line that names no single distribution (an option, a direct URL, a
+ * local path) answers `''`, and the caller does not check it.
  */
-export function requirementModule(requirement: string): string {
-  return requirement.split(/[<>=!~[ ;]/)[0] ?? requirement;
+export function requirementName(requirement: string): string {
+  const line = requirement.trim();
+  const name = /^[A-Za-z0-9][A-Za-z0-9._-]*/.exec(line)?.[0];
+
+  if (name === undefined) {
+    return '';
+  }
+
+  // A direct reference (`name @ https://...`) or a local path is installed from
+  // somewhere no index knows, so its metadata is still there but the name alone
+  // would not say what was installed.
+  if (line.includes('://') || line.startsWith('.') || line.startsWith('/')) {
+    return '';
+  }
+
+  return name.toLowerCase().replace(/[-_.]+/g, '-');
 }
 
 /**
