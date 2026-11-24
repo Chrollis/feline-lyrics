@@ -2,10 +2,10 @@
  * The TypeScript surface a plugin is written against.
  *
  * This is the v0 subset the media plugin needs: identity, the api it declared,
- * one way to register a public method, and one way to reach the plugin's own
- * backend. The loader and the lifecycle (`onDispose`, workers, storage) arrive
- * with the host that can enforce them; declaring them earlier would let a
- * plugin compile against something nothing can honour.
+ * the public methods and commands it registers, a host service (the file
+ * picker), and one way to reach the plugin's own backend. Workers and storage
+ * arrive with the host that can enforce them; declaring them earlier would let
+ * a plugin compile against something nothing can honour.
  */
 
 /** The JSON object every method receives. */
