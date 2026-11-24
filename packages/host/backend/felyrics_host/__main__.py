@@ -56,25 +56,23 @@ def main(argv: list[str] | None = None) -> int:
 
         for plugin in loaded:
             for name, handler in plugin.registry.handlers().items():
-                # The TypeScript face is the public router; until it exists the
-                # wire also answers the public name, so the app can move off the
-                # legacy `media/*` names now and keep them working when the two
-                # faces meet.
-                for wire in (name, f"{plugin.manifest.id}/{name}"):
-                    if wire in METHODS or wire in PLUGIN_METHODS:
-                        raise PluginError(
-                            "core/methods-mismatch",
-                            f"method {wire!r} from {plugin.manifest.id} is "
-                            "already registered",
-                            issues=[
-                                {
-                                    "path": "contributes.internal",
-                                    "message": wire,
-                                }
-                            ],
-                        )
+                # The backend speaks internal short names only: the public
+                # `<id>/<short>` form belongs to the TypeScript face, which
+                # forwards the short name after its own lookup.
+                if name in METHODS or name in PLUGIN_METHODS:
+                    raise PluginError(
+                        "core/methods-mismatch",
+                        f"method {name!r} from {plugin.manifest.id} is "
+                        "already registered",
+                        issues=[
+                            {
+                                "path": "contributes.internal",
+                                "message": name,
+                            }
+                        ],
+                    )
 
-                    PLUGIN_METHODS[wire] = handler
+                PLUGIN_METHODS[name] = handler
     except PluginError as error:
         print(f"{error.code}: {error.message}", file=sys.stderr)
 

@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import type { ReactNode } from 'react';
 
 import type { FelyricsApi, IpcResult } from '../preload/api.js';
 
@@ -15,14 +16,61 @@ function show<T>(result: IpcResult<T>): string {
     : `${result.code}: ${result.message}`;
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null;
+}
+
+/**
+ * The sample cards hard-code two plugin command names and read two answers.
+ * They are a demonstration, not a renderer for arbitrary plugins: a plugin's
+ * answer is JSON, and only the plugin knows what its fields mean.
+ */
+function audioUrlOf(value: unknown): string | null {
+  return isRecord(value) && typeof value['url'] === 'string'
+    ? value['url']
+    : null;
+}
+
+function stillUrlsOf(value: unknown): readonly string[] {
+  if (!isRecord(value) || !Array.isArray(value['frames'])) {
+    return [];
+  }
+
+  const urls: string[] = [];
+
+  for (const frame of value['frames']) {
+    if (isRecord(frame) && typeof frame['url'] === 'string') {
+      urls.push(frame['url']);
+    }
+  }
+
+  return urls;
+}
+
+function Card(props: {
+  readonly title: string;
+  readonly buttons: ReactNode;
+  readonly log: string;
+  readonly children?: ReactNode;
+}) {
+  return (
+    <section>
+      <h2>{props.title}</h2>
+      <p>{props.buttons}</p>
+      <pre>{props.log}</pre>
+      {props.children}
+    </section>
+  );
+}
+
 export function App() {
   const [reply, setReply] = useState('...');
   const [backend, setBackend] = useState('not asked');
   const [audioPath, setAudioPath] = useState<string | null>(null);
-  const [videoPath, setVideoPath] = useState<string | null>(null);
   const [audioLog, setAudioLog] = useState('no audio picked');
-  const [videoLog, setVideoLog] = useState('no video picked');
   const [audioUrl, setAudioUrl] = useState<string | null>(null);
+  const [videoPath, setVideoPath] = useState<string | null>(null);
+  const [videoLog, setVideoLog] = useState('no video picked');
   const [stillUrls, setStillUrls] = useState<readonly string[]>([]);
 
   useEffect(() => {
@@ -38,6 +86,74 @@ export function App() {
       cancelled = true;
     };
   }, []);
+
+  const pickAudio = async () => {
+    setAudioLog('picking...');
+
+    const result = await window.felyrics.plugins.command({
+      name: 'felyrics.media/pick-audio',
+    });
+
+    if (!result.ok) {
+      setAudioLog(show(result));
+
+      return;
+    }
+
+    const picked = result.value;
+
+    if (typeof picked === 'string') {
+      setAudioPath(picked);
+      setAudioLog(`picked: ${picked}`);
+    } else {
+      setAudioLog('cancelled');
+    }
+  };
+
+  const decodeAudio = async () => {
+    setAudioLog('decoding...');
+
+    const result = await window.felyrics.plugins.command({
+      name: 'felyrics.media/decode-audio',
+    });
+
+    setAudioLog(show(result));
+    setAudioUrl(result.ok ? audioUrlOf(result.value) : null);
+  };
+
+  const pickVideo = async () => {
+    setVideoLog('picking...');
+
+    const result = await window.felyrics.plugins.command({
+      name: 'felyrics.media/pick-video',
+    });
+
+    if (!result.ok) {
+      setVideoLog(show(result));
+
+      return;
+    }
+
+    const picked = result.value;
+
+    if (typeof picked === 'string') {
+      setVideoPath(picked);
+      setVideoLog(`picked: ${picked}`);
+    } else {
+      setVideoLog('cancelled');
+    }
+  };
+
+  const framesVideo = async () => {
+    setVideoLog('decoding stills...');
+
+    const result = await window.felyrics.plugins.command({
+      name: 'felyrics.media/frames-video',
+    });
+
+    setVideoLog(show(result));
+    setStillUrls(result.ok ? stillUrlsOf(result.value) : []);
+  };
 
   return (
     <main>
@@ -58,95 +174,51 @@ export function App() {
 
       <hr />
 
-      <button
-        type="button"
-        onClick={() => {
-          void window.felyrics.media.pick().then(async (picked) => {
-            if (!picked.ok || picked.value === null) {
-              setAudioLog(picked.ok ? 'cancelled' : show(picked));
-              return;
-            }
-
-            setAudioPath(picked.value);
-            setAudioLog('probing...');
-            setAudioLog(show(await window.felyrics.media.probe(picked.value)));
-          });
-        }}
+      <Card
+        title="Audio"
+        buttons={
+          <>
+            <button type="button" onClick={pickAudio}>
+              Pick audio
+            </button>{' '}
+            <button
+              type="button"
+              disabled={audioPath === null}
+              onClick={decodeAudio}
+            >
+              Decode audio
+            </button>
+          </>
+        }
+        log={audioLog}
       >
-        pick audio
-      </button>
-      <button
-        type="button"
-        disabled={audioPath === null}
-        onClick={() => {
-          if (audioPath === null) {
-            return;
-          }
+        {/* The proof that the whole chain works: the page loads the file the
+            backend wrote, over `app://job`, not from disk. */}
+        {audioUrl !== null && <audio controls src={audioUrl} />}
+      </Card>
 
-          setAudioLog('decoding...');
-          void window.felyrics.media
-            .decode({ path: audioPath, rate: 16000, layout: 'mono' })
-            .then((result) => {
-              setAudioLog(show(result));
-              // The proof that the whole chain works: the page loads the file
-              // the backend wrote, over `app://job`, not from disk.
-              setAudioUrl(result.ok ? result.value.url : null);
-            });
-        }}
+      <Card
+        title="Video"
+        buttons={
+          <>
+            <button type="button" onClick={pickVideo}>
+              Pick video
+            </button>{' '}
+            <button
+              type="button"
+              disabled={videoPath === null}
+              onClick={framesVideo}
+            >
+              Frames video
+            </button>
+          </>
+        }
+        log={videoLog}
       >
-        decode 16k mono
-      </button>
-      <pre>{audioLog}</pre>
-      {audioUrl !== null && <audio controls src={audioUrl} />}
-
-      <hr />
-
-      <button
-        type="button"
-        onClick={() => {
-          void window.felyrics.video.pick().then(async (picked) => {
-            if (!picked.ok || picked.value === null) {
-              setVideoLog(picked.ok ? 'cancelled' : show(picked));
-              return;
-            }
-
-            setVideoPath(picked.value);
-            setVideoLog('probing...');
-            setVideoLog(show(await window.felyrics.video.probe(picked.value)));
-          });
-        }}
-      >
-        pick video
-      </button>
-      <button
-        type="button"
-        disabled={videoPath === null}
-        onClick={() => {
-          if (videoPath === null) {
-            return;
-          }
-
-          setVideoLog('decoding stills...');
-          void window.felyrics.video
-            .frames({ path: videoPath, count: 3, step: 0.5, width: 320 })
-            .then((result) => {
-              setVideoLog(show(result));
-              setStillUrls(
-                result.ok
-                  ? result.value.frames
-                      .map((frame) => frame.url)
-                      .filter((url): url is string => url !== null)
-                  : [],
-              );
-            });
-        }}
-      >
-        grab 3 stills
-      </button>
-      <pre>{videoLog}</pre>
-      {stillUrls.map((url) => (
-        <img key={url} src={url} alt={url} width={320} />
-      ))}
+        {stillUrls.map((url) => (
+          <img key={url} src={url} alt={url} width={320} />
+        ))}
+      </Card>
     </main>
   );
 }

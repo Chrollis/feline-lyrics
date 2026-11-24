@@ -11,13 +11,7 @@ import {
 } from '@felyrics/host';
 import { ToolchainError } from '@felyrics/toolchain';
 
-import type {
-  AudioInfo,
-  DecodedAudio,
-  FrameBatch,
-  IpcResult,
-  VideoInfo,
-} from '../preload/api.js';
+import type { IpcResult } from '../preload/api.js';
 import { APP_ENTRY_URL } from './app-assets.js';
 import { registerAppScheme, serveAppProtocol } from './app-protocol.js';
 import {
@@ -308,59 +302,12 @@ async function pickFile(
 // A request that never returns is worse than one that fails: the renderer shows
 // a spinner forever with nothing to branch on. Probing and decoding audio are
 // bounded by a few seconds in practice; a still batch can legitimately take
-// minutes on a long video, so it gets its own budget.
+// minutes on a long video, so the plugin itself raises that call's budget.
 const BACKEND_TIMEOUT_MS = 30_000;
-const FRAMES_TIMEOUT_MS = 300_000;
 
 ipcMain.handle('ping', () => 'pong');
 
 ipcMain.handle('backend:ping', () => asResult(() => pingBackend()));
-
-// The path arrives as `unknown` on purpose: the backend validates it and answers
-// `felyrics.media/bad-request`, so there is no second, weaker parser here.
-ipcMain.handle('media:pick', () => asResult(() => pickFile('audio')));
-
-ipcMain.handle('media:probe', (_event, path: unknown) =>
-  asResult(() =>
-    callBackend<AudioInfo>(
-      'felyrics.media/probe',
-      { path },
-      BACKEND_TIMEOUT_MS,
-    ),
-  ),
-);
-
-ipcMain.handle('media:decode', (_event, request: Record<string, unknown>) =>
-  asResult(() =>
-    callBackend<DecodedAudio>(
-      'felyrics.media/decode',
-      request,
-      BACKEND_TIMEOUT_MS,
-    ),
-  ),
-);
-
-ipcMain.handle('video:pick', () => asResult(() => pickFile('video')));
-
-ipcMain.handle('video:probe', (_event, path: unknown) =>
-  asResult(() =>
-    callBackend<VideoInfo>(
-      'felyrics.media/video-probe',
-      { path },
-      BACKEND_TIMEOUT_MS,
-    ),
-  ),
-);
-
-ipcMain.handle('video:frames', (_event, request: Record<string, unknown>) =>
-  asResult(() =>
-    callBackend<FrameBatch>(
-      'felyrics.media/video-frames',
-      request,
-      FRAMES_TIMEOUT_MS,
-    ),
-  ),
-);
 
 ipcMain.handle('plugin:list', () =>
   asResult(async () => pluginHosts?.list() ?? []),
