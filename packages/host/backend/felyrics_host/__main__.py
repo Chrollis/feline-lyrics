@@ -18,7 +18,7 @@ import sys
 from . import runtime
 from .loader import load_plugins
 from .manifest import PluginError
-from .server import METHODS, PLUGIN_METHODS, serve
+from .server import METHODS, PLUGIN_METHODS, PluginMethod, serve
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -72,7 +72,11 @@ def main(argv: list[str] | None = None) -> int:
                         ],
                     )
 
-                PLUGIN_METHODS[name] = handler
+                PLUGIN_METHODS[name] = PluginMethod(
+                    plugin.manifest.id,
+                    frozenset(plugin.manifest.errors),
+                    handler,
+                )
     except PluginError as error:
         print(f"{error.code}: {error.message}", file=sys.stderr)
 

@@ -19,6 +19,7 @@ from felyrics_host.server import (
     METHODS,
     PLUGIN_METHODS,
     PROTOCOL_VERSION,
+    PluginMethod,
     ProtocolError,
     respond,
     serve,
@@ -64,7 +65,9 @@ class RespondTest(unittest.TestCase):
         self.assertEqual(response["error"]["code"], "protocol/bad-request")
 
     def test_a_plugin_method_is_dispatched(self):
-        PLUGIN_METHODS["echo"] = lambda params: {"echo": params}
+        PLUGIN_METHODS["echo"] = PluginMethod(
+            "fixtures.echo", frozenset(), lambda params: {"echo": params}
+        )
 
         try:
             response = parse('{"v":1,"id":6,"method":"echo","params":{"hi":1}}')
@@ -72,6 +75,75 @@ class RespondTest(unittest.TestCase):
             del PLUGIN_METHODS["echo"]
 
         self.assertEqual(response["result"], {"echo": {"hi": 1}})
+
+    def test_a_declared_plugin_error_keeps_its_code(self):
+        def refuse(params):
+            raise ServiceError("fixtures.echo/open-failed", "cannot open it")
+
+        PLUGIN_METHODS["refuse"] = PluginMethod(
+            "fixtures.echo", frozenset({"open-failed"}), refuse
+        )
+
+        try:
+            response = parse('{"v":1,"id":7,"method":"refuse"}')
+        finally:
+            del PLUGIN_METHODS["refuse"]
+
+        self.assertEqual(
+            response["error"],
+            {"code": "fixtures.echo/open-failed", "message": "cannot open it"},
+        )
+
+    def test_an_undeclared_plugin_error_becomes_internal(self):
+        def refuse(params):
+            raise ServiceError("fixtures.echo/surprise", "not in the manifest")
+
+        PLUGIN_METHODS["refuse"] = PluginMethod(
+            "fixtures.echo", frozenset({"open-failed"}), refuse
+        )
+
+        try:
+            response = parse('{"v":1,"id":8,"method":"refuse"}')
+        finally:
+            del PLUGIN_METHODS["refuse"]
+
+        self.assertEqual(response["error"]["code"], "core/internal")
+        self.assertIn("fixtures.echo/surprise", response["error"]["message"])
+        self.assertEqual(
+            response["error"]["data"], {"originalCode": "fixtures.echo/surprise"}
+        )
+
+    def test_another_plugins_error_prefix_becomes_internal(self):
+        def refuse(params):
+            raise ServiceError("someone.else/open-failed", "not yours")
+
+        PLUGIN_METHODS["refuse"] = PluginMethod(
+            "fixtures.echo", frozenset({"open-failed"}), refuse
+        )
+
+        try:
+            response = parse('{"v":1,"id":9,"method":"refuse"}')
+        finally:
+            del PLUGIN_METHODS["refuse"]
+
+        self.assertEqual(response["error"]["code"], "core/internal")
+        self.assertEqual(
+            response["error"]["data"],
+            {"originalCode": "someone.else/open-failed"},
+        )
+
+    def test_a_host_code_raised_during_the_call_passes(self):
+        def refuse(params):
+            raise ServiceError("core/not-ready", "the job kind is not declared")
+
+        PLUGIN_METHODS["refuse"] = PluginMethod("fixtures.echo", frozenset(), refuse)
+
+        try:
+            response = parse('{"v":1,"id":10,"method":"refuse"}')
+        finally:
+            del PLUGIN_METHODS["refuse"]
+
+        self.assertEqual(response["error"]["code"], "core/not-ready")
 
     def test_handler_crash_answers_without_dying(self):
         def boom(params):
@@ -163,7 +235,7 @@ class RespondTest(unittest.TestCase):
 
     def test_a_handler_error_keeps_its_code(self):
         def refuse(params):
-            raise ServiceError("media/open-failed", "cannot open it")
+            raise ServiceError("core/not-ready", "the host is not ready")
 
         METHODS["refuse"] = refuse
 
@@ -175,7 +247,7 @@ class RespondTest(unittest.TestCase):
         self.assertEqual(response["id"], 5)
         self.assertEqual(
             response["error"],
-            {"code": "media/open-failed", "message": "cannot open it"},
+            {"code": "core/not-ready", "message": "the host is not ready"},
         )
 
 

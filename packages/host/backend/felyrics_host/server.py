@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 import sys
 import traceback
+from dataclasses import dataclass
 from typing import IO, Any, Callable
 
 from .errors import ServiceError
@@ -18,10 +19,20 @@ Handler = Callable[[dict[str, Any]], Any]
 
 METHODS: dict[str, Handler] = {}
 
+
+@dataclass(frozen=True, slots=True)
+class PluginMethod:
+    """A plugin handler plus the identity its failures are checked against."""
+
+    plugin_id: str
+    declared_errors: frozenset[str]
+    handler: Handler
+
+
 # Methods a loaded plugin registered. `METHODS` stays the host's own table; the
 # host never writes into it on a plugin's behalf. The table is flat until the
 # TypeScript host routes per plugin, so a duplicate name is refused at load time.
-PLUGIN_METHODS: dict[str, Handler] = {}
+PLUGIN_METHODS: dict[str, PluginMethod] = {}
 
 # Both sides state the version they speak, and each one answers in its own: an
 # implementation cannot reply in a format it does not know. The field is what
@@ -97,16 +108,6 @@ def dispatch(request: Any) -> Any:
             "protocol/bad-request", "request.method must be a string"
         )
 
-    handler = PLUGIN_METHODS.get(name)
-
-    if handler is None:
-        handler = METHODS.get(name)
-
-    if handler is None:
-        raise ProtocolError(
-            "protocol/unknown-method", f"no method named {name!r}"
-        )
-
     params = request.get("params", {})
 
     if not isinstance(params, dict):
@@ -114,7 +115,48 @@ def dispatch(request: Any) -> Any:
             "protocol/bad-request", "request.params must be an object"
         )
 
+    plugin_method = PLUGIN_METHODS.get(name)
+
+    if plugin_method is not None:
+        try:
+            return plugin_method.handler(params)
+        except ServiceError as error:
+            if _plugin_code_allowed(plugin_method, error.code):
+                raise
+
+            # A code the plugin never declared -- or one in another plugin's
+            # namespace -- is a bug the caller must not learn to branch on. The
+            # original stays in the message and in `data` for the log.
+            raise ServiceError(
+                "core/internal",
+                f"{error.code}: {error.message}",
+                data={"originalCode": error.code},
+            ) from error
+
+    handler = METHODS.get(name)
+
+    if handler is None:
+        raise ProtocolError(
+            "protocol/unknown-method", f"no method named {name!r}"
+        )
+
     return handler(params)
+
+
+def _plugin_code_allowed(method: PluginMethod, code: str) -> bool:
+    """Whether `code` may travel to the caller unchanged.
+
+    Host codes pass: a host service the plugin called on our behalf (for
+    example `ctx.new_job`) raises `core/*` during the call, and hiding that
+    would turn an explainable refusal into a generic one.
+    """
+
+    if code.startswith("core/"):
+        return True
+
+    prefix = f"{method.plugin_id}/"
+
+    return code.startswith(prefix) and code[len(prefix) :] in method.declared_errors
 
 
 def respond(line: str) -> dict[str, Any]:
