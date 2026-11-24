@@ -4,7 +4,10 @@
 // backend itself is covered by the Python suite.
 
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
 import { test } from 'node:test';
+import { fileURLToPath } from 'node:url';
 
 import {
   activate,
@@ -13,6 +16,14 @@ import {
   METHODS,
   SAMPLE_FRAMES,
 } from '../dist/index.js';
+
+// The manifest is the declaration the host compares against; reading it here is
+// what keeps `METHODS`/`COMMANDS` from drifting away from it.
+const PLUGIN_ROOT = dirname(dirname(fileURLToPath(import.meta.url)));
+const MANIFEST = JSON.parse(
+  readFileSync(join(PLUGIN_ROOT, 'package.json'), 'utf8'),
+);
+const DECLARED = MANIFEST.felyrics.contributes;
 
 function fakeContext(picked = null) {
   const methods = new Map();
@@ -45,13 +56,21 @@ function fakeContext(picked = null) {
   return { ctx, methods, commands, calls, picks };
 }
 
-test('activate registers every declared method and command', async () => {
+test('activate registers exactly what the manifest declares', async () => {
   const { ctx, methods, commands } = fakeContext();
 
   await activate(ctx);
 
-  assert.deepEqual([...methods.keys()], [...METHODS]);
-  assert.deepEqual([...commands.keys()], [...COMMANDS]);
+  assert.deepEqual([...METHODS].sort(), [...DECLARED.methods].sort());
+  assert.deepEqual(
+    [...COMMANDS].sort(),
+    DECLARED.commands.map((command) => command.id).sort(),
+  );
+  assert.deepEqual([...methods.keys()].sort(), [...DECLARED.methods].sort());
+  assert.deepEqual(
+    [...commands.keys()].sort(),
+    DECLARED.commands.map((command) => command.id).sort(),
+  );
 });
 
 test('a public method forwards its name and parameters', async () => {
