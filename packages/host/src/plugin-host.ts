@@ -10,6 +10,7 @@ import type {
   PluginMethod,
   PluginParams,
 } from './plugin.js';
+import { exceedsPayload } from './protocol.js';
 import {
   UTILITY_PROTOCOL_VERSION,
   type HostCommand,
@@ -269,11 +270,26 @@ export function servePlugin(
     }
 
     try {
+      const result = await handler(request.params as PluginParams);
+
+      if (exceedsPayload(result)) {
+        send({
+          v: UTILITY_PROTOCOL_VERSION,
+          kind: 'failure',
+          seq: request.seq,
+          error: wireError(
+            'protocol/oversize',
+            'the result is larger than the payload bound',
+          ),
+        });
+        return;
+      }
+
       send({
         v: UTILITY_PROTOCOL_VERSION,
         kind: 'result',
         seq: request.seq,
-        result: await handler(request.params as PluginParams),
+        result,
       });
     } catch (error) {
       send({
@@ -304,11 +320,26 @@ export function servePlugin(
     }
 
     try {
+      const result = await handler();
+
+      if (exceedsPayload(result)) {
+        send({
+          v: UTILITY_PROTOCOL_VERSION,
+          kind: 'failure',
+          seq: command.seq,
+          error: wireError(
+            'protocol/oversize',
+            'the result is larger than the payload bound',
+          ),
+        });
+        return;
+      }
+
       send({
         v: UTILITY_PROTOCOL_VERSION,
         kind: 'result',
         seq: command.seq,
-        result: await handler(),
+        result,
       });
     } catch (error) {
       send({
@@ -334,6 +365,16 @@ export function servePlugin(
     if (reply.error !== undefined) {
       pending.reject(
         new PluginHostError(reply.error.code, reply.error.message),
+      );
+      return;
+    }
+
+    if (reply.result !== undefined && exceedsPayload(reply.result)) {
+      pending.reject(
+        new PluginHostError(
+          'protocol/oversize',
+          'the host replied with more than the payload bound',
+        ),
       );
       return;
     }

@@ -44,7 +44,11 @@ PROTOCOL_VERSION = 1
 # One line is one message. A line over this bound is refused instead of being
 # buffered: a broken plugin or a client bug must not be able to grow the process
 # until it swaps.
-MAX_LINE_BYTES = 1024 * 1024
+MAX_PAYLOAD_BYTES = 1024 * 1024
+
+# A line is a payload plus its envelope, so the transport bound leaves the
+# result bound some headroom; a result exactly at the bound still fits.
+MAX_LINE_BYTES = MAX_PAYLOAD_BYTES + 64 * 1024
 
 
 class ProtocolError(ServiceError):
@@ -186,7 +190,19 @@ def respond(line: str) -> dict[str, Any]:
             if isinstance(request_id, bool) or not isinstance(request_id, int):
                 request_id = None
 
-        return {"v": PROTOCOL_VERSION, "id": request_id, "result": dispatch(request)}
+        result = dispatch(request)
+
+        if len(json.dumps(result, ensure_ascii=False).encode("utf-8")) > MAX_PAYLOAD_BYTES:
+            return {
+                "v": PROTOCOL_VERSION,
+                "id": request_id,
+                "error": {
+                    "code": "protocol/oversize",
+                    "message": f"the result is larger than {MAX_PAYLOAD_BYTES} bytes",
+                },
+            }
+
+        return {"v": PROTOCOL_VERSION, "id": request_id, "result": result}
     except json.JSONDecodeError as error:
         return {
             "v": PROTOCOL_VERSION,

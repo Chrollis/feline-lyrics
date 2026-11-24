@@ -165,6 +165,25 @@ export async function activate(ctx) {
   });
 });
 
+test('a result over the payload bound is refused', async (t) => {
+  const handle = await start(
+    t,
+    `
+export async function activate(ctx) {
+  ctx.method('huge', () => 'x'.repeat(1024 * 1024 + 1));
+}
+`,
+    { methods: ['huge'] },
+  );
+
+  await handle.enable();
+  await assert.rejects(handle.request('fixtures.echo/huge', {}), (error) => {
+    assert.equal(error.code, 'protocol/oversize');
+
+    return true;
+  });
+});
+
 test('a backend call is routed through the host services', async (t) => {
   const calls = [];
   const handle = await start(

@@ -137,6 +137,13 @@ for await (const raw of lines) {
     continue;
   }
 
+  if (request.method === 'huge') {
+    process.stdout.write(
+      reply({ id: request.id, result: { text: 'x'.repeat(1024 * 1024 + 1) } }),
+    );
+    continue;
+  }
+
   process.stdout.write(
     reply({ id: request.id, result: { method: request.method } }),
   );
@@ -403,6 +410,18 @@ test('keeps the backend error code when a request fails', async () => {
     assert.ok(error instanceof BackendError);
     assert.equal(error.code, 'felyrics.media/open-failed');
     assert.equal(error.message, 'cannot open the file');
+  });
+});
+
+test('refuses a result over the payload bound', async () => {
+  await withService({}, async (client) => {
+    const error = await client.request('huge').then(
+      () => null,
+      (reason) => reason,
+    );
+
+    assert.ok(error instanceof BackendError);
+    assert.equal(error.code, 'protocol/oversize');
   });
 });
 

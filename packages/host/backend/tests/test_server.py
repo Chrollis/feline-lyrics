@@ -17,6 +17,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from felyrics_host.errors import ServiceError
 from felyrics_host.server import (
     MAX_LINE_BYTES,
+    MAX_PAYLOAD_BYTES,
     METHODS,
     PLUGIN_METHODS,
     PROTOCOL_VERSION,
@@ -84,6 +85,23 @@ class RespondTest(unittest.TestCase):
         bare = parse('{"v":1,"id":6,"method":"echo"}')
 
         self.assertEqual(bare["error"]["code"], "protocol/unknown-method")
+
+    def test_a_result_over_the_payload_bound_is_refused(self):
+        PLUGIN_METHODS[("fixtures.echo", "huge")] = PluginMethod(
+            "fixtures.echo",
+            frozenset(),
+            lambda params: "x" * (MAX_PAYLOAD_BYTES + 1),
+        )
+
+        try:
+            response = parse('{"v":1,"id":4,"method":"fixtures.echo/huge"}')
+        finally:
+            del PLUGIN_METHODS[("fixtures.echo", "huge")]
+
+        # The answer is refused as a whole: a partial result would be read as
+        # a well-formed but incomplete value by the caller.
+        self.assertEqual(response["id"], 4)
+        self.assertEqual(response["error"]["code"], "protocol/oversize")
 
     def test_a_declared_plugin_error_keeps_its_code(self):
         def refuse(params):

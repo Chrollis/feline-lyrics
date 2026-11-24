@@ -10,12 +10,30 @@ import { ToolchainError } from '@felyrics/toolchain';
  */
 export const PROTOCOL_VERSION = 1;
 
+/** The most one result may carry, per the plugin contract (B §4). */
+export const MAX_PAYLOAD_BYTES = 1024 * 1024;
+
 /**
  * One line is one message. A backend that writes more than this without a
  * newline is refused instead of buffered: a broken plugin must not be able to
  * grow the client until it swaps.
+ *
+ * A line is a payload plus its envelope (`v`, `id`, `result`); the headroom is
+ * fixed so a result exactly at the payload bound still fits on one line.
  */
-export const MAX_LINE_CHARS = 1024 * 1024;
+export const MAX_LINE_CHARS = MAX_PAYLOAD_BYTES + 64 * 1024;
+
+/**
+ * Whether one value, as JSON, is larger than the payload bound. A value that
+ * cannot be serialized is not a size problem; the write path refuses it later.
+ */
+export function exceedsPayload(value: unknown): boolean {
+  try {
+    return Buffer.byteLength(JSON.stringify(value) ?? '') > MAX_PAYLOAD_BYTES;
+  } catch {
+    return false;
+  }
+}
 
 /**
  * Reads the version the other side reported, out of an error's open `data`.
@@ -296,6 +314,16 @@ export function startService(options: ServiceOptions): ServiceClient {
 
       entry.reject(new BackendError(code, text));
     } else {
+      if (exceedsPayload(message.result)) {
+        entry.reject(
+          new BackendError(
+            'protocol/oversize',
+            `the result is larger than ${MAX_PAYLOAD_BYTES} bytes`,
+          ),
+        );
+        return;
+      }
+
       entry.resolve(message.result);
     }
   };

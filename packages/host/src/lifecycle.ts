@@ -1,6 +1,6 @@
 import type { CommandContribution, PluginManifest } from './manifest.js';
 import type { PluginHostServices, PluginParams } from './plugin.js';
-import { BackendError } from './protocol.js';
+import { BackendError, exceedsPayload } from './protocol.js';
 import {
   UTILITY_PROTOCOL_VERSION,
   type PluginEvent,
@@ -528,17 +528,26 @@ export class PluginHandle {
           );
         }
 
+        const answer = await backend.call(
+          // The shared backend process keys its handlers by `(plugin, short)`;
+          // the plugin's source still says just `probe` or `decode`.
+          `${this.manifest.id}/${name}`,
+          params as PluginParams,
+          timeoutMs === undefined ? {} : { timeoutMs },
+        );
+
+        if (exceedsPayload(answer)) {
+          throw new PluginLifecycleError(
+            'protocol/oversize',
+            'the backend answered with more than the payload bound',
+          );
+        }
+
         channel.send({
           v: UTILITY_PROTOCOL_VERSION,
           kind: 'host-reply',
           seq: event.seq,
-          result: await backend.call(
-            // The shared backend process keys its handlers by `(plugin, short)`;
-            // the plugin's source still says just `probe` or `decode`.
-            `${this.manifest.id}/${name}`,
-            params as PluginParams,
-            timeoutMs === undefined ? {} : { timeoutMs },
-          ),
+          result: answer,
         });
         return;
       }
@@ -619,6 +628,16 @@ export class PluginHandle {
       this.pending.delete(event.seq);
 
       if (event.kind === 'result') {
+        if (exceedsPayload(event.result)) {
+          pending.reject(
+            new PluginLifecycleError(
+              'protocol/oversize',
+              'the plugin answered with more than the payload bound',
+            ),
+          );
+          return;
+        }
+
         pending.resolve(event.result);
       } else {
         pending.reject(this.pluginError(event.error));
