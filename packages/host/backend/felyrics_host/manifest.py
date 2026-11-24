@@ -36,7 +36,10 @@ _FELYRICS_KEYS = frozenset(
     {"api", "host", "backend", "engines", "workers", "contributes"}
 )
 _BACKEND_KEYS = frozenset({"python", "exec"})
-_CONTRIBUTES_KEYS = frozenset({"methods", "internal", "errors", "jobs"})
+_CONTRIBUTES_KEYS = frozenset(
+    {"methods", "internal", "errors", "jobs", "commands"}
+)
+_COMMAND_KEYS = frozenset({"id", "title"})
 
 Issue = dict[str, str]
 
@@ -66,6 +69,14 @@ class PluginError(ServiceError):
 
 
 @dataclass(frozen=True, slots=True)
+class CommandContribution:
+    """One button the host draws; the handler lives in `activate`."""
+
+    id: str
+    title: str
+
+
+@dataclass(frozen=True, slots=True)
 class PluginManifest:
     """Everything the host needs from package.json, already validated."""
 
@@ -77,6 +88,7 @@ class PluginManifest:
     engines_python: str | None
     methods: tuple[str, ...]
     internal: tuple[str, ...]
+    commands: tuple[CommandContribution, ...]
     errors: tuple[str, ...]
     jobs: tuple[str, ...]
 
@@ -211,6 +223,7 @@ def load_manifest(directory: Path) -> PluginManifest:
     contributes = felyrics.get("contributes")
     methods: tuple[str, ...] = ()
     internal: tuple[str, ...] = ()
+    commands: tuple[CommandContribution, ...] = ()
     errors: tuple[str, ...] = ()
     jobs: tuple[str, ...] = ()
 
@@ -254,6 +267,7 @@ def load_manifest(directory: Path) -> PluginManifest:
             issues,
             required=False,
         )
+        commands = _commands(contributes.get("commands"), issues)
 
     if issues:
         raise _invalid(issues)
@@ -310,6 +324,7 @@ def load_manifest(directory: Path) -> PluginManifest:
         engines_python=engines_python,
         methods=methods,
         internal=internal,
+        commands=commands,
         errors=errors,
         jobs=jobs,
     )
@@ -475,6 +490,46 @@ def _short_list(
         _issue(issues, path, "must declare at least one name")
 
     return tuple(names)
+
+
+def _commands(
+    value: Any, issues: list[Issue]
+) -> tuple[CommandContribution, ...]:
+    if value is None:
+        return ()
+
+    if not isinstance(value, list):
+        _issue(issues, "felyrics.contributes.commands", "must be an array")
+        return ()
+
+    commands: list[CommandContribution] = []
+    seen: set[str] = set()
+
+    for index, item in enumerate(value):
+        path = f"felyrics.contributes.commands[{index}]"
+
+        if not isinstance(item, dict):
+            _issue(issues, path, "must be an object")
+            continue
+
+        _refuse_unknown(item, _COMMAND_KEYS, path, issues)
+        command_id = _text(item.get("id"), f"{path}.id", issues)
+        title = _text(item.get("title"), f"{path}.title", issues)
+
+        if command_id is None:
+            continue
+
+        if not is_short_name(command_id):
+            _issue(issues, f"{path}.id", "must be lowercase kebab")
+        elif command_id in seen:
+            _issue(issues, f"{path}.id", f"{command_id!r} is listed twice")
+        else:
+            seen.add(command_id)
+
+            if title is not None:
+                commands.append(CommandContribution(command_id, title))
+
+    return tuple(commands)
 
 
 def _refuse_unknown(

@@ -1,4 +1,24 @@
 export {
+  discoverPluginDirectories,
+  discoverPlugins,
+  type DiscoveryOptions,
+} from './loader.js';
+export {
+  isShortName,
+  loadManifest,
+  ManifestError,
+  PLUGIN_API,
+  PLUGIN_HOSTS,
+  WORKER_LIMIT,
+  type CommandContribution,
+  type LoadManifestOptions,
+  type ManifestErrorCode,
+  type ManifestIssue,
+  type PluginHost,
+  type PluginManifest,
+  type PythonTarget,
+} from './manifest.js';
+export {
   resolveHostPaths,
   type HostPathInputs,
   type HostPaths,
