@@ -142,17 +142,25 @@ class RespondTest(unittest.TestCase):
         )
 
     def test_a_host_code_raised_during_the_call_passes(self):
-        def refuse(params):
-            raise ServiceError("core/not-ready", "the job kind is not declared")
+        codes = (
+            ("core/not-ready", "the job kind is not declared"),
+            ("protocol/bad-request", "the host refused the parameters"),
+        )
 
-        PLUGIN_METHODS[("fixtures.echo", "refuse")] = PluginMethod("fixtures.echo", frozenset(), refuse)
+        for code, message in codes:
+            def refuse(params, code=code, message=message):
+                raise ServiceError(code, message)
 
-        try:
-            response = parse('{"v":1,"id":10,"method":"fixtures.echo/refuse"}')
-        finally:
-            del PLUGIN_METHODS[("fixtures.echo", "refuse")]
+            PLUGIN_METHODS[("fixtures.echo", "refuse")] = PluginMethod(
+                "fixtures.echo", frozenset(), refuse
+            )
 
-        self.assertEqual(response["error"]["code"], "core/not-ready")
+            try:
+                response = parse('{"v":1,"id":10,"method":"fixtures.echo/refuse"}')
+            finally:
+                del PLUGIN_METHODS[("fixtures.echo", "refuse")]
+
+            self.assertEqual(response["error"]["code"], code)
 
     def test_handler_crash_answers_without_dying(self):
         def boom(params):

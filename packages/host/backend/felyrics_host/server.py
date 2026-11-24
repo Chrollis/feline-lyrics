@@ -155,12 +155,13 @@ def dispatch(request: Any) -> Any:
 def _plugin_code_allowed(method: PluginMethod, code: str) -> bool:
     """Whether `code` may travel to the caller unchanged.
 
-    Host codes pass: a host service the plugin called on our behalf (for
-    example `ctx.new_job`) raises `core/*` during the call, and hiding that
-    would turn an explainable refusal into a generic one.
+    Host codes pass: `core/*` and `protocol/*` are host namespaces, and a host
+    service the plugin called on our behalf (for example `ctx.new_job`) raises
+    them during the call; hiding that would turn an explainable refusal into a
+    generic one.
     """
 
-    if code.startswith("core/"):
+    if code.startswith(("core/", "protocol/")):
         return True
 
     prefix = f"{method.plugin_id}/"

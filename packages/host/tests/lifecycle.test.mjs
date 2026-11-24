@@ -396,7 +396,7 @@ test('request names are checked before they reach the plugin', async (t) => {
   });
 });
 
-test('a handler failure keeps the code the plugin chose', async (t) => {
+test('an undeclared plugin code becomes core/internal', async (t) => {
   const handle = await start(t, `
 export async function activate(ctx) {
   ctx.method('echo', () => {
@@ -408,8 +408,51 @@ export async function activate(ctx) {
   await handle.enable();
 
   await assert.rejects(handle.request('fixtures.echo/echo', {}), (error) => {
+    assert.equal(error.code, 'core/internal');
+    assert.equal(error.data.originalCode, 'fixtures.echo/boom');
+    assert.match(error.message, /fixtures\.echo\/boom/);
+
+    return true;
+  });
+});
+
+test('a declared plugin code keeps its name', async (t) => {
+  const handle = await start(
+    t,
+    `
+export async function activate(ctx) {
+  ctx.method('echo', () => {
+    throw { code: 'fixtures.echo/boom', message: 'boom' };
+  });
+}
+`,
+    { errors: ['boom'] },
+  );
+
+  await handle.enable();
+
+  await assert.rejects(handle.request('fixtures.echo/echo', {}), (error) => {
     assert.equal(error.code, 'fixtures.echo/boom');
     assert.equal(error.message, 'boom');
+
+    return true;
+  });
+});
+
+test('a code from another plugin becomes core/internal', async (t) => {
+  const handle = await start(t, `
+export async function activate(ctx) {
+  ctx.method('echo', () => {
+    throw { code: 'someone.else/boom', message: 'boom' };
+  });
+}
+`);
+
+  await handle.enable();
+
+  await assert.rejects(handle.request('fixtures.echo/echo', {}), (error) => {
+    assert.equal(error.code, 'core/internal');
+    assert.equal(error.data.originalCode, 'someone.else/boom');
 
     return true;
   });

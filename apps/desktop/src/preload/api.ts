@@ -14,7 +14,13 @@
 /** What a handler returns. A rejection would reach the renderer as a plain string. */
 export type IpcResult<T> =
   | { readonly ok: true; readonly value: T }
-  | { readonly ok: false; readonly code: string; readonly message: string };
+  | {
+      readonly ok: false;
+      readonly code: string;
+      readonly message: string;
+      /** Context the error carried, e.g. the code a plugin error was replaced with. */
+      readonly data?: unknown;
+    };
 
 /**
  * One plugin as the host reports it. `state` is the lifecycle state

@@ -33,6 +33,21 @@ test('asResult keeps a backend code', async () => {
   });
 });
 
+test('asResult forwards the data an error carried', async () => {
+  const answer = await asResult(async () => {
+    throw new BackendError('core/internal', 'replaced', {
+      originalCode: 'fixtures.echo/boom',
+    });
+  });
+
+  assert.deepEqual(answer, {
+    ok: false,
+    code: 'core/internal',
+    message: 'replaced',
+    data: { originalCode: 'fixtures.echo/boom' },
+  });
+});
+
 test('asResult keeps a toolchain code', async () => {
   const answer = await asResult(async () => {
     throw new ToolchainError('uv/missing-binary', 'uv did not answer');

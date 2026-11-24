@@ -103,11 +103,17 @@ interface Pending {
  */
 export class BackendError extends Error {
   readonly code: string;
+  /** Extra context an error may carry; kept optional so a bare message still works. */
+  readonly data?: unknown;
 
-  constructor(code: string, message: string) {
+  constructor(code: string, message: string, data?: unknown) {
     super(message);
     this.name = 'BackendError';
     this.code = code;
+
+    if (data !== undefined) {
+      this.data = data;
+    }
   }
 }
 

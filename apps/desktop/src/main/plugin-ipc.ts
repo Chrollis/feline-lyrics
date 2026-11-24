@@ -15,13 +15,17 @@ export async function asResult<T>(
   try {
     return { ok: true, value: await run() };
   } catch (error) {
+    const code =
+      error instanceof ToolchainError || error instanceof BackendError
+        ? error.code
+        : 'ipc/unexpected';
+    const data = error instanceof BackendError ? error.data : undefined;
+
     return {
       ok: false,
-      code:
-        error instanceof ToolchainError || error instanceof BackendError
-          ? error.code
-          : 'ipc/unexpected',
+      code,
       message: error instanceof Error ? error.message : String(error),
+      ...(data === undefined ? {} : { data }),
     };
   }
 }

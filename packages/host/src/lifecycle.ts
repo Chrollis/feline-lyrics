@@ -36,8 +36,9 @@ export class PluginLifecycleError extends BackendError {
     code: string,
     message: string,
     issues: readonly PluginIssue[] = [],
+    data?: unknown,
   ) {
-    super(code, message);
+    super(code, message, data);
     this.name = 'PluginLifecycleError';
     this.issues = issues;
   }
@@ -337,6 +338,36 @@ export class PluginHandle {
     }
   }
 
+  /**
+   * B section 8: a plugin error is its own id plus a declared short name.
+   * Host codes (core/*) pass through; anything else becomes core/internal,
+   * with the original code kept in data.originalCode.
+   */
+  private pluginError(error: {
+    readonly code: string;
+    readonly message: string;
+  }): PluginLifecycleError {
+    const prefix = `${this.manifest.id}/`;
+    const short = error.code.startsWith(prefix)
+      ? error.code.slice(prefix.length)
+      : undefined;
+    const declared =
+      error.code.startsWith('core/') ||
+      error.code.startsWith('protocol/') ||
+      (short !== undefined && this.manifest.errors.includes(short));
+
+    if (declared) {
+      return new PluginLifecycleError(error.code, error.message);
+    }
+
+    return new PluginLifecycleError(
+      'core/internal',
+      `${error.code}: ${error.message}`,
+      [],
+      { originalCode: error.code },
+    );
+  }
+
   private async load(): Promise<void> {
     const channel = this.options.createChannel(this.manifest);
     this.channel = channel;
@@ -589,9 +620,7 @@ export class PluginHandle {
       if (event.kind === 'result') {
         pending.resolve(event.result);
       } else {
-        pending.reject(
-          new PluginLifecycleError(event.error.code, event.error.message),
-        );
+        pending.reject(this.pluginError(event.error));
       }
 
       return;
