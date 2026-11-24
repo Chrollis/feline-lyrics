@@ -49,57 +49,92 @@ test('discovery reads one level of both roots and ignores the rest', async () =>
   await plugin(user, 'someone.tool');
   await writeFile(join(builtin, 'loose-file.js'), '');
 
-  const manifests = await discoverPlugins([builtin, user]);
+  const { plugins, issues } = await discoverPlugins([
+    { path: builtin, kind: 'builtin' },
+    { path: user, kind: 'user' },
+  ]);
 
   assert.deepEqual(
-    manifests.map((manifest) => manifest.id).sort(),
+    plugins.map((plugin) => plugin.manifest.id).sort(),
     ['felyrics.echo', 'felyrics.media', 'someone.tool'],
   );
-  assert.ok(manifests.every((manifest) => manifest.directory.startsWith(builtin) || manifest.directory.startsWith(user)));
+  assert.deepEqual(issues, []);
+  assert.equal(
+    plugins.find((plugin) => plugin.manifest.id === 'someone.tool')?.root,
+    'user',
+  );
 });
 
-test('a missing root contributes no plugins', async () => {  const builtin = await root();
+test('a missing root contributes no plugins', async () => {
+  const builtin = await root();
   await plugin(builtin, 'felyrics.media');
 
-  const manifests = await discoverPlugins([builtin, join(builtin, 'missing')]);
+  const { plugins } = await discoverPlugins([
+    { path: builtin, kind: 'builtin' },
+    { path: join(builtin, 'missing'), kind: 'user' },
+  ]);
 
-  assert.deepEqual(manifests.map((manifest) => manifest.id), ['felyrics.media']);
+  assert.deepEqual(
+    plugins.map((plugin) => plugin.manifest.id),
+    ['felyrics.media'],
+  );
 });
 
-test('the same id in both roots is refused', async () => {
+test('the builtin copy wins over a user copy of the same id', async () => {
   const builtin = await root();
   const user = await root();
 
   await plugin(builtin, 'felyrics.media');
   await plugin(user, 'felyrics.media');
 
-  await assert.rejects(discoverPlugins([builtin, user]), (error) => {
-    assert.equal(error.code, 'core/duplicate-id');
+  const { plugins, issues } = await discoverPlugins([
+    { path: builtin, kind: 'builtin' },
+    { path: user, kind: 'user' },
+  ]);
 
-    return true;
-  });
+  assert.deepEqual(
+    plugins.map((plugin) => plugin.manifest.id),
+    ['felyrics.media'],
+  );
+  assert.equal(plugins[0].root, 'builtin');
+  assert.equal(issues.length, 1);
+  assert.equal(issues[0].code, 'core/duplicate-id');
+  assert.equal(issues[0].root, 'user');
 });
 
-test('a directory without a manifest is refused', async () => {
+test('a broken user manifest becomes an issue, not a failed discovery', async () => {
   const builtin = await root();
-  await mkdir(join(builtin, 'felyrics.media'));
+  const user = await root();
 
-  await assert.rejects(discoverPlugins([builtin]), (error) => {
-    assert.equal(error.code, 'core/manifest-invalid');
-    assert.equal(error.issues[0].path, 'package.json');
+  await plugin(builtin, 'felyrics.media');
+  await mkdir(join(user, 'someone.broken'));
 
-    return true;
-  });
+  const { plugins, issues } = await discoverPlugins([
+    { path: builtin, kind: 'builtin' },
+    { path: user, kind: 'user' },
+  ]);
+
+  assert.deepEqual(
+    plugins.map((plugin) => plugin.manifest.id),
+    ['felyrics.media'],
+  );
+  assert.equal(issues.length, 1);
+  assert.equal(issues[0].code, 'core/manifest-invalid');
+  assert.equal(issues[0].root, 'user');
+  assert.equal(issues[0].issues[0].path, 'package.json');
 });
 
-test('a bad manifest stops discovery with its own code', async () => {
+test('a bad builtin manifest is an issue too, with its own code', async () => {
   const builtin = await root();
 
   await plugin(builtin, 'felyrics.media', { felyrics: { api: 9 } });
 
-  await assert.rejects(discoverPlugins([builtin]), (error) => {
-    assert.equal(error.code, 'core/manifest-invalid');
+  const { plugins, issues } = await discoverPlugins([
+    { path: builtin, kind: 'builtin' },
+  ]);
 
-    return true;
-  });
+  assert.deepEqual(plugins, []);
+  assert.equal(issues.length, 1);
+  assert.equal(issues[0].code, 'core/manifest-invalid');
+  assert.equal(issues[0].root, 'builtin');
 });

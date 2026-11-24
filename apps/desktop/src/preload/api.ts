@@ -32,6 +32,8 @@ export interface PluginSummary {
   readonly state: string;
   readonly methods: readonly string[];
   readonly commands: readonly { readonly id: string; readonly title: string }[];
+  /** Present when the plugin failed before it could register. */
+  readonly message?: string;
 }
 
 /** What the renderer may ask a plugin. `params` is the method's JSON object. */

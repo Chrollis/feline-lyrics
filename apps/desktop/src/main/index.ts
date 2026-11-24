@@ -6,7 +6,10 @@ import {
   BackendError,
   createUtilityChannel,
   discoverPlugins,
+  issueId,
   PluginHosts,
+  type DiscoveryIssue,
+  type PluginSummary,
   type PluginTransport,
 } from '@felyrics/host';
 import { asResult, parsePluginCall, parsePluginCommand } from './plugin-ipc.js';
@@ -42,6 +45,7 @@ const UTILITY_ENTRY = join(import.meta.dirname, 'utility.js');
 const JOBS_ROOT = join(resolvePaths().cacheDir, 'jobs');
 
 let pluginHosts: PluginHosts | null = null;
+let pluginFailures: readonly DiscoveryIssue[] = [];
 let progressWindow: BrowserWindow | null = null;
 let mainWindow: BrowserWindow | null = null;
 let latestStatus: StartupStatus | null = null;
@@ -136,44 +140,76 @@ async function start(force = false): Promise<void> {
  * host exists; discovery has already proved its manifest.
  */
 async function enableBuiltinPlugins(): Promise<void> {
-  const manifests = await discoverPlugins([hostPaths().builtinPluginsRoot]);
+  const discovery = await discoverPlugins([
+    { path: hostPaths().builtinPluginsRoot, kind: 'builtin' },
+    { path: hostPaths().userPluginsRoot, kind: 'user' },
+  ]);
 
-  pluginHosts = new PluginHosts(manifests, {
-    createChannel: (manifest): PluginTransport =>
-      createUtilityChannel({
-        fork: () =>
-          utilityProcess.fork(UTILITY_ENTRY, [], { serviceName: manifest.id }),
-      }),
-    // The plugin never touches a window: the picker is a host service, answered
-    // in the main process where the dialog lives.
-    host: {
-      pickFile: (options) => pickFile(options.kind),
-      // One Python process holds every builtin plugin's backend for now, so the
-      // host is the only party that can route a call to it.
-      backend: {
-        call: (name, params, options) =>
-          callBackend(
-            name,
-            params as Record<string, unknown>,
-            options?.timeoutMs ?? BACKEND_TIMEOUT_MS,
-          ),
+  pluginFailures = discovery.issues;
+
+  for (const issue of discovery.issues) {
+    console.error('[plugin]', issue.directory, issue.code, issue.message);
+  }
+
+  pluginHosts = new PluginHosts(
+    discovery.plugins.map((plugin) => plugin.manifest),
+    {
+      createChannel: (manifest): PluginTransport =>
+        createUtilityChannel({
+          fork: () =>
+            utilityProcess.fork(UTILITY_ENTRY, [], { serviceName: manifest.id }),
+        }),
+      // The plugin never touches a window: the picker is a host service, answered
+      // in the main process where the dialog lives.
+      host: {
+        pickFile: (options) => pickFile(options.kind),
+        // One Python process holds every builtin plugin's backend for now, so the
+        // host is the only party that can route a call to it.
+        backend: {
+          call: (name, params, options) =>
+            callBackend(
+              name,
+              params as Record<string, unknown>,
+              options?.timeoutMs ?? BACKEND_TIMEOUT_MS,
+            ),
+        },
       },
     },
-  });
+  );
 
-  for (const manifest of manifests) {
-    if (manifest.host !== 'utility') {
+  for (const plugin of discovery.plugins) {
+    // A user plugin is discovered and listed, but only a builtin one is enabled
+    // without asking: the user's package runs in its own backend later (step 5),
+    // and enabling it silently would run third-party code at boot.
+    if (plugin.root !== 'builtin' || plugin.manifest.host !== 'utility') {
       continue;
     }
 
     try {
-      await pluginHosts.enable(manifest.id);
+      await pluginHosts.enable(plugin.manifest.id);
     } catch (error) {
       // A broken builtin plugin fails its own state; the window still opens so
       // the failure can be read instead of showing a blank app.
-      console.error('[plugin]', manifest.id, error);
+      console.error('[plugin]', plugin.manifest.id, error);
     }
   }
+}
+
+/** Hosts plus the directories discovery could not turn into a plugin. */
+function listPlugins(): readonly PluginSummary[] {
+  const hosts = pluginHosts?.list() ?? [];
+  const known = new Set(hosts.map((plugin) => plugin.id));
+  const failed = pluginFailures
+    .filter((issue) => !known.has(issueId(issue)))
+    .map((issue) => ({
+      id: issueId(issue),
+      state: 'FAILED' as const,
+      methods: [],
+      commands: [],
+      message: `${issue.code}: ${issue.message}`,
+    }));
+
+  return [...hosts, ...failed];
 }
 
 /** One public method call, validated before it reaches the lifecycle. */
@@ -341,9 +377,7 @@ ipcMain.handle('ping', () => 'pong');
 
 ipcMain.handle('backend:ping', () => asResult(() => pingBackend()));
 
-ipcMain.handle('plugin:list', () =>
-  asResult(async () => pluginHosts?.list() ?? []),
-);
+ipcMain.handle('plugin:list', () => asResult(async () => listPlugins()));
 
 ipcMain.handle('plugin:request', (_event, request: unknown) =>
   asResult(() => requestPlugin(request)),

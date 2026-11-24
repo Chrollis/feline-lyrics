@@ -1,84 +1,136 @@
 import { readdir } from 'node:fs/promises';
-import { join } from 'node:path';
+import { basename, join } from 'node:path';
 
 import {
   loadManifest,
   ManifestError,
+  type ManifestIssue,
   type PluginManifest,
 } from './manifest.js';
 
 /**
  * Plugin discovery: two roots, one level, directory name equals plugin id.
  *
- * Discovery never imports plugin code. It reads manifests, so a broken manifest
- * is refused before anything from the plugin can run; `enable` (a later step)
- * owns the hooks and the teardown.
+ * A broken manifest must not take the whole app down: it is reported as an
+ * issue and the remaining plugins still load. A user plugin may never shadow a
+ * builtin one, so on a duplicate id the builtin is kept and the copy is reported.
  */
+export type PluginRootKind = 'builtin' | 'user';
+
+export interface PluginRoot {
+  readonly path: string;
+  readonly kind: PluginRootKind;
+}
+
+export interface DiscoveredPlugin {
+  readonly manifest: PluginManifest;
+  readonly root: PluginRootKind;
+}
+
+/** A directory that could not become a plugin; the app shows it as failed. */
+export interface DiscoveryIssue {
+  readonly directory: string;
+  readonly root: PluginRootKind;
+  readonly code: string;
+  readonly message: string;
+  readonly issues: readonly ManifestIssue[];
+}
+
+export interface DiscoveryResult {
+  readonly plugins: readonly DiscoveredPlugin[];
+  readonly issues: readonly DiscoveryIssue[];
+}
+
 export interface DiscoveryOptions {
   /** The python the backend will run, as `major.minor`; enables the engine check. */
   readonly pythonVersion?: string;
 }
 
-/** Lists the candidate plugin directories under each root, one level deep. */
+/** Lists the candidate plugin directories under one root, one level deep. */
 export async function discoverPluginDirectories(
-  roots: readonly string[],
+  root: PluginRoot,
 ): Promise<string[]> {
-  const directories: string[] = [];
+  let entries;
 
-  for (const root of roots) {
-    let entries;
-
-    try {
-      entries = await readdir(root, { withFileTypes: true });
-    } catch {
-      // A missing root is not an error: a fresh install has no user plugins.
-      continue;
-    }
-
-    for (const entry of entries) {
-      if (entry.isDirectory() && !entry.name.startsWith('.')) {
-        directories.push(join(root, entry.name));
-      }
-    }
+  try {
+    entries = await readdir(root.path, { withFileTypes: true });
+  } catch {
+    // A missing root is not an error: a fresh install has no user plugins.
+    return [];
   }
 
-  return directories.sort();
+  return entries
+    .filter((entry) => entry.isDirectory() && !entry.name.startsWith('.'))
+    .map((entry) => join(root.path, entry.name))
+    .sort();
 }
 
 /**
  * Loads every plugin under the given roots.
  *
- * A duplicate id is refused rather than letting one root shadow the other: the
- * user must not be able to replace a builtin plugin by installing a package
- * with its id.
+ * Builtin roots are processed first, so a user copy of a builtin id is refused
+ * without depending on the order the caller passed.
  */
 export async function discoverPlugins(
-  roots: readonly string[],
+  roots: readonly PluginRoot[],
   options: DiscoveryOptions = {},
-): Promise<PluginManifest[]> {
-  const manifests: PluginManifest[] = [];
-  const byId = new Map<string, PluginManifest>();
+): Promise<DiscoveryResult> {
+  const ordered = [...roots].sort(
+    (left, right) => rank(left.kind) - rank(right.kind),
+  );
+  const plugins: DiscoveredPlugin[] = [];
+  const issues: DiscoveryIssue[] = [];
+  const byId = new Map<string, DiscoveredPlugin>();
 
-  for (const directory of await discoverPluginDirectories(roots)) {
-    const manifest = await loadManifest(directory, options);
-    const previous = byId.get(manifest.id);
+  for (const root of ordered) {
+    for (const directory of await discoverPluginDirectories(root)) {
+      let manifest;
 
-    if (previous !== undefined) {
-      throw new ManifestError(
-        'core/duplicate-id',
-        `plugin ${manifest.id} is declared by both ${previous.directory} and ${manifest.directory}`,
-        [
-          {
-            path: 'directory',
-            message: `${previous.directory} and ${manifest.directory}`,
-          },
-        ],
-      );
+      try {
+        manifest = await loadManifest(directory, options);
+      } catch (error) {
+        if (!(error instanceof ManifestError)) {
+          throw error;
+        }
+
+        issues.push({
+          directory,
+          root: root.kind,
+          code: error.code,
+          message: error.message,
+          issues: error.issues,
+        });
+        continue;
+      }
+
+      const existing = byId.get(manifest.id);
+
+      if (existing !== undefined) {
+        issues.push({
+          directory,
+          root: root.kind,
+          code: 'core/duplicate-id',
+          message: `${manifest.id} is already loaded from ${existing.manifest.directory}`,
+          issues: [],
+        });
+        continue;
+      }
+
+      const plugin: DiscoveredPlugin = { manifest, root: root.kind };
+
+      byId.set(manifest.id, plugin);
+      plugins.push(plugin);
     }
-
-    byId.set(manifest.id, manifest);
-    manifests.push(manifest);
   }
 
-  return manifests;
+  return { plugins, issues };
+}
+
+function rank(kind: PluginRootKind): number {
+  return kind === 'builtin' ? 0 : 1;
+}
+
+/** The id a failed directory would have had, for the plugin list. */
+export function issueId(issue: DiscoveryIssue): string {
+  return basename(issue.directory);
 }

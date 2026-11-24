@@ -13,7 +13,13 @@ export {
 export {
   discoverPluginDirectories,
   discoverPlugins,
+  issueId,
+  type DiscoveredPlugin,
+  type DiscoveryIssue,
   type DiscoveryOptions,
+  type DiscoveryResult,
+  type PluginRoot,
+  type PluginRootKind,
 } from './loader.js';
 export {
   isShortName,

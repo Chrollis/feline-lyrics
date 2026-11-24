@@ -26,12 +26,17 @@ export async function planEnvironment(
   hostBackendRoot: string,
   builtinPluginsRoot: string,
 ): Promise<PluginEnvironment> {
-  const manifests = await discoverPlugins([builtinPluginsRoot]);
+  // The environment still belongs to the builtin plugins: a user plugin gets
+  // its own backend directory later (step 5), so it is discovered but its
+  // requirements are not installed into the shared venv.
+  const discovery = await discoverPlugins([
+    { path: builtinPluginsRoot, kind: 'builtin' },
+  ]);
   const importPaths = [resolve(hostBackendRoot)];
   const requirements: string[] = [];
   const plugins: PluginDoctorSpec[] = [];
 
-  for (const manifest of manifests) {
+  for (const { manifest } of discovery.plugins) {
     if (manifest.python === undefined) {
       continue;
     }
