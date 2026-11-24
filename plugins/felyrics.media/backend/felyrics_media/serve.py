@@ -154,7 +154,6 @@ def video_frames(params: dict[str, Any]) -> dict[str, Any]:
         _keep_only(directory, "frames")
 
     return {
-        "dir": _context.jobUrl(directory, "") if directory is not None else "",
         "width": image_width,
         "height": image_height,
         "fps": info.fps,

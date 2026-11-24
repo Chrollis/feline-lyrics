@@ -92,10 +92,9 @@ class VideoTest(unittest.TestCase):
 
         self.assertEqual(len(result["frames"]), 2)
         self.assertEqual((result["width"], result["height"]), (64, 48))
-        self.assertTrue(result["dir"].startswith("app://job/"))
-        self.assertTrue(result["dir"].endswith("/"))
+        self.assertNotIn("dir", result)
 
-        directory = job_file(self.cache, result["dir"] + "x").parent
+        directory = job_file(self.cache, result["frames"][0]["url"]).parent
 
         self.assertEqual(directory, job_dirs(self.cache, "frames")[0])
 
@@ -149,7 +148,6 @@ class VideoTest(unittest.TestCase):
         )["result"]
 
         self.assertEqual(result["frames"], [])
-        self.assertEqual(result["dir"], "")
         self.assertEqual(sorted(job_dirs(self.cache, "frames")[0].rglob("*.png")), before)
 
     def test_a_frame_request_keeps_the_decoded_audio(self):
