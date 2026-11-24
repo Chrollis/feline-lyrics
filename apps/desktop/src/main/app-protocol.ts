@@ -1,13 +1,13 @@
 import { protocol } from 'electron';
 import { readFile } from 'node:fs/promises';
 
+import { JOB_HOST, resolveJobFile } from '@felyrics/host';
+
 import {
   APP_SCHEME,
   CONTENT_SECURITY_POLICY,
   contentTypeFor,
-  JOB_HOST,
   resolveAssetPath,
-  resolveJobPath,
 } from './app-assets.js';
 
 /**
@@ -66,7 +66,7 @@ export function serveAppProtocol(roots: AppRoots): void {
 
     const file =
       host === JOB_HOST
-        ? resolveJobPath(roots.jobsRoot, request.url)
+        ? resolveJobFile(roots.jobsRoot, request.url)
         : resolveAssetPath(roots.rendererRoot, request.url);
 
     if (file === null) {

@@ -22,19 +22,6 @@ export const APP_ORIGIN = `${APP_SCHEME}://${APP_HOST}`;
 export const APP_ENTRY_URL = `${APP_ORIGIN}/index.html`;
 
 /**
- * The backend writes its results into the cache, outside the bundle, so they
- * need an origin of their own. A second host on the same scheme keeps one
- * handler and one policy: `app://job/<job>/<file>` can only reach a file inside
- * one job directory, and the page keeps its `'self'`.
- */
-export const JOB_HOST = 'job';
-
-export const JOB_ORIGIN = `${APP_SCHEME}://${JOB_HOST}`;
-
-/** Job directories are `uuid4().hex`, so this is exactly what may be served. */
-const JOB_ID = /^[0-9a-f]{32}$/;
-
-/**
  * No inline script, no inline style, no remote code. `connect-src 'self'` is
  * enough because the backend is reached over IPC, not HTTP.
  */
@@ -123,61 +110,6 @@ export function resolveAssetPath(root: string, url: string): string | null {
   // `startsWith(base)` alone would accept a sibling directory whose name begins
   // with the root's name (`renderer-evil` next to `renderer`).
   if (target !== base && !target.startsWith(base + sep)) {
-    return null;
-  }
-
-  return target;
-}
-
-/**
- * Map an `app://job/<job>/<file>` URL to a file inside one job directory, or
- * `null` when it must not be served.
- *
- * Exactly two segments are allowed -- a job id and one file name -- because that
- * is the shape the backend writes. The renderer never gets to name a path, only
- * a job and a file inside it. That keeps the job origin from becoming a way to
- * read the cache, or the disk.
- */
-export function resolveJobPath(jobsRoot: string, url: string): string | null {
-  let parsed: URL;
-
-  try {
-    parsed = new URL(url);
-  } catch {
-    return null;
-  }
-
-  if (parsed.protocol !== `${APP_SCHEME}:` || parsed.host !== JOB_HOST) {
-    return null;
-  }
-
-  let pathname: string;
-
-  try {
-    pathname = decodeURIComponent(parsed.pathname);
-  } catch {
-    return null;
-  }
-
-  const segments = pathname
-    .replaceAll('\\', '/')
-    .split('/')
-    .filter((segment) => segment.length > 0 && segment !== '.');
-
-  if (segments.length !== 2) {
-    return null;
-  }
-
-  const [job, file] = segments as [string, string];
-
-  if (!JOB_ID.test(job) || file === '..') {
-    return null;
-  }
-
-  const target = resolve(jobsRoot, job, file);
-  const base = resolve(jobsRoot);
-
-  if (!target.startsWith(base + sep)) {
     return null;
   }
 

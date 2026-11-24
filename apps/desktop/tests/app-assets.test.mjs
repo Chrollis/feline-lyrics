@@ -7,14 +7,10 @@ import {
   APP_ORIGIN,
   CONTENT_SECURITY_POLICY,
   contentTypeFor,
-  JOB_ORIGIN,
   resolveAssetPath,
-  resolveJobPath,
 } from '../src/main/app-assets.ts';
 
 const root = join(resolve('.'), 'out', 'renderer');
-const jobsRoot = join(resolve('.'), 'cache', 'jobs');
-const job = 'a'.repeat(32);
 
 test('loads index.html for the bare origin', () => {
   assert.equal(
@@ -105,49 +101,4 @@ test('names the media type of what the backend writes', () => {
   assert.equal(contentTypeFor('audio.flac'), 'audio/flac');
   assert.equal(contentTypeFor('0001.png'), 'image/png');
   assert.equal(contentTypeFor('unknown.bin'), 'application/octet-stream');
-});
-
-test('serves a job file on the job host and nothing else', () => {
-  // The shape the host actually writes: one job directory, then the file.
-  assert.equal(
-    resolveJobPath(jobsRoot, `${JOB_ORIGIN}/${job}/0001.png`),
-    join(jobsRoot, job, '0001.png'),
-  );
-  assert.equal(
-    resolveJobPath(jobsRoot, `${JOB_ORIGIN}/${job}/audio.flac`),
-    join(jobsRoot, job, 'audio.flac'),
-  );
-});
-
-test('refuses anything that is not one job and one file', () => {
-  assert.equal(resolveJobPath(jobsRoot, `${JOB_ORIGIN}/`), null);
-  assert.equal(resolveJobPath(jobsRoot, `${JOB_ORIGIN}/${job}`), null);
-  assert.equal(
-    resolveJobPath(jobsRoot, `${JOB_ORIGIN}/${job}/nested/0001.png`),
-    null,
-  );
-  assert.equal(
-    resolveJobPath(jobsRoot, `${JOB_ORIGIN}/not-a-job-id/0001.png`),
-    null,
-  );
-  // The old kind bucket is now a job id nobody wrote, not a directory to serve.
-  assert.equal(
-    resolveJobPath(jobsRoot, `${JOB_ORIGIN}/frames/${job}/0001.png`),
-    null,
-  );
-  assert.equal(
-    resolveJobPath(jobsRoot, `${JOB_ORIGIN}/${job}/..%5csecret.txt`),
-    null,
-  );
-  assert.equal(resolveJobPath(jobsRoot, `${JOB_ORIGIN}/${job}/%zz.png`), null);
-});
-
-test('keeps the two hosts apart', () => {
-  // The bundle host must not reach the cache, and the job host must not reach
-  // the bundle: an origin that serves both would undo the separation.
-  assert.equal(
-    resolveAssetPath(root, `${JOB_ORIGIN}/${job}/0001.png`),
-    null,
-  );
-  assert.equal(resolveJobPath(jobsRoot, `${APP_ORIGIN}/index.html`), null);
 });

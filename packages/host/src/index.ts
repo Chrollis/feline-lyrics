@@ -4,6 +4,13 @@ export {
   type UtilityChild,
 } from './channel.js';
 export {
+  JOB_HOST,
+  JOB_ID,
+  JOB_ORIGIN,
+  JOB_SCHEME,
+  resolveJobFile,
+} from './jobs.js';
+export {
   discoverPluginDirectories,
   discoverPlugins,
   type DiscoveryOptions,
