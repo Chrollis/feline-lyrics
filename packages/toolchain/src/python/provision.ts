@@ -21,6 +21,15 @@ import {
   type UvContext,
 } from './uv.js';
 
+/** What the progress window can label; one step per visible phase. */
+export type ProvisionStep =
+  | 'uv'
+  | 'python'
+  | 'venv'
+  | 'pth'
+  | 'packages'
+  | 'marker';
+
 export interface ProvisionOptions {
   readonly paths: ToolchainPaths;
   /** Scratch directory for uv; the caller creates and removes it. */
@@ -43,7 +52,28 @@ export interface ProvisionOptions {
   readonly run?: RunUv;
   readonly target?: PlatformTarget;
   readonly onOutput?: (chunk: string, stream: 'stdout' | 'stderr') => void;
+  /** Called before each phase, so a window can name what is happening. */
+  readonly onStep?: (step: ProvisionStep) => void;
   readonly signal?: AbortSignal;
+}
+
+/**
+ * The marker a run with these inputs would write.
+ *
+ * Both the pre-check and `provision` itself derive it here, because two copies
+ * of "what makes a backend ready" drift the moment one of the four inputs gains
+ * a field.
+ */
+export function expectedMarker(
+  importPaths: readonly string[],
+  requirements: readonly string[],
+): ReadyMarker {
+  return {
+    uv: UV_VERSION,
+    python: PYTHON_VERSION,
+    imports: importPaths.map((directory) => resolve(directory)).join('\n'),
+    requirements: requirementsFingerprint(requirements),
+  };
 }
 
 /**
@@ -62,13 +92,8 @@ export async function provision(
 ): Promise<ReadyMarker> {
   const backend = backendPaths(options.paths.backendRoot);
   const requirements = options.requirements;
-  const imports = options.importPaths.map((directory) => resolve(directory));
-  const marker: ReadyMarker = {
-    uv: UV_VERSION,
-    python: PYTHON_VERSION,
-    imports: imports.join('\n'),
-    requirements: requirementsFingerprint(requirements),
-  };
+  const marker = expectedMarker(options.importPaths, requirements);
+  const step = options.onStep ?? (() => {});
 
   if (!options.force && (await isReady(backend, marker))) {
     return marker;
@@ -89,13 +114,19 @@ export async function provision(
     ...(options.signal ? { signal: options.signal } : {}),
   };
 
+  step('uv');
   await downloadUv(ctx, options.target ?? currentTarget(), {
     ...(options.fetchImpl ? { fetchImpl: options.fetchImpl } : {}),
   });
+  step('python');
   await installPython(ctx);
+  step('venv');
   await createVenv(ctx);
+  step('pth');
   writePth(backend, options.importPaths);
+  step('packages');
   await installPackages(ctx, requirements);
+  step('marker');
   await writeReadyMarker(backend, marker);
 
   return marker;

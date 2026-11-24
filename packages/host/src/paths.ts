@@ -10,6 +10,12 @@ export interface HostPaths {
   readonly cacheDir: string;
   /** Where the Python interpreter and the venv live. */
   readonly backendRoot: string;
+  /**
+   * The python half of the host itself. It is a native dependency, not a plugin:
+   * the loader never scans for it, and provisioning puts it on the `.pth` beside
+   * the plugin backends.
+   */
+  readonly hostBackendRoot: string;
   /** Plugins that ship with the application, read-only. */
   readonly builtinPluginsRoot: string;
   /** Plugins the user installed, writable. */
@@ -41,6 +47,7 @@ export function resolveHostPaths(inputs: HostPathInputs): HostPaths {
     return {
       cacheDir: join(userData, 'cache'),
       backendRoot: join(userData, 'backend'),
+      hostBackendRoot: join(resources, 'host', 'backend'),
       builtinPluginsRoot: join(resources, 'plugins'),
       userPluginsRoot: join(userData, 'plugins'),
     };
@@ -52,6 +59,7 @@ export function resolveHostPaths(inputs: HostPathInputs): HostPaths {
   return {
     cacheDir: join(repoRoot, 'cache'),
     backendRoot: join(repoRoot, 'python'),
+    hostBackendRoot: join(repoRoot, 'packages', 'host', 'backend'),
     builtinPluginsRoot: join(repoRoot, 'plugins'),
     userPluginsRoot: join(resolve(inputs.userData), 'plugins'),
   };

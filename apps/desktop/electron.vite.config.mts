@@ -18,7 +18,14 @@ export default defineConfig({
   },
   preload: {
     build: {
+      // electron-vite reads preload entries from `rolldownOptions.input`, unlike
+      // the main build; giving the startup window its own preload keeps
+      // `window.felyrics` absent from a page that only reports status.
       rolldownOptions: {
+        input: {
+          index: resolve(import.meta.dirname, 'src/preload/index.ts'),
+          bootstrap: resolve(import.meta.dirname, 'src/preload/bootstrap.ts'),
+        },
         output: {
           format: 'cjs',
           entryFileNames: '[name].cjs',
@@ -28,5 +35,13 @@ export default defineConfig({
   },
   renderer: {
     plugins: [react()],
+    build: {
+      rollupOptions: {
+        input: {
+          index: resolve(import.meta.dirname, 'src/renderer/index.html'),
+          bootstrap: resolve(import.meta.dirname, 'src/renderer/bootstrap.html'),
+        },
+      },
+    },
   },
 });

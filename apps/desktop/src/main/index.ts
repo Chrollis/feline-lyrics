@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, ipcMain, utilityProcess } from 'electron';
+import { app, BrowserWindow, dialog, ipcMain, shell, utilityProcess } from 'electron';
 import type { OpenDialogOptions } from 'electron';
 import { join } from 'node:path';
 
@@ -21,9 +21,18 @@ import {
   resolvePaths,
   shutdownBackend,
 } from './backend.js';
+import { runStartup, type StartupStatus } from './startup.js';
 
 // Before `app.whenReady()`: the scheme registry is frozen at startup.
 registerAppScheme();
+
+// One instance owns provisioning; a second launch focuses the window that is
+// already showing progress instead of racing a second `uv` run in the same venv.
+const locked = app.requestSingleInstanceLock();
+
+if (!locked) {
+  app.quit();
+}
 
 /** Where the built renderer lives: `out/main/../renderer`. */
 const RENDERER_ROOT = join(import.meta.dirname, '../renderer');
@@ -35,6 +44,93 @@ const UTILITY_ENTRY = join(import.meta.dirname, 'utility.js');
 const JOBS_ROOT = join(resolvePaths().cacheDir, 'jobs');
 
 let pluginHosts: PluginHosts | null = null;
+let progressWindow: BrowserWindow | null = null;
+let mainWindow: BrowserWindow | null = null;
+let latestStatus: StartupStatus | null = null;
+let starting = false;
+
+function publishStatus(status: StartupStatus): void {
+  latestStatus = status;
+
+  if (progressWindow !== null && !progressWindow.isDestroyed()) {
+    progressWindow.webContents.send('bootstrap:status', status);
+  }
+}
+
+/**
+ * The startup window exists before any plugin does: it reports provisioning, and
+ * the main window is not created until the environment verifies.
+ */
+function createProgressWindow(): BrowserWindow {
+  const win = new BrowserWindow({
+    width: 480,
+    height: 360,
+    resizable: false,
+    minimizable: false,
+    fullscreenable: false,
+    show: false,
+    title: 'Felyrics',
+    webPreferences: {
+      preload: join(import.meta.dirname, '../preload/bootstrap.cjs'),
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: true,
+    },
+  });
+
+  win.once('ready-to-show', () => {
+    win.show();
+  });
+  win.on('closed', () => {
+    progressWindow = null;
+  });
+
+  const rendererUrl = process.env['ELECTRON_RENDERER_URL'];
+
+  if (rendererUrl) {
+    void win.loadURL(`${rendererUrl}/bootstrap.html`);
+  } else {
+    void win.loadFile(join(RENDERER_ROOT, 'bootstrap.html'));
+  }
+
+  return win;
+}
+
+/** Runs the environment check, then opens the real window once it verifies. */
+async function start(force = false): Promise<void> {
+  if (starting) {
+    return;
+  }
+
+  starting = true;
+
+  try {
+    await runStartup({
+      paths: resolvePaths(),
+      userDataDir: app.getPath('userData'),
+      hostBackendRoot: hostPaths().hostBackendRoot,
+      builtinPluginsRoot: hostPaths().builtinPluginsRoot,
+      ...(force ? { force: true } : {}),
+      onStatus: publishStatus,
+    });
+
+    await enableBuiltinPlugins();
+
+    // Create the main window before closing the progress window: a gap with no
+    // window would fire `window-all-closed` and quit the app mid-startup.
+    if (mainWindow === null) {
+      createWindow();
+    }
+
+    progressWindow?.destroy();
+  } catch (error) {
+    // runStartup already reported the failure; the window stays open with the
+    // Retry/Rebuild actions, so this is only for the terminal.
+    console.error('[bootstrap]', error);
+  } finally {
+    starting = false;
+  }
+}
 
 /**
  * Discovers the builtin plugins and starts the ones whose TS face runs in a
@@ -188,6 +284,11 @@ function createWindow(): void {
     },
   });
 
+  mainWindow = win;
+  win.on('closed', () => {
+    mainWindow = null;
+  });
+
   win.once('ready-to-show', () => {
     win.show();
   });
@@ -221,23 +322,33 @@ function createWindow(): void {
   }
 }
 
-app.whenReady().then(async () => {
-  serveAppProtocol({ rendererRoot: RENDERER_ROOT, jobsRoot: JOBS_ROOT });
+if (locked) {
+  app.whenReady().then(async () => {
+    serveAppProtocol({ rendererRoot: RENDERER_ROOT, jobsRoot: JOBS_ROOT });
 
-  try {
-    await enableBuiltinPlugins();
-  } catch (error) {
-    console.error('[plugin] discovery failed', error);
-  }
+    progressWindow = createProgressWindow();
+    await start();
 
-  createWindow();
+    app.on('activate', () => {
+      if (mainWindow === null && progressWindow === null) {
+        createWindow();
+      }
+    });
+  });
 
-  app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0) {
-      createWindow();
+  app.on('second-instance', () => {
+    const win = mainWindow ?? progressWindow;
+
+    if (win !== null) {
+      if (win.isMinimized()) {
+        win.restore();
+      }
+
+      win.show();
+      win.focus();
     }
   });
-});
+}
 
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') {
@@ -320,6 +431,23 @@ ipcMain.handle('plugin:request', (_event, request: unknown) =>
 ipcMain.handle('plugin:command', (_event, request: unknown) =>
   asResult(() => commandPlugin(request)),
 );
+
+// The startup window asks for the latest status after it subscribes, because the
+// run may have started before its page finished loading.
+ipcMain.on('bootstrap:ready', () => {
+  if (latestStatus !== null && progressWindow !== null) {
+    progressWindow.webContents.send('bootstrap:status', latestStatus);
+  }
+});
+
+ipcMain.handle('bootstrap:retry', () => start(false));
+ipcMain.handle('bootstrap:rebuild', () => start(true));
+ipcMain.handle('bootstrap:quit', () => {
+  app.quit();
+});
+ipcMain.handle('bootstrap:open-log', async () => {
+  await shell.openPath(join(app.getPath('userData'), 'logs', 'provision.log'));
+});
 
 /**
  * Closing stdin is how the backend learns to stop: its read loop ends on EOF, so

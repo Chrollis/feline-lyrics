@@ -41,7 +41,12 @@ export {
   requirementName,
   requirementsFingerprint,
 } from './python/requirements.js';
-export { provision, type ProvisionOptions } from './python/provision.js';
+export {
+  expectedMarker,
+  provision,
+  type ProvisionOptions,
+  type ProvisionStep,
+} from './python/provision.js';
 export {
   doctor,
   type BinaryRun,
