@@ -138,3 +138,28 @@ test('a bad builtin manifest is an issue too, with its own code', async () => {
   assert.equal(issues[0].code, 'core/manifest-invalid');
   assert.equal(issues[0].root, 'builtin');
 });
+
+test('a package.json that cannot be read is reported, not thrown', async () => {
+  const builtin = await root();
+
+  // A directory named package.json makes readFile fail with EISDIR: an IO
+  // problem, not a shape problem, and discovery must still finish.
+  await mkdir(join(builtin, 'someone.unreadable', 'package.json'), {
+    recursive: true,
+  });
+  await plugin(builtin, 'felyrics.media');
+
+  const { plugins, issues } = await discoverPlugins([
+    { path: builtin, kind: 'builtin' },
+  ]);
+
+  assert.deepEqual(
+    plugins.map((plugin) => plugin.manifest.id),
+    ['felyrics.media'],
+  );
+  assert.equal(issues.length, 1);
+  // The manifest reader already turns an IO failure into a shape failure;
+  // discovery reports it instead of aborting.
+  assert.equal(issues[0].code, 'core/manifest-invalid');
+  assert.equal(issues[0].issues[0].path, 'package.json');
+});

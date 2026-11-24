@@ -1,6 +1,6 @@
 import { join, resolve } from 'node:path';
 
-import { BackendError, discoverPlugins } from '@felyrics/host';
+import { BackendError, discoverPlugins, issueId } from '@felyrics/host';
 import {
   readRequirements,
   type PluginDoctorSpec,
@@ -34,6 +34,19 @@ export async function planEnvironment(
     [{ path: builtinPluginsRoot, kind: 'builtin' }],
     pythonVersion === undefined ? {} : { pythonVersion },
   );
+
+  // A builtin plugin that cannot even be discovered is a startup failure, not a
+  // row in a list: the app was built expecting it, and running without it is a
+  // half-working install. User plugins get the FAILED row instead.
+  const broken = discovery.issues.find((issue) => issue.root === 'builtin');
+
+  if (broken !== undefined) {
+    throw new BackendError(
+      'core/backend-failed',
+      `${issueId(broken)}: ${broken.code}: ${broken.message}`,
+    );
+  }
+
   const importPaths = [resolve(hostBackendRoot)];
   const requirements: string[] = [];
   const plugins: PluginDoctorSpec[] = [];

@@ -7,6 +7,7 @@ import {
   type ManifestIssue,
   type PluginManifest,
 } from './manifest.js';
+import { BackendError } from './protocol.js';
 
 /**
  * Plugin discovery: two roots, one level, directory name equals plugin id.
@@ -54,9 +55,17 @@ export async function discoverPluginDirectories(
 
   try {
     entries = await readdir(root.path, { withFileTypes: true });
-  } catch {
-    // A missing root is not an error: a fresh install has no user plugins.
-    return [];
+  } catch (error) {
+    // A root that does not exist yet is normal: a fresh install has no user
+    // plugins. Any other failure is a fact the caller must report, not hide.
+    if (isMissing(error)) {
+      return [];
+    }
+
+    throw new BackendError(
+      'core/backend-failed',
+      `cannot list ${root.path}: ${describe(error)}`,
+    );
   }
 
   return entries
@@ -83,23 +92,39 @@ export async function discoverPlugins(
   const byId = new Map<string, DiscoveredPlugin>();
 
   for (const root of ordered) {
-    for (const directory of await discoverPluginDirectories(root)) {
+    let directories: string[];
+
+    try {
+      directories = await discoverPluginDirectories(root);
+    } catch (error) {
+      issues.push(rootIssue(root, error));
+      continue;
+    }
+
+    for (const directory of directories) {
       let manifest;
 
       try {
         manifest = await loadManifest(directory, options);
       } catch (error) {
-        if (!(error instanceof ManifestError)) {
-          throw error;
+        if (error instanceof ManifestError) {
+          issues.push({
+            directory,
+            root: root.kind,
+            code: error.code,
+            message: error.message,
+            issues: error.issues,
+          });
+        } else {
+          issues.push({
+            directory,
+            root: root.kind,
+            code: 'core/backend-failed',
+            message: `cannot read ${directory}: ${describe(error)}`,
+            issues: [],
+          });
         }
 
-        issues.push({
-          directory,
-          root: root.kind,
-          code: error.code,
-          message: error.message,
-          issues: error.issues,
-        });
         continue;
       }
 
@@ -133,4 +158,24 @@ function rank(kind: PluginRootKind): number {
 /** The id a failed directory would have had, for the plugin list. */
 export function issueId(issue: DiscoveryIssue): string {
   return basename(issue.directory);
+}
+
+function isMissing(error: unknown): boolean {
+  const code = (error as { code?: unknown }).code;
+
+  return code === 'ENOENT' || code === 'ENOTDIR';
+}
+
+function describe(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+function rootIssue(root: PluginRoot, error: unknown): DiscoveryIssue {
+  return {
+    directory: root.path,
+    root: root.kind,
+    code: error instanceof BackendError ? error.code : 'core/backend-failed',
+    message: describe(error),
+    issues: [],
+  };
 }

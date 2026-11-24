@@ -102,14 +102,31 @@ test('a python plugin without requirements is refused', async (t) => {
   });
 });
 
-test('a plugin that needs a newer python stays out of the environment', async (t) => {
+test('a plugin that needs a newer python fails the environment', async (t) => {
   const root = await withRoot(t);
   await plugin(root, 'fixtures.future', 'av==19.0.2\n', { engines: '>=99.0' });
 
-  const hostBackend = join(root, 'host-backend');
-  const environment = await planEnvironment(hostBackend, root, '3.12.15');
+  await assert.rejects(
+    planEnvironment(join(root, 'host-backend'), root, '3.12.15'),
+    (error) => {
+      assert.equal(error.code, 'core/backend-failed');
+      assert.match(error.message, /fixtures\.future/);
+      assert.match(error.message, /core\/engine-unsatisfied/);
 
-  assert.deepEqual(environment.importPaths, [hostBackend]);
-  assert.deepEqual(environment.requirements, []);
-  assert.deepEqual(environment.plugins, []);
+      return true;
+    },
+  );
+});
+
+test('a builtin plugin that cannot be discovered fails the environment', async (t) => {
+  const root = await withRoot(t);
+  await plugin(root, 'fixtures.alpha', 'av==19.0.2\n');
+  await mkdir(join(root, 'fixtures.broken'));
+
+  await assert.rejects(planEnvironment(join(root, 'host-backend'), root), (error) => {
+    assert.equal(error.code, 'core/backend-failed');
+    assert.match(error.message, /fixtures\.broken/);
+
+    return true;
+  });
 });
