@@ -58,7 +58,19 @@ async function enableBuiltinPlugins(): Promise<void> {
       }),
     // The plugin never touches a window: the picker is a host service, answered
     // in the main process where the dialog lives.
-    host: { pickFile: (options) => pickFile(options.kind) },
+    host: {
+      pickFile: (options) => pickFile(options.kind),
+      // One Python process holds every builtin plugin's backend for now, so the
+      // host is the only party that can route a call to it.
+      backend: {
+        call: (name, params, options) =>
+          callBackend(
+            name,
+            params as Record<string, unknown>,
+            options?.timeoutMs ?? BACKEND_TIMEOUT_MS,
+          ),
+      },
+    },
   });
 
   for (const manifest of manifests) {

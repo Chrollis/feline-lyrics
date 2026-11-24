@@ -13,7 +13,7 @@
   ],
   "felyrics": {
     "api": 1,
-    "host": "renderer",
+    "host": "utility",
     "backend": {
       "python": "felyrics_media.serve:serve"
     },
@@ -26,6 +26,24 @@
         "decode",
         "video-probe",
         "video-frames"
+      ],
+      "commands": [
+        {
+          "id": "pick-audio",
+          "title": "Pick audio"
+        },
+        {
+          "id": "decode-audio",
+          "title": "Decode audio"
+        },
+        {
+          "id": "pick-video",
+          "title": "Pick video"
+        },
+        {
+          "id": "frames-video",
+          "title": "Frames video"
+        }
       ],
       "internal": [
         "probe",

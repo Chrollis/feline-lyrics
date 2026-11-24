@@ -28,15 +28,9 @@ import {
  */
 
 export interface ServePluginOptions {
-  /** The plugin's route to its own backend; a later step supplies it. */
+  /** The plugin's route to its own backend; when absent, calls go to the host. */
   readonly backend?: PluginBackend;
 }
-
-const NO_BACKEND: PluginBackend = {
-  call: async () => {
-    throw wireError('core/not-ready', 'no backend is attached to this plugin host');
-  },
-};
 
 class PluginHostError extends Error {
   readonly code: string;
@@ -105,12 +99,10 @@ export function servePlugin(
   const pendingHost = new Map<
     number,
     {
-      readonly resolve: (value: string | null) => void;
+      readonly resolve: (value: unknown) => void;
       readonly reject: (error: Error) => void;
     }
   >();
-
-  const backend = options.backend ?? NO_BACKEND;
 
   let registering = true;
   let activated = false;
@@ -119,22 +111,45 @@ export function servePlugin(
 
   const send = (event: PluginEvent): void => transport.send(event);
 
+  function hostCall(
+    method: string,
+    params: Record<string, unknown>,
+  ): Promise<unknown> {
+    const seq = ++nextHostSeq;
+    const answer = new Promise<unknown>((resolve, reject) => {
+      pendingHost.set(seq, { resolve, reject });
+    });
+
+    send({
+      v: UTILITY_PROTOCOL_VERSION,
+      kind: 'host-call',
+      seq,
+      method,
+      params,
+    });
+
+    return answer;
+  }
+
+  // A plugin never holds a service client: the host process owns the backend,
+  // so a call is one more host service. An in-process backend, when one is
+  // supplied, takes the shorter path.
+  const backend: PluginBackend = options.backend ?? {
+    call: (name, params, callOptions) =>
+      hostCall('backend.call', {
+        name,
+        params,
+        ...(callOptions?.timeoutMs === undefined
+          ? {}
+          : { timeoutMs: callOptions.timeoutMs }),
+      }),
+  };
+
   const host: PluginHostServices = {
-    pickFile: (options: PickFileOptions): Promise<string | null> => {
-      const seq = ++nextHostSeq;
-      const answer = new Promise<string | null>((resolve, reject) => {
-        pendingHost.set(seq, { resolve, reject });
-      });
+    pickFile: async (options: PickFileOptions): Promise<string | null> => {
+      const answer = await hostCall('pickFile', { kind: options.kind });
 
-      send({
-        v: UTILITY_PROTOCOL_VERSION,
-        kind: 'host-call',
-        seq,
-        method: 'pickFile',
-        params: { kind: options.kind },
-      });
-
-      return answer;
+      return answer as string | null;
     },
   };
 
@@ -323,7 +338,7 @@ export function servePlugin(
       return;
     }
 
-    pending.resolve((reply.result ?? null) as string | null);
+    pending.resolve(reply.result ?? null);
   }
 
   async function dispose(): Promise<void> {

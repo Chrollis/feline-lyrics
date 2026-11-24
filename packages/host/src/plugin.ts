@@ -41,6 +41,11 @@ export interface PickFileOptions {
 export interface PluginHostServices {
   /** The chosen path, or `null` when the user cancelled. */
   pickFile(options: PickFileOptions): Promise<string | null>;
+  /**
+   * The plugin's own backend, when the host routes calls for it. The plugin
+   * never gets to name a plugin id: the route is bound to the caller.
+   */
+  backend?: PluginBackend;
 }
 
 /** What `activate(ctx)` receives. */

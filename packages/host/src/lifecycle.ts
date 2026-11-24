@@ -450,6 +450,61 @@ export class PluginHandle {
     }
 
     try {
+      if (event.method === 'backend.call') {
+        const { name, params, timeoutMs } = event.params as {
+          name?: unknown;
+          params?: unknown;
+          timeoutMs?: unknown;
+        };
+
+        if (typeof name !== 'string' || name.length === 0) {
+          throw new PluginLifecycleError(
+            'protocol/bad-request',
+            'backend.call.name must be a non-empty string',
+          );
+        }
+
+        if (typeof params !== 'object' || params === null) {
+          throw new PluginLifecycleError(
+            'protocol/bad-request',
+            'backend.call.params must be an object',
+          );
+        }
+
+        if (
+          timeoutMs !== undefined &&
+          (typeof timeoutMs !== 'number' ||
+            !Number.isInteger(timeoutMs) ||
+            timeoutMs <= 0)
+        ) {
+          throw new PluginLifecycleError(
+            'protocol/bad-request',
+            'backend.call.timeoutMs must be a positive integer',
+          );
+        }
+
+        const backend = this.options.host?.backend;
+
+        if (backend === undefined) {
+          throw new PluginLifecycleError(
+            'core/not-ready',
+            'this plugin has no backend route',
+          );
+        }
+
+        channel.send({
+          v: UTILITY_PROTOCOL_VERSION,
+          kind: 'host-reply',
+          seq: event.seq,
+          result: await backend.call(
+            name,
+            params as PluginParams,
+            timeoutMs === undefined ? {} : { timeoutMs },
+          ),
+        });
+        return;
+      }
+
       if (event.method !== 'pickFile') {
         throw new PluginLifecycleError(
           'protocol/unknown-method',

@@ -124,6 +124,57 @@ export async function activate(ctx) {
   });
 });
 
+test('a backend call is routed through the host services', async (t) => {
+  const calls = [];
+  const handle = await start(
+    t,
+    `
+export async function activate(ctx) {
+  ctx.method('echo', (params) => ctx.backend.call('echo', params));
+}
+`,
+    {},
+    {
+      host: {
+        pickFile: async () => null,
+        backend: {
+          call: async (name, params, options) => {
+            calls.push([name, params, options]);
+
+            return { echo: params.value };
+          },
+        },
+      },
+    },
+  );
+
+  await handle.enable();
+
+  assert.deepEqual(await handle.request('fixtures.echo/echo', { value: 3 }), {
+    echo: 3,
+  });
+  assert.deepEqual(calls, [['echo', { value: 3 }, {}]]);
+});
+
+test('a plugin with no backend route is refused, not hung', async (t) => {
+  const handle = await start(t, `
+export async function activate(ctx) {
+  ctx.method('echo', (params) => ctx.backend.call('echo', params));
+}
+`);
+
+  await handle.enable();
+
+  await assert.rejects(
+    handle.request('fixtures.echo/echo', { value: 3 }),
+    (error) => {
+      assert.equal(error.code, 'core/not-ready');
+
+      return true;
+    },
+  );
+});
+
 test('a declared method the plugin did not register fails the plugin', async (t) => {
   const handle = await start(t, 'export async function activate() {}');
 
