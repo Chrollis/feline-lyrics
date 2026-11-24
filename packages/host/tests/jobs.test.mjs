@@ -39,6 +39,12 @@ test('refuses anything that is not one job and one file', () => {
     resolveJobFile(jobsRoot, `${JOB_ORIGIN}/${job}/..%5csecret.txt`),
     null,
   );
+  // The host writes `.kind` beside the results; it is not a served file.
+  assert.equal(resolveJobFile(jobsRoot, `${JOB_ORIGIN}/${job}/.kind`), null);
+  assert.equal(
+    resolveJobFile(jobsRoot, `${JOB_ORIGIN}/${job}/.hidden.png`),
+    null,
+  );
   assert.equal(resolveJobFile(jobsRoot, `${JOB_ORIGIN}/${job}/%zz.png`), null);
 });
 

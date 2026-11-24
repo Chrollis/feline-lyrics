@@ -23,7 +23,8 @@ export const JOB_ID = /^[0-9a-f]{32}$/;
  * Exactly two segments are allowed -- a job id and one file name -- because that
  * is the shape the backend writes. The renderer never gets to name a path, only
  * a job and a file inside it. That keeps the job origin from becoming a way to
- * read the cache, or the disk.
+ * read the cache, or the disk. Dot files are refused as well: the host's own
+ * markers (`.kind`) live beside the results and are not part of the contract.
  */
 export function resolveJobFile(
   jobsRoot: string,
@@ -60,7 +61,7 @@ export function resolveJobFile(
 
   const [job, file] = segments as [string, string];
 
-  if (!JOB_ID.test(job) || file === '..') {
+  if (!JOB_ID.test(job) || file.startsWith('.')) {
     return null;
   }
 
