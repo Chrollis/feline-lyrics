@@ -6,13 +6,12 @@ import {
   BackendError,
   createUtilityChannel,
   discoverPlugins,
-  issueId,
   PluginHosts,
   type DiscoveryIssue,
-  type PluginSummary,
   type PluginTransport,
 } from '@felyrics/host';
 import { asResult, parsePluginCall, parsePluginCommand } from './plugin-ipc.js';
+import { mergePluginList } from './plugin-list.js';
 import { APP_ENTRY_URL } from './app-assets.js';
 import { registerAppScheme, serveAppProtocol } from './app-protocol.js';
 import {
@@ -23,6 +22,7 @@ import {
   shutdownBackend,
 } from './backend.js';
 import { enableBuiltinHosts } from './plugin-boot.js';
+import type { PluginSummary } from '../preload/api.js';
 import { describeFailure, runStartup, type StartupStatus } from './startup.js';
 
 // Before `app.whenReady()`: the scheme registry is frozen at startup.
@@ -202,19 +202,7 @@ async function enableBuiltinPlugins(pythonVersion: string): Promise<void> {
 
 /** Hosts plus the directories discovery could not turn into a plugin. */
 function listPlugins(): readonly PluginSummary[] {
-  const hosts = pluginHosts?.list() ?? [];
-  const known = new Set(hosts.map((plugin) => plugin.id));
-  const failed = pluginFailures
-    .filter((issue) => !known.has(issueId(issue)))
-    .map((issue) => ({
-      id: issueId(issue),
-      state: 'FAILED' as const,
-      methods: [],
-      commands: [],
-      message: `${issue.code}: ${issue.message}`,
-    }));
-
-  return [...hosts, ...failed];
+  return mergePluginList(pluginHosts?.list() ?? [], pluginFailures);
 }
 
 /** One public method call, validated before it reaches the lifecycle. */
