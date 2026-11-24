@@ -1,10 +1,30 @@
 # AGENTS.md
 
-Working agreement for a human who decides, an agent that builds, and a reviewer
-that looks for what the builder missed. This file is injected into every session,
-so it holds behaviour only: the past -- state, decisions, dead ends -- lives in
+Working agreement for a human who decides and agents that plan, build or review,
+one role per session. This file is injected into every session, so it holds
+behaviour only: the past -- state, decisions, dead ends -- lives in
 `memories/`: `MEMORY.md` for the current state, `decisions.md` for the rules in
 force, `archive/` for what no longer changes the work.
+
+## 0. Roles: one per session, chosen by the human
+
+Every session names its role in its first message; if the role is unclear, ask
+before acting. A role is a preset, not a rank: it says what this session writes
+and what it must not touch. The human schedules; no role starts another.
+
+| role | reads | writes | never | ends with |
+| --- | --- | --- | --- | --- |
+| planner | repo, `reference/ideas/`, memories | `reference/ideas/` notes | code, the status files | a decision list for the human |
+| builder | code, memories, `to-fix.md` | code, tests, commits | `reference/ideas/`, review | a report naming a commit |
+| reviewer | one commit, its report, ideas | `to-fix.md`, `fixed.md`, `keep-as-is.md` | code, commits | findings filed (current state / why / how to fix / acceptance) |
+
+- Only the builder commits. The planner and the reviewer only touch gitignored
+  files or the read side.
+- Roles may run in parallel while their writes are disjoint: builder -> code,
+  planner -> ideas, reviewer -> status files. One writer per file. At most one
+  builder runs at a time; if a role must leave its column, it stops and asks.
+- Handoffs travel as files plus the human's words, never as messages between
+  sessions. There is no teammate to spawn, message or poll.
 
 ## 1. One step: plan, write, verify, report
 
@@ -48,6 +68,11 @@ force, `archive/` for what no longer changes the work.
   code and appends findings to `reference/ideas/to-fix.md` in the shape
   current state / why / how to fix / acceptance. It is not a teammate: do not spawn it, do not
   message it, do not poll it, and do not edit those three files yourself.
+- The reviewer reviews a commit, not the working tree. That is what makes a
+  parallel builder safe: the commit it reads does not move.
+- When a P0 is found in commit N while the builder has moved on to N+1, the human
+  decides whether N+1 is discarded or redone. The builder does not decide that
+  alone.
 - A P0 finding blocks the next step. P1 and P2 wait in the file. Findings enter
   as the next step's input, never as a reason to keep working inside a step that
   has already been reported.
@@ -57,7 +82,7 @@ force, `archive/` for what no longer changes the work.
 
 ## 3. `reference/` is the human's area, with three roles
 
-- The roles are recorded in `memories/MEMORY.md`; do not infer them from names.
+- The roles and what each may write are in section 0; do not infer them from names.
 - `ideas/` is the agents' working area: read and write it freely. Everything
   else under `reference/` is gated.
 - Do not read, search, grep or glob under the gated part unless the human names
