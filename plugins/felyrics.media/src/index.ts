@@ -49,14 +49,20 @@ function refuse(message: string): Error {
  * the media.
  */
 export async function activate(ctx: PluginContext): Promise<void> {
+  const backend = ctx.backend;
+
+  if (backend === undefined) {
+    throw new Error('felyrics.media declares a python backend');
+  }
+
   let audio: string | null = null;
   let video: string | null = null;
 
-  ctx.method('probe', (params) => ctx.backend.call('probe', params));
-  ctx.method('decode', (params) => ctx.backend.call('decode', params));
-  ctx.method('video-probe', (params) => ctx.backend.call('video-probe', params));
+  ctx.method('probe', (params) => backend.call('probe', params));
+  ctx.method('decode', (params) => backend.call('decode', params));
+  ctx.method('video-probe', (params) => backend.call('video-probe', params));
   ctx.method('video-frames', (params) =>
-    ctx.backend.call('video-frames', params, { timeoutMs: FRAMES_BUDGET_MS }),
+    backend.call('video-frames', params, { timeoutMs: FRAMES_BUDGET_MS }),
   );
 
   ctx.command('pick-audio', async () => {
@@ -74,7 +80,7 @@ export async function activate(ctx: PluginContext): Promise<void> {
       throw refuse('pick an audio file first');
     }
 
-    return ctx.backend.call('decode', { path: audio });
+    return backend.call('decode', { path: audio });
   });
 
   ctx.command('pick-video', async () => {
@@ -92,7 +98,7 @@ export async function activate(ctx: PluginContext): Promise<void> {
       throw refuse('pick a video file first');
     }
 
-    return ctx.backend.call(
+    return backend.call(
       'video-frames',
       { path: video, count: SAMPLE_FRAMES },
       { timeoutMs: FRAMES_BUDGET_MS },

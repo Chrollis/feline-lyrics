@@ -29,6 +29,12 @@ export type HostCommand =
       readonly main: string;
       readonly pluginId: string;
       readonly api: number;
+      /**
+       * Whether the plugin declares a backend face. Absent means yes, for a
+       * host that predates this field; `false` is a TS-only plugin, whose
+       * context has no `backend`.
+       */
+      readonly hasBackend?: boolean;
     }
   | {
       readonly v: 1;

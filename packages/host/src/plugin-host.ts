@@ -234,8 +234,8 @@ export function servePlugin(
       method: registerMethod,
       command: registerCommand,
       onDispose,
-      backend,
       host,
+      ...(command.hasBackend === false ? {} : { backend }),
     };
 
     await candidate.activate(context);

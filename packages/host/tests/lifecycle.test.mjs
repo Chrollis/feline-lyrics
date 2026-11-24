@@ -174,7 +174,7 @@ export async function activate(ctx) {
   ctx.method('echo', (params) => ctx.backend.call('echo', params));
 }
 `,
-    {},
+    { python: { module: 'fixtures', attribute: 'serve' } },
     {
       host: {
         pickFile: async () => null,
@@ -198,11 +198,15 @@ export async function activate(ctx) {
 });
 
 test('a plugin with no backend route is refused, not hung', async (t) => {
-  const handle = await start(t, `
+  const handle = await start(
+    t,
+    `
 export async function activate(ctx) {
   ctx.method('echo', (params) => ctx.backend.call('echo', params));
 }
-`);
+`,
+    { python: { module: 'fixtures', attribute: 'serve' } },
+  );
 
   await handle.enable();
 
@@ -214,6 +218,24 @@ export async function activate(ctx) {
       return true;
     },
   );
+});
+
+test('a TS-only plugin has no backend in its context', async (t) => {
+  const handle = await start(t, `
+export async function activate(ctx) {
+  if (ctx.backend !== undefined) {
+    throw new Error('a TS-only plugin must not receive a backend');
+  }
+
+  ctx.method('echo', () => ({ fine: true }));
+}
+`);
+
+  await handle.enable();
+
+  assert.deepEqual(await handle.request('fixtures.echo/echo', {}), {
+    fine: true,
+  });
 });
 
 test('a declared method the plugin did not register fails the plugin', async (t) => {

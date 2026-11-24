@@ -394,6 +394,7 @@ export class PluginHandle {
       main: this.manifest.main,
       pluginId: this.manifest.id,
       api: this.manifest.api,
+      hasBackend: this.manifest.python !== undefined,
     });
 
     try {

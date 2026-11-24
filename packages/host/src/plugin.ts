@@ -60,7 +60,13 @@ export interface PluginContext {
   command(id: string, handler: PluginCommand): void;
   /** Runs after the last request, newest first. */
   onDispose(handler: () => unknown | Promise<unknown>): void;
-  readonly backend: PluginBackend;
+  /**
+   * The plugin's own backend, or `undefined` for a plugin whose manifest
+   * declares no backend face. The host never synthesizes a broken one: asking
+   * for a route that cannot exist is a plugin bug, not a runtime error to
+   * carry.
+   */
+  readonly backend?: PluginBackend;
   /** Host-owned work the plugin may ask for. */
   readonly host: PluginHostServices;
 }
