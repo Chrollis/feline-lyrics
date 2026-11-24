@@ -1,5 +1,5 @@
 import type { CommandContribution, PluginManifest } from './manifest.js';
-import type { PluginParams } from './plugin.js';
+import type { PluginHostServices, PluginParams } from './plugin.js';
 import { BackendError, DEFAULT_REQUEST_TIMEOUT_MS } from './protocol.js';
 import {
   UTILITY_PROTOCOL_VERSION,
@@ -46,6 +46,8 @@ export class PluginLifecycleError extends BackendError {
 export interface PluginHandleOptions {
   /** Opens the transport to one plugin host; the tests wire two loops. */
   readonly createChannel: (manifest: PluginManifest) => PluginTransport;
+  /** Host-owned work a plugin may ask for, e.g. the native file picker. */
+  readonly host?: PluginHostServices;
   readonly activationTimeoutMs?: number;
   readonly requestTimeoutMs?: number;
   readonly disposalTimeoutMs?: number;
@@ -238,25 +240,92 @@ export class PluginHandle {
       );
     }
 
+    return this.invoke(
+      { kind: 'request', name: short, params },
+      timeoutMs,
+      publicName,
+    );
+  }
+
+  /** Runs one command, e.g. `felyrics.media/pick-audio`. */
+  async command(publicName: string, timeoutMs?: number): Promise<unknown> {
+    if (this.stateValue !== 'ACTIVE' || this.channel === null) {
+      throw new PluginLifecycleError(
+        'core/not-ready',
+        `${this.manifest.id} is not active`,
+      );
+    }
+
+    const prefix = `${this.manifest.id}/`;
+
+    if (!publicName.startsWith(prefix) || publicName.length === prefix.length) {
+      throw new PluginLifecycleError(
+        'protocol/unknown-method',
+        `no command named ${publicName}`,
+      );
+    }
+
+    const short = publicName.slice(prefix.length);
+
+    if (!this.manifest.commands.some((command) => command.id === short)) {
+      throw new PluginLifecycleError(
+        'protocol/unknown-method',
+        `no command named ${publicName}`,
+      );
+    }
+
+    return this.invoke({ kind: 'command', name: short }, timeoutMs, publicName);
+  }
+
+  /** Sends one request or command and pairs the answer by its sequence. */
+  private async invoke(
+    message:
+      | {
+          readonly kind: 'request';
+          readonly name: string;
+          readonly params: PluginParams;
+        }
+      | { readonly kind: 'command'; readonly name: string },
+    timeoutMs: number | undefined,
+    label: string,
+  ): Promise<unknown> {
+    const channel = this.channel;
+
+    if (this.stateValue !== 'ACTIVE' || channel === null) {
+      throw new PluginLifecycleError(
+        'core/not-ready',
+        `${this.manifest.id} is not active`,
+      );
+    }
+
     const seq = ++this.nextSeq;
     const answer = new Promise<unknown>((resolve, reject) => {
       this.pending.set(seq, { resolve, reject });
     });
 
-    this.channel.send({
-      v: UTILITY_PROTOCOL_VERSION,
-      kind: 'request',
-      seq,
-      name: short,
-      params,
-    });
+    if (message.kind === 'request') {
+      channel.send({
+        v: UTILITY_PROTOCOL_VERSION,
+        kind: 'request',
+        seq,
+        name: message.name,
+        params: message.params,
+      });
+    } else {
+      channel.send({
+        v: UTILITY_PROTOCOL_VERSION,
+        kind: 'command',
+        seq,
+        name: message.name,
+      });
+    }
 
     try {
       return await withTimeout(
         answer,
         timeoutMs ?? this.options.requestTimeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS,
         'core/timeout',
-        `${publicName} did not answer`,
+        `${label} did not answer`,
       );
     } catch (error) {
       this.pending.delete(seq);
@@ -370,6 +439,60 @@ export class PluginHandle {
     }
   }
 
+  /** Answers one host service call; the host owns the window, not the plugin. */
+  private async answerHostCall(
+    event: Extract<PluginEvent, { kind: 'host-call' }>,
+  ): Promise<void> {
+    const channel = this.channel;
+
+    if (channel === null) {
+      return;
+    }
+
+    try {
+      if (event.method !== 'pickFile') {
+        throw new PluginLifecycleError(
+          'protocol/unknown-method',
+          `no host service named ${event.method}`,
+        );
+      }
+
+      const kind = (event.params as { kind?: unknown }).kind;
+
+      if (kind !== 'audio' && kind !== 'video' && kind !== 'any') {
+        throw new PluginLifecycleError(
+          'protocol/bad-request',
+          'pickFile.kind must be audio, video or any',
+        );
+      }
+
+      const services = this.options.host;
+
+      if (services === undefined) {
+        throw new PluginLifecycleError(
+          'core/not-ready',
+          'this host offers no file picker',
+        );
+      }
+
+      channel.send({
+        v: UTILITY_PROTOCOL_VERSION,
+        kind: 'host-reply',
+        seq: event.seq,
+        result: await services.pickFile({ kind }),
+      });
+    } catch (error) {
+      const described = describeError(error);
+
+      channel.send({
+        v: UTILITY_PROTOCOL_VERSION,
+        kind: 'host-reply',
+        seq: event.seq,
+        error: { code: described.code, message: described.message },
+      });
+    }
+  }
+
   private handleEvent(event: PluginEvent): void {
     if (event.v !== UTILITY_PROTOCOL_VERSION) {
       this.failAll(
@@ -378,6 +501,11 @@ export class PluginHandle {
           `plugin host speaks utility protocol ${String(event.v)}`,
         ),
       );
+      return;
+    }
+
+    if (event.kind === 'host-call') {
+      void this.answerHostCall(event);
       return;
     }
 
@@ -515,6 +643,13 @@ export class PluginHosts {
     const id = slash === -1 ? publicName : publicName.slice(0, slash);
 
     return this.get(id).request(publicName, params, timeoutMs);
+  }
+
+  async command(publicName: string, timeoutMs?: number): Promise<unknown> {
+    const slash = publicName.indexOf('/');
+    const id = slash === -1 ? publicName : publicName.slice(0, slash);
+
+    return this.get(id).command(publicName, timeoutMs);
   }
 
   list(): readonly PluginSummary[] {

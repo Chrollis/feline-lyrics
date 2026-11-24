@@ -56,6 +56,9 @@ async function enableBuiltinPlugins(): Promise<void> {
         fork: () =>
           utilityProcess.fork(UTILITY_ENTRY, [], { serviceName: manifest.id }),
       }),
+    // The plugin never touches a window: the picker is a host service, answered
+    // in the main process where the dialog lives.
+    host: { pickFile: (options) => pickFile(options.kind) },
   });
 
   for (const manifest of manifests) {
@@ -112,6 +115,40 @@ async function requestPlugin(request: unknown): Promise<unknown> {
   }
 
   return pluginHosts.request(name, answer as Record<string, unknown>, timeoutMs);
+}
+
+/** One command invocation; commands take no parameters. */
+async function commandPlugin(request: unknown): Promise<unknown> {
+  if (pluginHosts === null) {
+    throw new BackendError('core/not-ready', 'the plugin hosts are not enabled');
+  }
+
+  if (typeof request !== 'object' || request === null) {
+    throw new BackendError('protocol/bad-request', 'request must be an object');
+  }
+
+  const { name, timeoutMs } = request as {
+    name?: unknown;
+    timeoutMs?: unknown;
+  };
+
+  if (typeof name !== 'string') {
+    throw new BackendError('protocol/bad-request', 'name must be a string');
+  }
+
+  if (
+    timeoutMs !== undefined &&
+    (typeof timeoutMs !== 'number' ||
+      !Number.isFinite(timeoutMs) ||
+      timeoutMs <= 0)
+  ) {
+    throw new BackendError(
+      'protocol/bad-request',
+      'timeoutMs must be a positive number',
+    );
+  }
+
+  return pluginHosts.command(name, timeoutMs);
 }
 
 /** Closes plugin hosts on the way out; the process exit is the real deadline. */
@@ -234,13 +271,19 @@ const OPEN_FILE_FILTERS = {
 } as const;
 
 /** The native picker, because the renderer cannot see the filesystem at all. */
-async function pickFile(kind: 'audio' | 'video'): Promise<string | null> {
+async function pickFile(
+  kind: 'audio' | 'video' | 'any',
+): Promise<string | null> {
   const options: OpenDialogOptions = {
     properties: ['openFile'],
-    filters: OPEN_FILE_FILTERS[kind].map((filter) => ({
-      name: filter.name,
-      extensions: [...filter.extensions],
-    })),
+    ...(kind === 'any'
+      ? {}
+      : {
+          filters: OPEN_FILE_FILTERS[kind].map((filter) => ({
+            name: filter.name,
+            extensions: [...filter.extensions],
+          })),
+        }),
   };
   const owner = BrowserWindow.getFocusedWindow();
   const result = await (owner
@@ -313,6 +356,10 @@ ipcMain.handle('plugin:list', () =>
 
 ipcMain.handle('plugin:request', (_event, request: unknown) =>
   asResult(() => requestPlugin(request)),
+);
+
+ipcMain.handle('plugin:command', (_event, request: unknown) =>
+  asResult(() => commandPlugin(request)),
 );
 
 /**

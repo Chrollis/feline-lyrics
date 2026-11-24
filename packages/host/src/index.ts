@@ -45,9 +45,11 @@ export {
 } from './plugin-host.js';
 export {
   type BackendCallOptions,
+  type PickFileOptions,
   type PluginBackend,
   type PluginCommand,
   type PluginContext,
+  type PluginHostServices,
   type PluginMethod,
   type PluginParams,
 } from './plugin.js';

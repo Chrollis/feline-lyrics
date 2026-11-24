@@ -38,6 +38,20 @@ export type HostCommand =
       readonly name: string;
       readonly params: PluginParams;
     }
+  | {
+      readonly v: 1;
+      readonly kind: 'command';
+      readonly seq: number;
+      /** The short command id, without the `<id>/` prefix. */
+      readonly name: string;
+    }
+  | {
+      readonly v: 1;
+      readonly kind: 'host-reply';
+      readonly seq: number;
+      readonly result?: unknown;
+      readonly error?: WireError;
+    }
   | { readonly v: 1; readonly kind: 'dispose' };
 
 /** Plugin host -> host. */
@@ -59,6 +73,14 @@ export type PluginEvent =
       readonly kind: 'failure';
       readonly seq: number;
       readonly error: WireError;
+    }
+  | {
+      readonly v: 1;
+      readonly kind: 'host-call';
+      readonly seq: number;
+      /** The host service the plugin asks for, e.g. `pickFile`. */
+      readonly method: string;
+      readonly params: PluginParams;
     }
   | { readonly v: 1; readonly kind: 'fatal'; readonly error: WireError }
   | { readonly v: 1; readonly kind: 'disposed' };

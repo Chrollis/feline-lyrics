@@ -2,9 +2,11 @@ import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 import type {
+  PickFileOptions,
   PluginBackend,
   PluginCommand,
   PluginContext,
+  PluginHostServices,
   PluginMethod,
   PluginParams,
 } from './plugin.js';
@@ -100,14 +102,41 @@ export function servePlugin(
   const methods = new Map<string, PluginMethod>();
   const commands = new Map<string, PluginCommand>();
   const disposers: (() => unknown | Promise<unknown>)[] = [];
+  const pendingHost = new Map<
+    number,
+    {
+      readonly resolve: (value: string | null) => void;
+      readonly reject: (error: Error) => void;
+    }
+  >();
 
   const backend = options.backend ?? NO_BACKEND;
 
   let registering = true;
   let activated = false;
   let disposing = false;
+  let nextHostSeq = 0;
 
   const send = (event: PluginEvent): void => transport.send(event);
+
+  const host: PluginHostServices = {
+    pickFile: (options: PickFileOptions): Promise<string | null> => {
+      const seq = ++nextHostSeq;
+      const answer = new Promise<string | null>((resolve, reject) => {
+        pendingHost.set(seq, { resolve, reject });
+      });
+
+      send({
+        v: UTILITY_PROTOCOL_VERSION,
+        kind: 'host-call',
+        seq,
+        method: 'pickFile',
+        params: { kind: options.kind },
+      });
+
+      return answer;
+    },
+  };
 
   function registerMethod(name: string, handler: PluginMethod): void {
     if (!registering) {
@@ -191,6 +220,7 @@ export function servePlugin(
       command: registerCommand,
       onDispose,
       backend,
+      host,
     };
 
     await candidate.activate(context);
@@ -240,12 +270,76 @@ export function servePlugin(
     }
   }
 
+  async function answerCommand(
+    command: Extract<HostCommand, { kind: 'command' }>,
+  ): Promise<void> {
+    const handler = commands.get(command.name);
+
+    if (handler === undefined) {
+      send({
+        v: UTILITY_PROTOCOL_VERSION,
+        kind: 'failure',
+        seq: command.seq,
+        error: wireError(
+          'protocol/unknown-method',
+          `the host asked for an unregistered command ${command.name}`,
+        ),
+      });
+      return;
+    }
+
+    try {
+      send({
+        v: UTILITY_PROTOCOL_VERSION,
+        kind: 'result',
+        seq: command.seq,
+        result: await handler(),
+      });
+    } catch (error) {
+      send({
+        v: UTILITY_PROTOCOL_VERSION,
+        kind: 'failure',
+        seq: command.seq,
+        error: asWireError(error),
+      });
+    }
+  }
+
+  function answerHostReply(
+    reply: Extract<HostCommand, { kind: 'host-reply' }>,
+  ): void {
+    const pending = pendingHost.get(reply.seq);
+
+    if (pending === undefined) {
+      return;
+    }
+
+    pendingHost.delete(reply.seq);
+
+    if (reply.error !== undefined) {
+      pending.reject(
+        new PluginHostError(reply.error.code, reply.error.message),
+      );
+      return;
+    }
+
+    pending.resolve((reply.result ?? null) as string | null);
+  }
+
   async function dispose(): Promise<void> {
     if (disposing) {
       return;
     }
 
     disposing = true;
+
+    for (const pending of pendingHost.values()) {
+      pending.reject(
+        new PluginHostError('core/internal', 'the plugin host is disposing'),
+      );
+    }
+
+    pendingHost.clear();
 
     // Newest first and strictly one at a time: a disposer that waits for a
     // resource another disposer frees would deadlock if they ran together.
@@ -266,6 +360,11 @@ export function servePlugin(
     void (async () => {
       try {
         checkVersion(message);
+
+        if (message.kind === 'host-reply') {
+          answerHostReply(message);
+          return;
+        }
 
         if (message.kind === 'activate') {
           if (activated || disposing) {
@@ -289,6 +388,11 @@ export function servePlugin(
           return;
         }
 
+        if (message.kind === 'command') {
+          await answerCommand(message);
+          return;
+        }
+
         if (message.kind === 'dispose') {
           await dispose();
         }
@@ -304,5 +408,13 @@ export function servePlugin(
 
   transport.closed.then(() => {
     unsubscribe();
+
+    for (const pending of pendingHost.values()) {
+      pending.reject(
+        new PluginHostError('core/internal', 'the host went away'),
+      );
+    }
+
+    pendingHost.clear();
   });
 }

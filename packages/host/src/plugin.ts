@@ -31,6 +31,18 @@ export interface PluginBackend {
   ): Promise<unknown>;
 }
 
+/** What the host may pick for the plugin; the plugin never sees the dialog. */
+export interface PickFileOptions {
+  /** The file kinds the picker offers. `any` shows no filter. */
+  readonly kind: 'audio' | 'video' | 'any';
+}
+
+/** Services the host runs on the plugin's behalf. */
+export interface PluginHostServices {
+  /** The chosen path, or `null` when the user cancelled. */
+  pickFile(options: PickFileOptions): Promise<string | null>;
+}
+
 /** What `activate(ctx)` receives. */
 export interface PluginContext {
   /** The derived id, for example `felyrics.media`. */
@@ -44,4 +56,6 @@ export interface PluginContext {
   /** Runs after the last request, newest first. */
   onDispose(handler: () => unknown | Promise<unknown>): void;
   readonly backend: PluginBackend;
+  /** Host-owned work the plugin may ask for. */
+  readonly host: PluginHostServices;
 }

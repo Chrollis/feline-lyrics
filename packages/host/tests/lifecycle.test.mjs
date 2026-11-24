@@ -84,7 +84,7 @@ function manifest(directory, overrides = {}) {
   };
 }
 
-async function start(t, source, overrides = {}) {
+async function start(t, source, overrides = {}, options = {}) {
   const directory = await fixture(source);
   t.after(() => rm(directory, { recursive: true, force: true }));
 
@@ -96,6 +96,7 @@ async function start(t, source, overrides = {}) {
     activationTimeoutMs: 200,
     requestTimeoutMs: 200,
     disposalTimeoutMs: 200,
+    ...options,
   });
 
   return handle;
@@ -168,6 +169,115 @@ export async function activate(ctx) {
 
     return true;
   });
+});
+
+const CHOOSE = `
+export async function activate(ctx) {
+  ctx.method('echo', () => ({}));
+  ctx.command('choose', () => ctx.host.pickFile({ kind: 'audio' }));
+}
+`;
+
+test('a command runs in the plugin and can ask the host to pick a file', async (t) => {
+  const picked = [];
+
+  const handle = await start(
+    t,
+    CHOOSE,
+    { commands: [{ id: 'choose', title: 'Choose' }] },
+    {
+      host: {
+        pickFile: async (options) => {
+          picked.push(options.kind);
+
+          return '/tmp/song.flac';
+        },
+      },
+    },
+  );
+
+  await handle.enable();
+
+  assert.equal(await handle.command('fixtures.echo/choose'), '/tmp/song.flac');
+  assert.deepEqual(picked, ['audio']);
+});
+
+test('a cancelled picker answers null, not an error', async (t) => {
+  const handle = await start(
+    t,
+    CHOOSE,
+    { commands: [{ id: 'choose', title: 'Choose' }] },
+    { host: { pickFile: async () => null } },
+  );
+
+  await handle.enable();
+
+  assert.equal(await handle.command('fixtures.echo/choose'), null);
+});
+
+test('a command nobody declared is refused before it reaches the plugin', async (t) => {
+  const handle = await start(t, ECHO);
+
+  await assert.rejects(
+    handle.command('fixtures.echo/choose'),
+    (error) => {
+      assert.equal(error.code, 'core/not-ready');
+
+      return true;
+    },
+  );
+
+  await handle.enable();
+
+  await assert.rejects(
+    handle.command('fixtures.echo/choose'),
+    (error) => {
+      assert.equal(error.code, 'protocol/unknown-method');
+
+      return true;
+    },
+  );
+});
+
+test('a host without a picker refuses the call instead of hanging', async (t) => {
+  const handle = await start(t, CHOOSE, {
+    commands: [{ id: 'choose', title: 'Choose' }],
+  });
+
+  await handle.enable();
+
+  await assert.rejects(
+    handle.command('fixtures.echo/choose'),
+    (error) => {
+      assert.equal(error.code, 'core/not-ready');
+
+      return true;
+    },
+  );
+});
+
+test('a picker kind the host does not know is a bad request', async (t) => {
+  const handle = await start(
+    t,
+    `
+export async function activate(ctx) {
+  ctx.command('choose', () => ctx.host.pickFile({ kind: 'movie' }));
+}
+`,
+    { commands: [{ id: 'choose', title: 'Choose' }], methods: [] },
+    { host: { pickFile: async () => '/tmp/never' } },
+  );
+
+  await handle.enable();
+
+  await assert.rejects(
+    handle.command('fixtures.echo/choose'),
+    (error) => {
+      assert.equal(error.code, 'protocol/bad-request');
+
+      return true;
+    },
+  );
 });
 
 test('request names are checked before they reach the plugin', async (t) => {
