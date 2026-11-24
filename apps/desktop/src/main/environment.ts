@@ -25,13 +25,15 @@ export interface PluginEnvironment {
 export async function planEnvironment(
   hostBackendRoot: string,
   builtinPluginsRoot: string,
+  pythonVersion?: string,
 ): Promise<PluginEnvironment> {
   // The environment still belongs to the builtin plugins: a user plugin gets
   // its own backend directory later (step 5), so it is discovered but its
   // requirements are not installed into the shared venv.
-  const discovery = await discoverPlugins([
-    { path: builtinPluginsRoot, kind: 'builtin' },
-  ]);
+  const discovery = await discoverPlugins(
+    [{ path: builtinPluginsRoot, kind: 'builtin' }],
+    pythonVersion === undefined ? {} : { pythonVersion },
+  );
   const importPaths = [resolve(hostBackendRoot)];
   const requirements: string[] = [];
   const plugins: PluginDoctorSpec[] = [];

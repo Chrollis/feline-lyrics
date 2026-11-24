@@ -10,7 +10,12 @@ import { test } from 'node:test';
 
 import { planEnvironment } from '../src/main/environment.ts';
 
-async function plugin(root, id, requirements, { python = true } = {}) {
+async function plugin(
+  root,
+  id,
+  requirements,
+  { python = true, engines = '>=3.12' } = {},
+) {
   const directory = join(root, id);
   await mkdir(join(directory, 'backend'), { recursive: true });
 
@@ -30,7 +35,7 @@ async function plugin(root, id, requirements, { python = true } = {}) {
       ...(python
         ? {
             backend: { python: `${id.split('.')[1]}_backend:serve` },
-            engines: { python: '>=3.12' },
+            engines: { python: engines },
           }
         : {}),
     },
@@ -95,4 +100,16 @@ test('a python plugin without requirements is refused', async (t) => {
 
     return true;
   });
+});
+
+test('a plugin that needs a newer python stays out of the environment', async (t) => {
+  const root = await withRoot(t);
+  await plugin(root, 'fixtures.future', 'av==19.0.2\n', { engines: '>=99.0' });
+
+  const hostBackend = join(root, 'host-backend');
+  const environment = await planEnvironment(hostBackend, root, '3.12.15');
+
+  assert.deepEqual(environment.importPaths, [hostBackend]);
+  assert.deepEqual(environment.requirements, []);
+  assert.deepEqual(environment.plugins, []);
 });

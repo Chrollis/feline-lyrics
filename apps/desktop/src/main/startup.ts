@@ -8,7 +8,9 @@ import {
   expectedMarker,
   isReady,
   provision,
+  readReadyMarker,
   type ProvisionStep,
+  type ReadyMarker,
   type ToolchainPaths,
 } from '@felyrics/toolchain';
 
@@ -94,7 +96,9 @@ async function appendLog(
  * progress window exists for the slow path; a ready backend still gets the
  * verifying step, because that is the step that can fail on a half-deleted venv.
  */
-export async function runStartup(options: StartupOptions): Promise<void> {
+export async function runStartup(
+  options: StartupOptions,
+): Promise<ReadyMarker> {
   const { onStatus } = options;
   const log: string[] = [];
   const status = (next: StartupStatus): void => {
@@ -115,11 +119,15 @@ export async function runStartup(options: StartupOptions): Promise<void> {
       log,
     });
 
+    const backend = backendPaths(options.paths.backendRoot);
+    // The marker is the only place the installed python version is written; a
+    // first run has none, so the engine check waits for the next startup.
+    const installed = await readReadyMarker(backend);
     const environment = await planEnvironment(
       options.hostBackendRoot,
       options.builtinPluginsRoot,
+      installed?.python,
     );
-    const backend = backendPaths(options.paths.backendRoot);
     const marker = expectedMarker(
       environment.importPaths,
       environment.requirements,
@@ -186,6 +194,14 @@ export async function runStartup(options: StartupOptions): Promise<void> {
     }
 
     status({ phase: 'ready', title: 'Ready', log });
+
+    const verified = await readReadyMarker(backend);
+
+    if (verified === null) {
+      throw new BackendError('core/backend-failed', 'the ready marker disappeared');
+    }
+
+    return verified;
   } catch (error) {
     const failure = describeFailure(error);
 

@@ -108,7 +108,7 @@ async function start(force = false): Promise<void> {
   starting = true;
 
   try {
-    await runStartup({
+    const marker = await runStartup({
       paths: resolvePaths(),
       userDataDir: app.getPath('userData'),
       hostBackendRoot: hostPaths().hostBackendRoot,
@@ -118,7 +118,7 @@ async function start(force = false): Promise<void> {
     });
 
     try {
-      await enableBuiltinPlugins();
+      await enableBuiltinPlugins(marker.python);
     } catch (error) {
       // A builtin plugin is part of the product: if it cannot start, the app
       // has nothing to offer, so startup fails at the progress window instead
@@ -155,11 +155,14 @@ async function start(force = false): Promise<void> {
  * utility process. A `renderer`-host plugin stays `PENDING` until the renderer
  * host exists; discovery has already proved its manifest.
  */
-async function enableBuiltinPlugins(): Promise<void> {
-  const discovery = await discoverPlugins([
-    { path: hostPaths().builtinPluginsRoot, kind: 'builtin' },
-    { path: hostPaths().userPluginsRoot, kind: 'user' },
-  ]);
+async function enableBuiltinPlugins(pythonVersion: string): Promise<void> {
+  const discovery = await discoverPlugins(
+    [
+      { path: hostPaths().builtinPluginsRoot, kind: 'builtin' },
+      { path: hostPaths().userPluginsRoot, kind: 'user' },
+    ],
+    { pythonVersion },
+  );
 
   pluginFailures = discovery.issues;
 
