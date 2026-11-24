@@ -87,7 +87,7 @@ class MediaMethodsTest(unittest.TestCase):
         ):
             response = call("decode", {"path": str(self.source)})
 
-        self.assertEqual(response["error"]["code"], "internal/error")
+        self.assertEqual(response["error"]["code"], "core/internal")
         self.assertTrue(first.is_file())
         self.assertEqual(len(job_dirs(self.cache, "audio")), 1)
 

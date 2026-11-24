@@ -3,7 +3,7 @@
 Codes follow `domain/reason`. The protocol layer turns any `ServiceError` into
 `{"code", "message"}` plus an optional `data`, so a caller can branch on
 `media/no-audio-stream` without matching on an exception class from libav, and a
-handler can refuse a request without the failure being reported as `internal/error`.
+handler can refuse a request without the failure being reported as `core/internal`.
 
 `message` is English fallback text. Anything a client is expected to *render*
 belongs in `data` as a field, because a sentence stops being parseable the moment

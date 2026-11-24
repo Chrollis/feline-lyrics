@@ -16,6 +16,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from felyrics_host.errors import ServiceError
 from felyrics_host.server import (
+    MAX_LINE_BYTES,
     METHODS,
     PLUGIN_METHODS,
     PROTOCOL_VERSION,
@@ -164,7 +165,7 @@ class RespondTest(unittest.TestCase):
                 response = parse('{"v":1,"id":4,"method":"boom"}')
 
             self.assertEqual(response["id"], 4)
-            self.assertEqual(response["error"]["code"], "internal/error")
+            self.assertEqual(response["error"]["code"], "core/internal")
             self.assertIn("handler exploded", stderr.getvalue())
         finally:
             del METHODS["boom"]
@@ -280,3 +281,18 @@ class ServeTest(unittest.TestCase):
 
         self.assertTrue(stdout.getvalue().endswith("\n"))
         json.loads(stdout.getvalue())
+
+    def test_a_line_over_the_bound_is_refused_and_the_loop_continues(self):
+        stdin = io.StringIO(
+            "x" * (MAX_LINE_BYTES + 1)
+            + "\n"
+            + '{"v":1,"id":2,"method":"ping"}\n'
+        )
+        stdout = io.StringIO()
+
+        serve(stdin, stdout)
+
+        lines = [json.loads(line) for line in stdout.getvalue().splitlines()]
+
+        self.assertEqual(lines[0]["error"]["code"], "protocol/oversize")
+        self.assertEqual(lines[1]["result"], {"pong": True})

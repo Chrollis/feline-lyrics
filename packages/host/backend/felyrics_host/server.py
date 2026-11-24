@@ -41,6 +41,11 @@ PLUGIN_METHODS: dict[tuple[str, str], PluginMethod] = {}
 # on disk cannot reveal.
 PROTOCOL_VERSION = 1
 
+# One line is one message. A line over this bound is refused instead of being
+# buffered: a broken plugin or a client bug must not be able to grow the process
+# until it swaps.
+MAX_LINE_BYTES = 1024 * 1024
+
 
 class ProtocolError(ServiceError):
     """A request that cannot be answered as asked; the client sees `code`."""
@@ -207,7 +212,7 @@ def respond(line: str) -> dict[str, Any]:
             "v": PROTOCOL_VERSION,
             "id": request_id,
             "error": {
-                "code": "internal/error",
+                "code": "core/internal",
                 "message": "the handler raised; the traceback is on stderr",
             },
         }
@@ -216,7 +221,35 @@ def respond(line: str) -> dict[str, Any]:
 def serve(stdin: IO[str], stdout: IO[str]) -> None:
     """The loop: read a line, answer a line, until stdin closes."""
 
-    for raw in stdin:
+    while True:
+        raw = stdin.readline(MAX_LINE_BYTES + 1)
+
+        if not raw:
+            break
+
+        if len(raw.encode("utf-8")) > MAX_LINE_BYTES:
+            # `readline` stopped at the bound, so the rest of the line is still
+            # on the stream; drain it without keeping a copy.
+            while raw and not raw.endswith("\n"):
+                raw = stdin.readline(MAX_LINE_BYTES + 1)
+
+            stdout.write(
+                json.dumps(
+                    {
+                        "v": PROTOCOL_VERSION,
+                        "id": None,
+                        "error": {
+                            "code": "protocol/oversize",
+                            "message": f"line exceeds {MAX_LINE_BYTES} bytes",
+                        },
+                    },
+                    ensure_ascii=False,
+                )
+            )
+            stdout.write("\n")
+            stdout.flush()
+            continue
+
         line = raw.strip()
 
         if not line:

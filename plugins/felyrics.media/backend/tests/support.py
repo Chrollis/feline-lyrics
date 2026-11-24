@@ -49,7 +49,7 @@ def call(name, params=None):
     except Exception:
         return {
             "error": {
-                "code": "internal/error",
+                "code": "core/internal",
                 "message": "the handler raised",
             }
         }

@@ -11,6 +11,13 @@ import { ToolchainError } from '@felyrics/toolchain';
 export const PROTOCOL_VERSION = 1;
 
 /**
+ * One line is one message. A backend that writes more than this without a
+ * newline is refused instead of buffered: a broken plugin must not be able to
+ * grow the client until it swaps.
+ */
+export const MAX_LINE_CHARS = 1024 * 1024;
+
+/**
  * Reads the version the other side reported, out of an error's open `data`.
  *
  * Anything that is not a number is "the backend did not say": guessing here
@@ -89,8 +96,8 @@ interface Pending {
  * (`"media/open-failed: cannot open ..."`) would leave every backend failure
  * indistinguishable from a crash by the time it reaches the renderer.
  *
- * The vocabulary belongs to the backend (`media/open-failed`,
- * `method/not-found`, `protocol/invalid-request`, `internal/error`), which is why
+ * The vocabulary belongs to the backend (`felyrics.media/open-failed`,
+ * `protocol/unknown-method`, `protocol/bad-request`, `core/internal`), which is why
  * this is not a `ToolchainError`: a closed union cannot enumerate codes that a
  * new service method may invent, and a backend release must not need one.
  */
@@ -141,6 +148,7 @@ export function startService(options: ServiceOptions): ServiceClient {
     options.defaultTimeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS;
   const emitProtocolError = options.onProtocolError;
   let buffered = '';
+  let discardingOversize = false;
   let nextId = 1;
   let closed = false;
 
@@ -291,6 +299,20 @@ export function startService(options: ServiceOptions): ServiceClient {
   const absorbStdout = (text: string): void => {
     buffered += text;
 
+    // After an oversized line, the rest of it is still on the wire. Drop it up
+    // to the next newline before reading anything again.
+    if (discardingOversize) {
+      const newline = buffered.indexOf('\n');
+
+      if (newline < 0) {
+        buffered = '';
+        return;
+      }
+
+      buffered = buffered.slice(newline + 1);
+      discardingOversize = false;
+    }
+
     let newline = buffered.indexOf('\n');
 
     while (newline >= 0) {
@@ -302,6 +324,21 @@ export function startService(options: ServiceOptions): ServiceClient {
       }
 
       newline = buffered.indexOf('\n');
+    }
+
+    if (buffered.length > MAX_LINE_CHARS) {
+      emitProtocolError?.(
+        buffered.slice(0, 80),
+        new Error(`a line exceeded the ${MAX_LINE_CHARS}-character bound`),
+      );
+      failAll(
+        new BackendError(
+          'protocol/oversize',
+          `the backend wrote a line longer than ${MAX_LINE_CHARS} characters`,
+        ),
+      );
+      buffered = '';
+      discardingOversize = true;
     }
   };
 

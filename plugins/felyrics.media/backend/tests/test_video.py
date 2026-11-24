@@ -118,7 +118,7 @@ class VideoTest(unittest.TestCase):
         with mock.patch.object(video, "frames", dying):
             response = call("video-frames", {"path": str(self.clip), "count": 3})
 
-        self.assertEqual(response["error"]["code"], "internal/error")
+        self.assertEqual(response["error"]["code"], "core/internal")
         self.assertEqual(len(on_disk), 1)
 
     def test_a_failed_frame_request_keeps_the_previous_stills(self):
