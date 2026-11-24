@@ -19,13 +19,29 @@ export {
   type PythonTarget,
 } from './manifest.js';
 export {
+  DEFAULT_ACTIVATION_TIMEOUT_MS,
+  DEFAULT_DISPOSAL_TIMEOUT_MS,
+  PluginHandle,
+  PluginHosts,
+  PluginLifecycleError,
+  type PluginHandleOptions,
+  type PluginIssue,
+  type PluginState,
+  type PluginSummary,
+} from './lifecycle.js';
+export {
   resolveHostPaths,
   type HostPathInputs,
   type HostPaths,
 } from './paths.js';
 export {
+  servePlugin,
+  type ServePluginOptions,
+} from './plugin-host.js';
+export {
   type BackendCallOptions,
   type PluginBackend,
+  type PluginCommand,
   type PluginContext,
   type PluginMethod,
   type PluginParams,
@@ -40,3 +56,12 @@ export {
   type ServiceOptions,
   type ServiceRequestOptions,
 } from './protocol.js';
+export {
+  isUtilityProtocolVersion,
+  UTILITY_PROTOCOL_VERSION,
+  type HostCommand,
+  type PluginEvent,
+  type PluginHostTransport,
+  type PluginTransport,
+  type WireError,
+} from './utility-protocol.js';

@@ -14,6 +14,9 @@ export type PluginParams = Readonly<Record<string, unknown>>;
 /** A handler registered on the plugin's public table. */
 export type PluginMethod = (params: PluginParams) => unknown | Promise<unknown>;
 
+/** A button the host draws; commands take no parameters. */
+export type PluginCommand = () => unknown | Promise<unknown>;
+
 export interface BackendCallOptions {
   /** How long the host waits for this call, in integer milliseconds. */
   readonly timeoutMs?: number;
@@ -36,5 +39,9 @@ export interface PluginContext {
   readonly api: number;
   /** Registers a public method under its short name. */
   method(name: string, handler: PluginMethod): void;
+  /** Registers a command the host draws as a button. */
+  command(id: string, handler: PluginCommand): void;
+  /** Runs after the last request, newest first. */
+  onDispose(handler: () => unknown | Promise<unknown>): void;
   readonly backend: PluginBackend;
 }

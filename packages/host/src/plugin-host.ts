@@ -1,0 +1,308 @@
+import { join } from 'node:path';
+import { pathToFileURL } from 'node:url';
+
+import type {
+  PluginBackend,
+  PluginCommand,
+  PluginContext,
+  PluginMethod,
+  PluginParams,
+} from './plugin.js';
+import {
+  UTILITY_PROTOCOL_VERSION,
+  type HostCommand,
+  type PluginEvent,
+  type PluginHostTransport,
+  type WireError,
+} from './utility-protocol.js';
+
+/**
+ * The plugin host: the only code that runs inside a plugin's utility process.
+ *
+ * It owns nothing but the plugin: it imports the entry the manifest names,
+ * hands `activate` a context, records what that context registered, and then
+ * serves requests until the host disposes it. The host process never imports
+ * plugin code and the plugin never sees the host's tables.
+ */
+
+export interface ServePluginOptions {
+  /** The plugin's route to its own backend; a later step supplies it. */
+  readonly backend?: PluginBackend;
+}
+
+const NO_BACKEND: PluginBackend = {
+  call: async () => {
+    throw wireError('core/not-ready', 'no backend is attached to this plugin host');
+  },
+};
+
+class PluginHostError extends Error {
+  readonly code: string;
+
+  constructor(code: string, message: string) {
+    super(message);
+    this.name = 'PluginHostError';
+    this.code = code;
+  }
+}
+
+function wireError(code: string, message: string): WireError {
+  return { code, message };
+}
+
+/**
+ * Turns anything a plugin threw into a wire error. A thrown object with a
+ * string code is the plugin's own refusal and keeps that code; everything else
+ * is a crash and becomes the host's `core/internal`.
+ */
+function asWireError(error: unknown): WireError {
+  if (typeof error === 'object' && error !== null) {
+    const candidate = error as { code?: unknown; message?: unknown };
+
+    if (typeof candidate.code === 'string' && candidate.code.length > 0) {
+      return {
+        code: candidate.code,
+        message:
+          typeof candidate.message === 'string'
+            ? candidate.message
+            : candidate.code,
+      };
+    }
+  }
+
+  if (error instanceof Error && error.message.length > 0) {
+    return wireError('core/internal', error.message);
+  }
+
+  return wireError('core/internal', String(error));
+}
+
+function checkVersion(message: HostCommand): void {
+  if (message.v !== UTILITY_PROTOCOL_VERSION) {
+    throw wireError(
+      'protocol/version-mismatch',
+      `this plugin host speaks utility protocol ${UTILITY_PROTOCOL_VERSION}`,
+    );
+  }
+}
+
+/**
+ * Serves one plugin over `transport` until the host disposes it.
+ *
+ * Registration is open only while `activate` runs: a plugin that registers from
+ * a timer or a request would make "the manifest lists what is registered"
+ * impossible to check, which is the promise activation exists for.
+ */
+export function servePlugin(
+  transport: PluginHostTransport,
+  options: ServePluginOptions = {},
+): void {
+  const methods = new Map<string, PluginMethod>();
+  const commands = new Map<string, PluginCommand>();
+  const disposers: (() => unknown | Promise<unknown>)[] = [];
+
+  const backend = options.backend ?? NO_BACKEND;
+
+  let registering = true;
+  let activated = false;
+  let disposing = false;
+
+  const send = (event: PluginEvent): void => transport.send(event);
+
+  function registerMethod(name: string, handler: PluginMethod): void {
+    if (!registering) {
+      throw new PluginHostError(
+        'core/methods-mismatch',
+        'a method must be registered while activate() runs',
+      );
+    }
+
+    if (typeof handler !== 'function') {
+      throw new PluginHostError(
+        'core/methods-mismatch',
+        `method ${name} has no handler`,
+      );
+    }
+
+    if (methods.has(name)) {
+      throw new PluginHostError(
+        'core/methods-mismatch',
+        `method ${name} is registered twice`,
+      );
+    }
+
+    methods.set(name, handler);
+  }
+
+  function registerCommand(id: string, handler: PluginCommand): void {
+    if (!registering) {
+      throw new PluginHostError(
+        'core/methods-mismatch',
+        'a command must be registered while activate() runs',
+      );
+    }
+
+    if (typeof handler !== 'function') {
+      throw new PluginHostError(
+        'core/methods-mismatch',
+        `command ${id} has no handler`,
+      );
+    }
+
+    if (commands.has(id)) {
+      throw new PluginHostError(
+        'core/methods-mismatch',
+        `command ${id} is registered twice`,
+      );
+    }
+
+    commands.set(id, handler);
+  }
+
+  function onDispose(handler: () => unknown | Promise<unknown>): void {
+    if (!registering) {
+      throw new PluginHostError(
+        'core/methods-mismatch',
+        'a disposer must be registered while activate() runs',
+      );
+    }
+
+    disposers.push(handler);
+  }
+
+  async function activate(
+    command: Extract<HostCommand, { kind: 'activate' }>,
+  ): Promise<void> {
+    const entry = join(command.directory, command.main);
+    const module: unknown = await import(pathToFileURL(entry).href);
+    const candidate = module as { activate?: unknown };
+
+    if (typeof candidate.activate !== 'function') {
+      throw new PluginHostError(
+        'core/internal',
+        `${entry} does not export activate()`,
+      );
+    }
+
+    const context: PluginContext = {
+      pluginId: command.pluginId,
+      api: command.api,
+      method: registerMethod,
+      command: registerCommand,
+      onDispose,
+      backend,
+    };
+
+    await candidate.activate(context);
+    registering = false;
+    activated = true;
+
+    send({
+      v: UTILITY_PROTOCOL_VERSION,
+      kind: 'ready',
+      methods: [...methods.keys()],
+      commands: [...commands.keys()],
+    });
+  }
+
+  async function answer(
+    request: Extract<HostCommand, { kind: 'request' }>,
+  ): Promise<void> {
+    const handler = methods.get(request.name);
+
+    if (handler === undefined) {
+      send({
+        v: UTILITY_PROTOCOL_VERSION,
+        kind: 'failure',
+        seq: request.seq,
+        error: wireError(
+          'core/internal',
+          `the host asked for an unregistered method ${request.name}`,
+        ),
+      });
+      return;
+    }
+
+    try {
+      send({
+        v: UTILITY_PROTOCOL_VERSION,
+        kind: 'result',
+        seq: request.seq,
+        result: await handler(request.params as PluginParams),
+      });
+    } catch (error) {
+      send({
+        v: UTILITY_PROTOCOL_VERSION,
+        kind: 'failure',
+        seq: request.seq,
+        error: asWireError(error),
+      });
+    }
+  }
+
+  async function dispose(): Promise<void> {
+    if (disposing) {
+      return;
+    }
+
+    disposing = true;
+
+    // Newest first and strictly one at a time: a disposer that waits for a
+    // resource another disposer frees would deadlock if they ran together.
+    for (const disposer of [...disposers].reverse()) {
+      try {
+        await disposer();
+      } catch {
+        // A failing disposer must not keep the others from running.
+      }
+    }
+
+    disposers.length = 0;
+    send({ v: UTILITY_PROTOCOL_VERSION, kind: 'disposed' });
+    transport.close();
+  }
+
+  const unsubscribe = transport.onMessage((message) => {
+    void (async () => {
+      try {
+        checkVersion(message);
+
+        if (message.kind === 'activate') {
+          if (activated || disposing) {
+            send({
+              v: UTILITY_PROTOCOL_VERSION,
+              kind: 'fatal',
+              error: wireError(
+                'core/internal',
+                'this plugin host was already activated',
+              ),
+            });
+            return;
+          }
+
+          await activate(message);
+          return;
+        }
+
+        if (message.kind === 'request') {
+          await answer(message);
+          return;
+        }
+
+        if (message.kind === 'dispose') {
+          await dispose();
+        }
+      } catch (error) {
+        send({
+          v: UTILITY_PROTOCOL_VERSION,
+          kind: 'fatal',
+          error: asWireError(error),
+        });
+      }
+    })();
+  });
+
+  transport.closed.then(() => {
+    unsubscribe();
+  });
+}
