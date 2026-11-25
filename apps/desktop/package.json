@@ -1,8 +1,10 @@
 {
   "name": "@felyrics/desktop",
+  "productName": "Felyrics",
   "version": "0.0.0",
   "private": true,
   "description": "Electron shell for felyrics.",
+  "author": "Felyrics",
   "license": "MPL-2.0",
   "type": "module",
   "main": "./out/main/index.js",
@@ -10,18 +12,21 @@
     "dev": "electron-vite dev",
     "build": "electron-vite build",
     "preview": "electron-vite preview",
+    "dist": "electron-builder --win",
+    "dist:dir": "electron-builder --win --dir",
     "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p src/renderer/tsconfig.json",
     "test": "node --test \"tests/**/*.test.mjs\""
   },
-  "dependencies": {
-    "@felyrics/toolchain": "*"
-  },
+  "dependencies": {},
   "devDependencies": {
+    "@felyrics/host": "*",
+    "@felyrics/toolchain": "*",
     "@types/node": "^26.6.6",
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
     "@vitejs/plugin-react": "^6.2.1",
-    "electron": "^45.2.3",
+    "electron": "45.2.3",
+    "electron-builder": "^26.0.12",
     "electron-vite": "^6.0.0",
     "react": "^19.3.1",
     "react-dom": "^19.3.1",

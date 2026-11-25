@@ -1,0 +1,43 @@
+appId: app.felyrics.desktop
+productName: Felyrics
+
+directories:
+  output: release
+
+# The main, preload and renderer bundles come from electron-vite; everything the
+# app reads outside asar (host backend, builtin plugins) is copied verbatim by
+# extraResources so Python can see real files and the utility host can import them.
+files:
+  - out/**/*
+  - package.json
+
+extraResources:
+  - from: ../../packages/host/backend
+    to: host/backend
+    filter:
+      - "**/*"
+      - "!**/__pycache__/**"
+      - "!tests/**"
+  - from: ../../plugins/felyrics.media
+    to: plugins/felyrics.media
+    filter:
+      - "package.json"
+      - "dist/**/*"
+      - "backend/**/*"
+      - "!**/__pycache__/**"
+      - "!backend/tests/**"
+
+win:
+  icon: ../../assets/felyrics-icon.ico
+  target:
+    - nsis
+    - portable
+
+nsis:
+  artifactName: ${productName}-Setup-${version}.${ext}
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+
+portable:
+  artifactName: ${productName}-${version}-portable.${ext}

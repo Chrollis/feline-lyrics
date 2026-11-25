@@ -10,6 +10,7 @@ pytest-cache-files-*
 # Output
 /output/
 **/out/**
+/apps/desktop/release/
 
 # Environment
 /python/

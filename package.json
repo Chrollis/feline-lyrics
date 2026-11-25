@@ -20,6 +20,8 @@
     "prebuild": "npm run build -w @felyrics/toolchain && npm run build -w @felyrics/host && npm run build -w @felyrics/media",
     "build": "npm run build -w @felyrics/desktop",
     "preview": "npm run preview -w @felyrics/desktop",
+    "dist": "npm run build && npm run dist -w @felyrics/desktop",
+    "dist:dir": "npm run build && npm run dist:dir -w @felyrics/desktop",
     "python": "node scripts/python.mjs",
     "pretypecheck": "npm run build -w @felyrics/toolchain && npm run build -w @felyrics/host && npm run build -w @felyrics/media",
     "typecheck": "npm run typecheck --workspaces --if-present",
