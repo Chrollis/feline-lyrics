@@ -302,6 +302,48 @@ test('downloads, verifies, unpacks and reuses the cached archive', async () => {
   }
 });
 
+test('leaves the other backend directories alone when unpacking', async () => {
+  const root = tempDir('felyrics-python-');
+  const archive = await pythonArchive(root);
+  const bytes = readFileSync(archive);
+  const digest = createHash('sha256').update(bytes).digest('hex');
+  const server = await serve((request, response) => {
+    if (request.url === `/expanded_assets/${TAG}`) {
+      response.end(expandedPage([{ name: STRIPPED, sha256: digest }]));
+      return;
+    }
+    if (request.url === `/releases/download/${TAG}/${STRIPPED}`) {
+      response.end(bytes);
+      return;
+    }
+    response.statusCode = 404;
+    response.end();
+  });
+
+  try {
+    const backend = join(root, 'backend');
+    mkdirSync(join(backend, 'uv'), { recursive: true });
+    writeFileSync(join(backend, 'uv', 'uv.exe'), 'the binary this step must not eat');
+
+    const installed = await ensurePython({
+      config: config([`${server.url}/releases/download/{tag}/{asset}`]),
+      destination: backend,
+      cacheDir: join(root, 'cache'),
+      verify: async () => {},
+    });
+
+    assert.equal(installed.pythonPath, join(backend, 'python', 'python.exe'));
+    assert.ok(existsSync(installed.pythonPath));
+    assert.equal(
+      readFileSync(join(backend, 'uv', 'uv.exe'), 'utf8'),
+      'the binary this step must not eat',
+    );
+  } finally {
+    await server.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test('refuses an archive that does not match the published digest', async () => {
   const root = tempDir('felyrics-python-');
   const archive = await pythonArchive(root);

@@ -7,7 +7,7 @@ import { backendPaths, type BackendPaths } from '../layout/paths.js';
 import { PTH_FILENAME } from './pth.js';
 import { isReady, readReadyMarker } from './ready.js';
 import { requirementName, requirementsFingerprint } from './requirements.js';
-import { PYTHON_VERSION, UV_VERSION } from './target.js';
+import { PYTHON_SHORT_VERSION, UV_VERSION } from './target.js';
 
 /** One line of the report: what was checked, whether it held, and why. */
 export interface DoctorCheck {
@@ -106,6 +106,41 @@ function checkVersion(
       label,
       ok: false,
       detail: `expected ${expected}, got "${result.output}"`,
+    };
+  }
+
+  return {
+    label,
+    ok: true,
+    detail: result.output.split('\n')[0] ?? result.output,
+  };
+}
+
+function checkSeries(
+  label: string,
+  file: string,
+  series: string,
+  run: RunBinary,
+): DoctorCheck {
+  if (!existsSync(file)) {
+    return { label, ok: false, detail: `missing ${file}` };
+  }
+
+  const result = run(file, ['--version']);
+
+  if (result.error || result.status !== 0) {
+    return {
+      label,
+      ok: false,
+      detail: result.output || result.error || 'did not run',
+    };
+  }
+
+  if (!new RegExp(`Python ${series}\\.`).test(result.output)) {
+    return {
+      label,
+      ok: false,
+      detail: `expected ${series}.x, got "${result.output}"`,
     };
   }
 
@@ -241,18 +276,20 @@ export async function doctor(
   const run = options.run ?? runBinary;
   const checks: DoctorCheck[] = [];
   const requirements = options.requirements;
-  const pythonVersion = options.pythonVersion ?? PYTHON_VERSION;
+  const marker = await readReadyMarker(backend);
+  // The marker is the record of what was installed, so its python wins over a
+  // constant: a 3.12.16 install must not be reported as a broken 3.12.15.
+  const pythonVersion = options.pythonVersion ?? marker?.python;
 
-  checks.push(
-    checkVersion('uv', backend.uvExe, ['--version'], UV_VERSION, run),
-    checkVersion(
-      'python',
-      backend.venvPython,
-      ['--version'],
-      pythonVersion,
-      run,
-    ),
-  );
+  checks.push(checkVersion('uv', backend.uvExe, ['--version'], UV_VERSION, run));
+
+  if (pythonVersion === undefined) {
+    checks.push(checkSeries('python', backend.venvPython, PYTHON_SHORT_VERSION, run));
+  } else {
+    checks.push(
+      checkVersion('python', backend.venvPython, ['--version'], pythonVersion, run),
+    );
+  }
 
   checks.push(checkDependencies(backend, requirements, run));
 
@@ -288,10 +325,9 @@ export async function doctor(
     }
   }
 
-  const marker = await readReadyMarker(backend);
   const matches = await isReady(backend, {
     uv: UV_VERSION,
-    python: pythonVersion,
+    python: pythonVersion ?? '',
     imports: imports.join('\n'),
     requirements: requirementsFingerprint(requirements),
   });

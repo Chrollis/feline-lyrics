@@ -323,10 +323,10 @@ test('trusts the marker for the interpreter patch', async () => {
       toolchain,
       options(importsDir, patched, { pythonVersion: '3.12.16' }),
     );
-    const pinned = await doctor(toolchain, options(importsDir, patched));
+    const fromMarker = await doctor(toolchain, options(importsDir, patched));
 
     assert.equal(trusted.ok, true);
-    assert.equal(pinned.ok, false);
-    assert.match(byLabel(pinned, 'python').detail, /3\.12\.15/);
+    assert.equal(fromMarker.ok, true);
+    assert.match(byLabel(fromMarker, 'python').detail, /3\.12\.16/);
   });
 });

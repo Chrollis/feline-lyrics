@@ -1,6 +1,8 @@
 import { createHash } from 'node:crypto';
-import { readFile, mkdir, rm, stat } from 'node:fs/promises';
+import { existsSync } from 'node:fs';
+import { readFile, mkdir, rename, rm, stat } from 'node:fs/promises';
 import { basename, dirname, join } from 'node:path';
+import { setTimeout as delay } from 'node:timers/promises';
 
 import { execa } from 'execa';
 import { x } from 'tar';
@@ -313,14 +315,51 @@ async function resolveTag(
   }
 
   let challenge: ToolchainError | undefined;
+  const tagLink = /\/releases\/tag\/(\d{8})/;
 
+  // The redirect is a single small request, but github.com occasionally drops
+  // it or answers 429; retrying here is cheaper than making the user pin a tag.
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    try {
+      const response = await fetchImpl(latestTagUrl, {
+        redirect: 'manual',
+        ...(signal === undefined ? {} : { signal }),
+      });
+      const location = response.headers.get('location') ?? '';
+      const tag = tagLink.exec(location)?.[1];
+
+      if (tag !== undefined) {
+        return tag;
+      }
+
+      if (response.ok) {
+        const body = await response.text();
+        const fromBody = tagLink.exec(body)?.[1];
+
+        if (fromBody !== undefined) {
+          return fromBody;
+        }
+      }
+    } catch (error) {
+      if (isBrowserChallenge(error)) {
+        challenge = error;
+      }
+    }
+
+    if (attempt < 2) {
+      await delay(attempt === 0 ? 500 : 1500);
+    }
+  }
+
+  // Last chance: the releases page itself. It is large, but it is one HTML
+  // request and it names the newest tag the same way.
   try {
-    const response = await fetchImpl(latestTagUrl, {
-      redirect: 'manual',
-      ...(signal === undefined ? {} : { signal }),
-    });
-    const location = response.headers.get('location') ?? '';
-    const tag = /\/releases\/tag\/(\d{8})/.exec(location)?.[1];
+    const page = await readPage(
+      latestTagUrl.replace(/\/latest$/, ''),
+      fetchImpl,
+      signal,
+    );
+    const tag = tagLink.exec(page)?.[1];
 
     if (tag !== undefined) {
       return tag;
@@ -486,13 +525,20 @@ async function reusableArchive(
  * GNU long names and pax headers without asking the machine for a `tar`.
  * The archive is a published release, so this does not re-police entries; it
  * only refuses a failed unpack.
+ *
+ * The archive always holds one top-level `python/` directory, but the
+ * destination also holds `uv/`; wiping the destination root would delete the
+ * binary that the next step is about to run. Only `python/` is replaced, and
+ * it is unpacked elsewhere first so a failed unpack leaves the old tree alone.
  */
 async function unpack(archive: string, destination: string): Promise<void> {
-  await rm(destination, { recursive: true, force: true });
-  await mkdir(destination, { recursive: true });
+  const staging = `${destination}.unpack`;
+
+  await rm(staging, { recursive: true, force: true });
+  await mkdir(staging, { recursive: true });
 
   try {
-    await x({ file: archive, cwd: destination, strict: true });
+    await x({ file: archive, cwd: staging, strict: true });
   } catch (error) {
     throw new ToolchainError(
       'archive/unusable',
@@ -504,6 +550,33 @@ async function unpack(archive: string, destination: string): Promise<void> {
       { cause: error },
     );
   }
+
+  const unpacked = join(staging, 'python');
+
+  if (!existsSync(unpacked)) {
+    throw new ToolchainError(
+      'archive/unusable',
+      'the python archive does not contain a python/ directory',
+      { archive: basename(archive) },
+    );
+  }
+
+  await mkdir(destination, { recursive: true });
+  await rm(join(destination, 'python'), { recursive: true, force: true });
+
+  try {
+    await rename(unpacked, join(destination, 'python'));
+  } catch (error) {
+    const { readdir } = await import('node:fs/promises');
+    throw new ToolchainError(
+      'archive/unusable',
+      `cannot move the unpacked python into place (${(await readdir(staging)).join(', ')}; ${String(error).slice(0, 160)})`,
+      { archive: basename(archive), reason: String(error).slice(0, 200) },
+      { cause: error },
+    );
+  }
+
+  await rm(staging, { recursive: true, force: true });
 }
 
 function pythonPath(destination: string, key: TargetKey): string {
