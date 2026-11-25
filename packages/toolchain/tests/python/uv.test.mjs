@@ -84,8 +84,8 @@ test('points uv at the backend, the shared cache and the mirrors', () => {
   assert.equal(env.UV_NO_CONFIG, '1');
   assert.equal(env.UV_PYTHON_PREFERENCE, 'only-managed');
   assert.equal(env.UV_PYTHON_DOWNLOADS, 'manual');
-  assert.match(env.UV_PYTHON_INSTALL_MIRROR, /ustc\.edu\.cn/);
-  assert.match(env.UV_DEFAULT_INDEX, /tsinghua/);
+  assert.match(env.UV_PYTHON_INSTALL_MIRROR, /github\.com/);
+  assert.match(env.UV_DEFAULT_INDEX, /pypi\.org/);
   assert.equal(env.TEMP, join(root, 'tmp'));
 });
 
@@ -192,6 +192,48 @@ test('reports a failed package install', async () => {
 
       return true;
     });
+  });
+});
+
+test('tries the next package index in its own install run', async () => {
+  await withRoot(async (ctx) => {
+    const calls = [];
+    const run = async (file, args, options) => {
+      calls.push({ file, args, options });
+
+      return calls.length === 1
+        ? { status: 1, stdout: '', stderr: 'error: no solution' }
+        : { status: 0, stdout: '', stderr: '' };
+    };
+
+    await installPackages({ ...ctx, run }, ['av'], {
+      indexes: ['https://one.example/simple', 'https://two.example/simple'],
+    });
+
+    assert.equal(calls.length, 2);
+    assert.equal(
+      calls[0].options.env.UV_DEFAULT_INDEX,
+      'https://one.example/simple',
+    );
+    assert.equal(
+      calls[1].options.env.UV_DEFAULT_INDEX,
+      'https://two.example/simple',
+    );
+  });
+});
+
+test('reports the last index when every package index fails', async () => {
+  await withRoot(async (ctx) => {
+    const { calls, run } = fakeRun({ status: 1, stderr: 'error: no solution' });
+
+    await assert.rejects(
+      installPackages({ ...ctx, run }, ['av'], {
+        indexes: ['https://one.example/simple', 'https://two.example/simple'],
+      }),
+      (error) => error.code === 'uv/packages-failed',
+    );
+
+    assert.equal(calls.length, 2);
   });
 });
 

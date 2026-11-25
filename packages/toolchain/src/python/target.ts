@@ -104,19 +104,12 @@ export const PYTHON_SHORT_VERSION = PYTHON_VERSION.split('.')
  * because it is fast from China, but it proxies GitHub on demand, so a tag it
  * has not cached yet fails and the next entry takes over.
  */
-export const PYTHON_INSTALL_MIRRORS: readonly [string, ...string[]] = [
-  'https://mirrors.ustc.edu.cn/github-release/astral-sh/python-build-standalone',
-  'https://github.com/astral-sh/python-build-standalone/releases/download',
-];
-
 /**
  * The exact CPython build, pinned so an updated uv manifest cannot swap it
  * under us. uv 0.13.8 resolves 3.12.15 to this build; an older one is not in
  * its manifest at all.
  */
 export const PYTHON_BUILD = '20261021';
-
-export const PACKAGE_INDEX_URL = 'https://pypi.tuna.tsinghua.edu.cn/simple';
 
 export const MIN_DOWNLOAD_BYTES = 1024 ** 2;
 

@@ -48,9 +48,7 @@ export {
 } from './python/download-python.js';
 export {
   MIN_DOWNLOAD_BYTES,
-  PACKAGE_INDEX_URL,
   PYTHON_BUILD,
-  PYTHON_INSTALL_MIRRORS,
   PYTHON_SHORT_VERSION,
   PYTHON_VERSION,
   PYTHON_VERSION_SLOT,
@@ -107,6 +105,7 @@ export {
   uvEnv,
   runUv,
   type DownloadUvOptions,
+  type InstallPackagesOptions,
   type RunUv,
   type UvContext,
   type UvResult,

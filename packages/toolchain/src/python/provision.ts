@@ -169,7 +169,9 @@ export async function provision(
   step('pth');
   writePth(backend, options.importPaths);
   step('packages');
-  await installPackages(ctx, requirements);
+  await installPackages(ctx, requirements, {
+    ...(options.mirrors ? { indexes: options.mirrors.packages } : {}),
+  });
   step('marker');
   await writeReadyMarker(backend, installedMarker);
 

@@ -17,9 +17,7 @@ import { extractZip } from '../process/zip.js';
 import { download } from './download.js';
 import {
   MIN_DOWNLOAD_BYTES,
-  PACKAGE_INDEX_URL,
   PYTHON_BUILD,
-  PYTHON_INSTALL_MIRRORS,
   UV_VERSION,
   type PlatformTarget,
 } from './target.js';
@@ -147,10 +145,11 @@ function failure(
 
 function runOptions(
   ctx: UvContext,
-  installMirror: string = PYTHON_INSTALL_MIRRORS[0],
+  installMirror: string = DEFAULT_MIRRORS.python[0]!,
+  packageIndex: string = DEFAULT_MIRRORS.packages[0]!,
 ): UvRunOptions {
   return {
-    env: uvEnv(ctx, installMirror),
+    env: uvEnv(ctx, installMirror, packageIndex),
     ...(ctx.onOutput ? { onOutput: ctx.onOutput } : {}),
     ...(ctx.signal ? { signal: ctx.signal } : {}),
   };
@@ -158,7 +157,8 @@ function runOptions(
 
 export function uvEnv(
   ctx: UvContext,
-  installMirror: string = PYTHON_INSTALL_MIRRORS[0],
+  installMirror: string = DEFAULT_MIRRORS.python[0]!,
+  packageIndex: string = DEFAULT_MIRRORS.packages[0]!,
 ): NodeJS.ProcessEnv {
   const backend = backendPaths(ctx.paths.backendRoot);
 
@@ -168,7 +168,7 @@ export function uvEnv(
     pythonInstallDir: backend.pythonDir,
     installMirror,
     pythonBuild: PYTHON_BUILD,
-    packageIndex: PACKAGE_INDEX_URL,
+    packageIndex,
   });
 }
 
@@ -334,10 +334,21 @@ export async function createVenv(
   }
 }
 
+export interface InstallPackagesOptions {
+  /**
+   * Package indexes, primary first. Each one is a separate `uv pip install`
+   * run: uv resolves against every index it is given at once, which is not a
+   * fallback and can mix packages from two mirrors. Omitted means the built-in
+   * official index; the app passes the user's list.
+   */
+  readonly indexes?: readonly string[];
+}
+
 /** Installs exact requirement strings into the venv; an empty list is a no-op. */
 export async function installPackages(
   ctx: UvContext,
   requirements: readonly string[],
+  options: InstallPackagesOptions = {},
 ): Promise<void> {
   if (requirements.length === 0) {
     return;
@@ -345,6 +356,7 @@ export async function installPackages(
 
   const backend = backendPaths(ctx.paths.backendRoot);
   const run = ctx.run ?? runUv;
+  const indexes = options.indexes ?? DEFAULT_MIRRORS.packages;
   const args = [
     'pip',
     'install',
@@ -352,10 +364,33 @@ export async function installPackages(
     backend.venvPython,
     ...requirements,
   ];
+  let last: ToolchainError | undefined;
 
-  const result = await run(backend.uvExe, args, runOptions(ctx));
+  for (const index of indexes) {
+    const result = await run(
+      backend.uvExe,
+      args,
+      runOptions(ctx, undefined, index),
+    );
 
-  if (result.status !== 0) {
-    throw failure('uv/packages-failed', 'pip install', result);
+    if (result.status === 0) {
+      return;
+    }
+
+    last = failure('uv/packages-failed', 'pip install', result);
+
+    if (ctx.signal?.aborted === true) {
+      break;
+    }
   }
+
+  if (last !== undefined) {
+    throw last;
+  }
+
+  throw new ToolchainError(
+    'uv/packages-failed',
+    'no package index is configured',
+    { command: 'uv pip install' },
+  );
 }
