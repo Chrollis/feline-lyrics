@@ -25,25 +25,9 @@
         "probe",
         "decode",
         "video-probe",
-        "video-frames"
-      ],
-      "commands": [
-        {
-          "id": "pick-audio",
-          "title": "Pick audio"
-        },
-        {
-          "id": "decode-audio",
-          "title": "Decode audio"
-        },
-        {
-          "id": "pick-video",
-          "title": "Pick video"
-        },
-        {
-          "id": "frames-video",
-          "title": "Frames video"
-        }
+        "video-frames",
+        "pick-audio",
+        "pick-video"
       ],
       "internal": [
         "probe",
