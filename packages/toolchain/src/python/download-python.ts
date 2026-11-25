@@ -54,6 +54,10 @@ export interface ResolvePythonOptions {
   readonly signal?: AbortSignal;
   /** The URL that redirects to the newest release; a seam for tests. */
   readonly latestTagUrl?: string;
+  /** Where `{url}` templates read the file listing; a seam for tests. */
+  readonly listingBase?: string;
+  /** Where `{url}` templates point at the official asset; a seam for tests. */
+  readonly downloadBase?: string;
 }
 
 export interface EnsurePythonOptions extends ResolvePythonOptions {
@@ -274,12 +278,21 @@ function defaultTargetKey(): TargetKey {
   return key as TargetKey;
 }
 
+/** Where the official listing and assets live; `{url}` templates reuse them. */
+const OFFICIAL_LISTING = 'https://github.com/astral-sh/python-build-standalone/releases/expanded_assets';
+const OFFICIAL_DOWNLOAD = 'https://github.com/astral-sh/python-build-standalone/releases/download';
+
 /**
  * Where to read the tag list from a source. GitHub's download URL has a
  * sibling `expanded_assets` page with names and digests; a mirror keeps the
- * same prefix and lists tags as directories.
+ * same prefix and lists tags as directories; a `{url}` proxy does not list
+ * files at all, so the official page is read and only the download is proxied.
  */
-function listingUrl(template: string, tag: string): string {
+function listingUrl(template: string, tag: string, listingBase = OFFICIAL_LISTING): string {
+  if (template.includes('{url}')) {
+    return `${listingBase}/${tag}`;
+  }
+
   const prefix = template.slice(0, template.indexOf('{tag}'));
 
   if (prefix.endsWith('/releases/download/')) {
@@ -319,7 +332,15 @@ async function resolveTag(
   }
 
   for (const template of config.python) {
-    const prefix = template.slice(0, template.indexOf('{tag}'));
+    const at = template.indexOf('{tag}');
+
+    if (at < 0) {
+      // A `{url}` proxy cannot list tags either; the caller's latest redirect
+      // is the only way to learn one.
+      continue;
+    }
+
+    const prefix = template.slice(0, at);
     if (prefix.length === 0) {
       continue;
     }
@@ -375,7 +396,11 @@ export async function resolvePythonRelease(
     let page: string;
 
     try {
-      page = await readPage(listingUrl(template, tag), fetchImpl, options.signal);
+      page = await readPage(
+        listingUrl(template, tag, options.listingBase),
+        fetchImpl,
+        options.signal,
+      );
     } catch (error) {
       if (isBrowserChallenge(error)) {
         challenge = error;
@@ -384,7 +409,7 @@ export async function resolvePythonRelease(
     }
 
     const listed: ReleasePageAsset[] =
-      template.includes('/releases/download/')
+      template.includes('/releases/download/') || template.includes('{url}')
         ? parseReleasePage(page)
         : parseListing(page).map((name) => ({ name }));
     const selected = selectPythonAsset(
@@ -403,9 +428,14 @@ export async function resolvePythonRelease(
       tag,
       version: selected.version,
       asset: selected.name,
-      url: template
-        .replace('{tag}', tag)
-        .replace('{asset}', selected.name),
+      url: template.includes('{url}')
+        ? template.replaceAll(
+            '{url}',
+            `${options.downloadBase ?? OFFICIAL_DOWNLOAD}/${tag}/${selected.name}`,
+          )
+        : template
+            .replace('{tag}', tag)
+            .replace('{asset}', selected.name),
       ...(digest === undefined ? {} : { sha256: digest }),
     };
   }

@@ -76,6 +76,16 @@ export interface ProvisionOptions {
   readonly onOutput?: (chunk: string, stream: 'stdout' | 'stderr') => void;
   /** Called before each phase, so a window can name what is happening. */
   readonly onStep?: (step: ProvisionStep) => void;
+  /**
+   * Bytes of the current download. A window shows this instead of guessing why
+   * a mirrored archive takes minutes; `total` is null when the server does not
+   * send a length.
+   */
+  readonly onProgress?: (
+    step: 'uv' | 'python',
+    received: number,
+    total: number | null,
+  ) => void;
   readonly signal?: AbortSignal;
 }
 
@@ -145,6 +155,12 @@ export async function provision(
   await downloadUv(ctx, options.target ?? currentTarget(), {
     ...(options.mirrors ? { sources: options.mirrors.uv } : {}),
     ...(options.fetchImpl ? { fetchImpl: options.fetchImpl } : {}),
+    ...(options.onProgress
+      ? {
+          onProgress: (received: number, total: number | null) =>
+            options.onProgress!('uv', received, total),
+        }
+      : {}),
   });
   step('python');
   const install = options.ensurePython ?? ensurePython;
@@ -155,8 +171,11 @@ export async function provision(
     series: options.pythonSeries ?? PYTHON_SHORT_VERSION,
     ...(options.fetchImpl ? { fetchImpl: options.fetchImpl } : {}),
     ...(options.signal ? { signal: options.signal } : {}),
-    ...(options.onOutput
-      ? { onProgress: (received: number) => options.onOutput!(`${received} bytes\n`, 'stdout') }
+    ...(options.onProgress
+      ? {
+          onProgress: (received: number, total: number | null) =>
+            options.onProgress!('python', received, total),
+        }
       : {}),
   });
   const installedMarker = expectedMarker(

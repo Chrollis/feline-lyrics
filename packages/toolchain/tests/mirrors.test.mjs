@@ -86,6 +86,21 @@ test('refuses a python template without {tag}', () => {
   );
 });
 
+test('accepts a {url} template for a download proxy', () => {
+  const config = parseMirrorConfig(
+    '{"sources":{"python":["https://proxy.example/{url}"]}}',
+  );
+
+  assert.deepEqual(config.sources?.python, ['https://proxy.example/{url}']);
+});
+
+test('refuses a python template that mixes {url} with {tag}', () => {
+  rejects(
+    '{"sources":{"python":["https://proxy.example/{url}/{tag}"]}}',
+    'sources.python[0]',
+  );
+});
+
 test('refuses a package index with a placeholder', () => {
   rejects(
     '{"sources":{"packages":["https://pypi.example/{tag}/simple"]}}',

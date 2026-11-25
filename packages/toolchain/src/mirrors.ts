@@ -8,7 +8,11 @@ import { ToolchainError } from './errors.js';
 export interface MirrorSources {
   /** Templates for the uv zip; must contain `{asset}`. */
   readonly uv?: readonly string[];
-  /** Templates for the python-build-standalone tarball; must contain `{tag}` and `{asset}`. */
+  /**
+   * Templates for the python-build-standalone tarball. Either `{tag}` and
+   * `{asset}` (a mirror that lists tags itself), or `{url}` (a proxy that wants
+   * the complete official asset URL); the listing then stays on GitHub.
+   */
   readonly python?: readonly string[];
   /** Package index URLs, primary first. */
   readonly packages?: readonly string[];
@@ -117,6 +121,47 @@ function templates(
   });
 }
 
+/**
+ * Python sources come in two shapes, and mixing them in one entry is a typo:
+ * `{tag}`/`{asset}` names the file on the mirror, while `{url}` hands the whole
+ * official URL to a download proxy.
+ */
+function pythonTemplates(value: unknown, path: string): readonly string[] {
+  if (!Array.isArray(value) || value.length === 0) {
+    invalid(path, `${path} must be a non-empty array of URL templates`);
+  }
+
+  return value.map((entry, index) => {
+    if (typeof entry !== 'string' || entry.length === 0) {
+      invalid(`${path}[${index}]`, `${path}[${index}] must be a non-empty string`);
+    }
+
+    httpUrl(entry, `${path}[${index}]`);
+
+    const templated = entry.includes('{url}');
+
+    if (templated) {
+      if (entry.includes('{tag}') || entry.includes('{asset}')) {
+        invalid(
+          `${path}[${index}]`,
+          `${path}[${index}] must use either {url} or {tag} and {asset}`,
+        );
+      }
+    } else {
+      for (const placeholder of ['tag', 'asset']) {
+        if (!entry.includes(`{${placeholder}}`)) {
+          invalid(
+            `${path}[${index}]`,
+            `${path}[${index}] must contain {${placeholder}} or {url}`,
+          );
+        }
+      }
+    }
+
+    return entry;
+  });
+}
+
 function packageIndexes(value: unknown, path: string): readonly string[] {
   if (!Array.isArray(value) || value.length === 0) {
     invalid(path, `${path} must be a non-empty array of package index URLs`);
@@ -168,7 +213,7 @@ export function parseMirrorConfig(text: string): MirrorConfig {
         : { uv: templates(sources.uv, 'sources.uv', ['asset']) }),
       ...(sources.python === undefined
         ? {}
-        : { python: templates(sources.python, 'sources.python', ['tag', 'asset']) }),
+        : { python: pythonTemplates(sources.python, 'sources.python') }),
       ...(sources.packages === undefined
         ? {}
         : { packages: packageIndexes(sources.packages, 'sources.packages') }),

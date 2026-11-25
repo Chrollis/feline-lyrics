@@ -126,6 +126,36 @@ test('resolves a pinned tag through the official listing', async () => {
   }
 });
 
+test('reads the official listing and downloads through a {url} proxy', async () => {
+  const digest = 'e'.repeat(64);
+  const server = await serve((request, response) => {
+    if (request.url === `/listing/${TAG}`) {
+      response.end(expandedPage([{ name: STRIPPED, sha256: digest }]));
+      return;
+    }
+    response.statusCode = 404;
+    response.end();
+  });
+
+  try {
+    const release = await resolvePythonRelease({
+      config: config(['https://proxy.example/{url}']),
+      listingBase: `${server.url}/listing`,
+      downloadBase: `${server.url}/download`,
+    });
+
+    assert.equal(release.tag, TAG);
+    assert.equal(release.asset, STRIPPED);
+    assert.equal(release.sha256, digest);
+    assert.equal(
+      release.url,
+      `https://proxy.example/${server.url}/download/${TAG}/${STRIPPED}`,
+    );
+  } finally {
+    await server.close();
+  }
+});
+
 test('resolves latest through the github redirect', async () => {
   const server = await serve((request, response) => {
     if (request.url === '/latest') {

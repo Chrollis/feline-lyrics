@@ -48,6 +48,25 @@ const STEP_TITLES: Record<ProvisionStep, string> = {
 /** Kept short: the window shows a tail, and the full log goes to disk. */
 const LOG_TAIL = 8;
 
+/** A download line is refreshed at most this often, so the window is not spammed. */
+const PROGRESS_INTERVAL_MS = 400;
+
+function progressTitle(
+  step: 'uv' | 'python',
+  received: number,
+  total: number | null,
+): string {
+  const base = step === 'uv' ? 'Downloading uv' : 'Downloading Python';
+  const size = `${(received / (1024 * 1024)).toFixed(1)} MB`;
+
+  if (total === null || total <= 0) {
+    return `${base}: ${size}`;
+  }
+
+  const percent = Math.floor((received / total) * 100);
+  return `${base}: ${size} / ${(total / (1024 * 1024)).toFixed(1)} MB (${percent}%)`;
+}
+
 export interface StartupOptions {
   readonly paths: ToolchainPaths;
   readonly userDataDir: string;
@@ -114,6 +133,25 @@ export async function runStartup(
       log.shift();
     }
   };
+  let lastProgress = { step: 'uv' as 'uv' | 'python', title: '', at: 0 };
+  const onProgress = (
+    step: 'uv' | 'python',
+    received: number,
+    total: number | null,
+  ): void => {
+    const now = Date.now();
+    const title = progressTitle(step, received, total);
+
+    if (
+      title === lastProgress.title ||
+      (step === lastProgress.step && now - lastProgress.at < PROGRESS_INTERVAL_MS)
+    ) {
+      return;
+    }
+
+    lastProgress = { step, title, at: now };
+    status({ phase: 'installing', title, step, log });
+  };
 
   try {
     status({
@@ -150,6 +188,7 @@ export async function runStartup(
           mirrors: options.mirrors,
           ...(options.force === true ? { force: true } : {}),
           onStep: (step) => {
+            lastProgress = { step: 'uv', title: '', at: 0 };
             status({
               phase: 'installing',
               title: STEP_TITLES[step],
@@ -157,6 +196,7 @@ export async function runStartup(
               log,
             });
           },
+          onProgress,
           onOutput: (chunk) => {
             push(chunk.trimEnd());
 
