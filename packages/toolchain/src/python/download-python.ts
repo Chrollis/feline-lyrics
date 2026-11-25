@@ -298,7 +298,7 @@ function listingUrl(template: string, tag: string, listingBase = OFFICIAL_LISTIN
   const prefix = template.slice(0, template.indexOf('{tag}'));
 
   if (prefix.endsWith('/releases/download/')) {
-    return `${prefix.slice(0, -'releases/download/'.length)}expanded_assets/${tag}`;
+    return `${prefix.slice(0, -'download/'.length)}expanded_assets/${tag}`;
   }
 
   return `${prefix}${tag}/`;

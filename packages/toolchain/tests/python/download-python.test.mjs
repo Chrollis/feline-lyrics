@@ -100,7 +100,7 @@ test('pairs release assets with their digests', () => {
 test('resolves a pinned tag through the official listing', async () => {
   const digest = 'b'.repeat(64);
   const server = await serve((request, response) => {
-    if (request.url === `/expanded_assets/${TAG}`) {
+    if (request.url === `/releases/expanded_assets/${TAG}`) {
       response.end(expandedPage([{ name: STRIPPED, sha256: digest }]));
       return;
     }
@@ -164,7 +164,7 @@ test('resolves latest through the github redirect', async () => {
       response.end();
       return;
     }
-    if (request.url === `/expanded_assets/${TAG}`) {
+    if (request.url === `/releases/expanded_assets/${TAG}`) {
       response.end(
         expandedPage([{ name: STRIPPED, sha256: 'c'.repeat(64) }]),
       );
@@ -264,7 +264,7 @@ test('downloads, verifies, unpacks and reuses the cached archive', async () => {
   let downloads = 0;
 
   const server = await serve((request, response) => {
-    if (request.url === `/expanded_assets/${TAG}`) {
+    if (request.url === `/releases/expanded_assets/${TAG}`) {
       response.end(expandedPage([{ name: STRIPPED, sha256: digest }]));
       return;
     }
@@ -308,7 +308,7 @@ test('leaves the other backend directories alone when unpacking', async () => {
   const bytes = readFileSync(archive);
   const digest = createHash('sha256').update(bytes).digest('hex');
   const server = await serve((request, response) => {
-    if (request.url === `/expanded_assets/${TAG}`) {
+    if (request.url === `/releases/expanded_assets/${TAG}`) {
       response.end(expandedPage([{ name: STRIPPED, sha256: digest }]));
       return;
     }
@@ -350,7 +350,7 @@ test('refuses an archive that does not match the published digest', async () => 
   const bytes = readFileSync(archive);
 
   const server = await serve((request, response) => {
-    if (request.url === `/expanded_assets/${TAG}`) {
+    if (request.url === `/releases/expanded_assets/${TAG}`) {
       response.end(expandedPage([{ name: STRIPPED, sha256: 'd'.repeat(64) }]));
       return;
     }
