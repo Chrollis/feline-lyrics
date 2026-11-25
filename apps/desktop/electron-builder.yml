@@ -38,6 +38,11 @@ nsis:
   oneClick: false
   perMachine: false
   allowToChangeInstallationDirectory: true
+  # NSIS wants 24-bit BMPs; the PNGs in assets are their sources.
+  installerSidebar: ../../assets/nsis-sidebar.bmp
+  installerHeader: ../../assets/nsis-header.bmp
+  installerIcon: ../../assets/felyrics-icon.ico
+  uninstallerIcon: ../../assets/felyrics-icon.ico
 
 portable:
   artifactName: ${productName}-${version}-portable.${ext}
