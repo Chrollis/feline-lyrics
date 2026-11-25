@@ -1,5 +1,5 @@
-![](felyrics.svg#gh-light-mode-only)
-![](felyrics.svg#gh-dark-mode-only)
+![](assets/felyrics-banner.svg#gh-light-mode-only)
+![](assets/felyrics-banner.svg#gh-dark-mode-only)
 
 <div align="center">
 
