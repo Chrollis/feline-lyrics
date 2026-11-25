@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, ipcMain, shell, utilityProcess } from 'electron';
+import { app, BrowserWindow, dialog, ipcMain, net, shell, utilityProcess } from 'electron';
 import type { OpenDialogOptions } from 'electron';
 import { join } from 'node:path';
 
@@ -137,6 +137,7 @@ async function start(force = false): Promise<void> {
       paths: resolvePaths(),
       userDataDir,
       mirrors,
+      fetchImpl: net.fetch as unknown as typeof fetch,
       hostBackendRoot: hostPaths().hostBackendRoot,
       builtinPluginsRoot: hostPaths().builtinPluginsRoot,
       ...(force ? { force: true } : {}),

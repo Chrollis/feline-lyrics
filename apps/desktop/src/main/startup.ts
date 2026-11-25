@@ -74,6 +74,12 @@ export interface StartupOptions {
   readonly builtinPluginsRoot: string;
   /** Where the uv/python/package downloads come from, mirrors first. */
   readonly mirrors: ResolvedMirrorConfig;
+  /**
+   * The network the app downloads with. The main process passes Electron's
+   * `net.fetch`, which goes through Chromium and therefore the system proxy;
+   * the global Node fetch ignores that proxy and stalls behind it.
+   */
+  readonly fetchImpl?: typeof fetch;
   /** Rebuild even when the marker matches. */
   readonly force?: boolean;
   readonly onStatus: (status: StartupStatus) => void;
@@ -186,6 +192,7 @@ export async function runStartup(
           requirements: environment.requirements,
           importPaths: environment.importPaths,
           mirrors: options.mirrors,
+          ...(options.fetchImpl === undefined ? {} : { fetchImpl: options.fetchImpl }),
           ...(options.force === true ? { force: true } : {}),
           onStep: (step) => {
             lastProgress = { step: 'uv', title: '', at: 0 };
