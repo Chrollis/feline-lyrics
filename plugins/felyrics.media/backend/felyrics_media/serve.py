@@ -254,8 +254,8 @@ def _frame_width(params: dict[str, Any]) -> int | None:
 def _new_job(kind: str) -> Path:
     """Creates an empty job directory through the host's allocator.
 
-    The host owns the layout (`<cache>/jobs/<job>` today); the plugin only names
-    the kind. Cleanup happens in `_keep_only` once a result is complete.
+    The host owns the layout (`<cache>/jobs/<plugin>/<job>`); the plugin only
+    names the kind. Cleanup happens in `_keep_only` once a result is complete.
     """
 
     if _context is None:
@@ -267,11 +267,12 @@ def _new_job(kind: str) -> Path:
 def _keep_only(keep: Path, kind: str) -> None:
     """Drops every earlier job directory of this kind, once `keep` is complete.
 
-    Job directories are flat, so the kind comes from the marker the host writes
-    into each one; the audio and the stills jobs therefore cannot delete each
-    other. Cleanup is best effort on purpose: on Windows the previous file can
-    still be open in the renderer, and losing a leak is cheaper than failing a
-    request.
+    Jobs live in one bucket per plugin (`<cache>/jobs/<plugin>/<job>`), so this
+    iteration cannot see another plugin's results; the kind comes from the
+    marker the host writes into each one, so audio and stills cannot delete each
+    other inside the same bucket. Cleanup is best effort on purpose: on Windows
+    the previous file can still be open in the renderer, and losing a leak is
+    cheaper than failing a request.
     """
 
     for old in keep.parent.iterdir():

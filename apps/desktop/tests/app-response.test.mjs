@@ -20,6 +20,7 @@ const ASSETS = {
   contentSecurityPolicy: CONTENT_SECURITY_POLICY,
 };
 
+const PLUGIN = 'felyrics.media';
 const JOB = '0123456789abcdef0123456789abcdef';
 
 async function roots() {
@@ -27,14 +28,18 @@ async function roots() {
   const rendererRoot = join(root, 'renderer');
   const jobsRoot = join(root, 'jobs');
 
-  await mkdir(join(jobsRoot, JOB), { recursive: true });
+  await mkdir(join(jobsRoot, PLUGIN, JOB), { recursive: true });
   await mkdir(rendererRoot, { recursive: true });
   await writeFile(join(rendererRoot, 'index.html'), '<!doctype html>');
   await writeFile(join(rendererRoot, 'app.js'), 'export {}');
-  await writeFile(join(jobsRoot, JOB, 'pixel.png'), 'png');
-  await writeFile(join(jobsRoot, JOB, '.kind'), 'frames');
+  await writeFile(join(jobsRoot, PLUGIN, JOB, 'pixel.png'), 'png');
+  await writeFile(join(jobsRoot, PLUGIN, JOB, '.kind'), 'frames');
 
-  return { rendererRoot, jobsRoot };
+  return {
+    rendererRoot,
+    jobsRoot,
+    pluginIds: new Set([PLUGIN]),
+  };
 }
 
 test('serves a renderer asset with its type and the policy header', async () => {
@@ -69,7 +74,7 @@ test('answers a missing renderer file with 404', async () => {
 test('serves one job file', async () => {
   const response = await answerAppRequest(
     await roots(),
-    `app://job/${JOB}/pixel.png`,
+    `app://job/${PLUGIN}/${JOB}/pixel.png`,
     ASSETS,
   );
 
@@ -81,12 +86,38 @@ test('does not serve a job marker or a nested path', async () => {
   const app = await roots();
 
   assert.equal(
-    (await answerAppRequest(app, `app://job/${JOB}/.kind`, ASSETS)).status,
+    (
+      await answerAppRequest(
+        app,
+        `app://job/${PLUGIN}/${JOB}/.kind`,
+        ASSETS,
+      )
+    ).status,
     404,
   );
   assert.equal(
-    (await answerAppRequest(app, `app://job/${JOB}/nested/pixel.png`, ASSETS))
-      .status,
+    (
+      await answerAppRequest(
+        app,
+        `app://job/${PLUGIN}/${JOB}/nested/pixel.png`,
+        ASSETS,
+      )
+    ).status,
+    404,
+  );
+});
+
+test('does not serve a plugin the app has not discovered', async () => {
+  const app = await roots();
+
+  assert.equal(
+    (
+      await answerAppRequest(
+        app,
+        `app://job/other.plugin/${JOB}/pixel.png`,
+        ASSETS,
+      )
+    ).status,
     404,
   );
 });
@@ -98,7 +129,7 @@ test('does not let a job url escape its directory', async () => {
     (
       await answerAppRequest(
         app,
-        `app://job/${JOB}/..%2f..%2fsecret.txt`,
+        `app://job/${PLUGIN}/${JOB}/..%2f..%2fsecret.txt`,
         ASSETS,
       )
     ).status,
@@ -109,7 +140,7 @@ test('does not let a job url escape its directory', async () => {
 test('answers another host with 404', async () => {
   const response = await answerAppRequest(
     await roots(),
-    `app://other/${JOB}`,
+    `app://other/${PLUGIN}/${JOB}`,
     ASSETS,
   );
 

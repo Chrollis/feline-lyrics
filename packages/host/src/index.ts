@@ -8,6 +8,7 @@ export {
   JOB_ID,
   JOB_ORIGIN,
   JOB_SCHEME,
+  PLUGIN_ID,
   resolveJobFile,
 } from './jobs.js';
 export {

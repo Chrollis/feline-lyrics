@@ -45,7 +45,7 @@ const ASSETS = {
 
 /**
  * Serve both roots over the `app` scheme: `app://bundle/` for the page and its
- * assets, `app://job/<job>/<file>` for the files the host allocates.
+ * assets, `app://job/<plugin>/<job>/<file>` for the files the host allocates.
  *
  * The file is read in `answerAppRequest` and handed back with an explicit
  * `Content-Type` plus the policy header. Letting `net.fetch(file://...)` do it

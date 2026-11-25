@@ -47,6 +47,13 @@ const UTILITY_ENTRY = join(import.meta.dirname, 'utility.js');
 /** The backend's job directories, exactly as it was told at launch. */
 const JOBS_ROOT = join(resolvePaths().cacheDir, 'jobs');
 
+/**
+ * The ids a `app://job/<plugin>/<job>/<file>` URL may name. Discovery fills it
+ * before the main window opens, so a stale URL cannot address a cache directory
+ * whose plugin the app no longer has.
+ */
+const jobPluginIds = new Set<string>();
+
 let pluginHosts: PluginHosts | null = null;
 let pluginFailures: readonly DiscoveryIssue[] = [];
 let progressWindow: BrowserWindow | null = null;
@@ -230,6 +237,10 @@ async function enableBuiltinPlugins(pythonVersion: string): Promise<void> {
 
   pluginFailures = discovery.issues;
 
+  for (const plugin of discovery.plugins) {
+    jobPluginIds.add(plugin.manifest.id);
+  }
+
   for (const issue of discovery.issues) {
     console.error('[plugin]', issue.directory, issue.code, issue.message);
   }
@@ -352,7 +363,11 @@ function createWindow(): void {
 
 if (locked) {
   app.whenReady().then(async () => {
-    serveAppProtocol({ rendererRoot: RENDERER_ROOT, jobsRoot: JOBS_ROOT });
+    serveAppProtocol({
+      rendererRoot: RENDERER_ROOT,
+      jobsRoot: JOBS_ROOT,
+      pluginIds: jobPluginIds,
+    });
 
     progressWindow = createProgressWindow();
     await start();

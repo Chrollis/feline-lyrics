@@ -6,8 +6,10 @@ import { JOB_HOST, resolveJobFile } from '@felyrics/host';
 export interface AppRoots {
   /** The built renderer; served as `app://bundle/`. */
   readonly rendererRoot: string;
-  /** The host's job directories; served as `app://job/`. */
+  /** The host's job directories; served as `app://job/<plugin>/<job>/<file>`. */
   readonly jobsRoot: string;
+  /** The ids a job URL may name; discovery fills this before requests arrive. */
+  readonly pluginIds: ReadonlySet<string>;
 }
 
 /** The bundle-side pieces, injected so this module stays importable in tests. */
@@ -36,7 +38,7 @@ export async function answerAppRequest(
 
   const file =
     host === JOB_HOST
-      ? resolveJobFile(roots.jobsRoot, url)
+      ? resolveJobFile(roots.jobsRoot, url, roots.pluginIds)
       : assets.resolveAssetPath(roots.rendererRoot, url);
 
   if (file === null) {

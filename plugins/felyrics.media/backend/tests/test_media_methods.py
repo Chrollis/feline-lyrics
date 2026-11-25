@@ -46,7 +46,7 @@ class MediaMethodsTest(unittest.TestCase):
 
         self.assertTrue(target.is_file())
         self.assertEqual(target.read_bytes()[:4], b"fLaC")
-        self.assertEqual(target.parent.parent, self.cache / "jobs")
+        self.assertEqual(target.parent.parent.parent, self.cache / "jobs")
         self.assertEqual(target.name, "audio.flac")
         self.assertEqual(result["sample_rate"], 16000)
         self.assertEqual(result["layout"], "mono")

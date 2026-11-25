@@ -56,30 +56,35 @@ def call(name, params=None):
 
 
 def job_file(cache, url):
-    """Turns `app://job/<hex>/<name>` into the file on disk."""
+    """Turns `app://job/<plugin>/<hex>/<name>` into the file on disk."""
 
     parts = urlparse(url).path.strip("/").split("/")
 
-    if len(parts) != 2:
+    if len(parts) != 3:
         raise AssertionError(f"not a job url: {url}")
 
-    return cache / "jobs" / parts[0] / parts[1]
+    return cache / "jobs" / parts[0] / parts[1] / parts[2]
 
 
 def job_dirs(cache, kind):
-    """The flat job directories whose `.kind` marker names `kind`."""
+    """The job directories whose `.kind` marker names `kind`, across plugins."""
 
     root = cache / "jobs"
 
     if not root.is_dir():
         return []
 
-    return [
-        entry
-        for entry in root.iterdir()
-        if entry.is_dir()
-        and (entry / ".kind").read_text(encoding="utf-8") == kind
-    ]
+    found = []
+
+    for bucket in sorted(root.iterdir()):
+        if not bucket.is_dir():
+            continue
+
+        for entry in sorted(bucket.iterdir()):
+            if entry.is_dir() and (entry / ".kind").read_text(encoding="utf-8") == kind:
+                found.append(entry)
+
+    return found
 
 
 def write_flac(path, *, rate, layout, frames, value=1000):

@@ -67,10 +67,10 @@ class BackendContext:
         previous job is left in place until the plugin's result is complete,
         because the renderer may still be reading it.
 
-        Directories are flat under `<cache>/jobs/<hex>` so a URL needs one id
-        and no plugin or kind segment. The per-plugin bucket and the host job
-        table arrive with the loader's scan; the `.kind` marker is what keeps
-        "drop the previous stills" working until then.
+        Each plugin gets its own bucket under `<cache>/jobs/<plugin id>/`, so
+        two plugins cannot prune each other's results and a URL can name its
+        owner without an in-memory table. The `.kind` marker is what keeps
+        "drop the previous stills" working without teaching the URL about kinds.
         """
 
         if kind not in self._jobs:
@@ -79,7 +79,7 @@ class BackendContext:
                 f"{self._plugin_id} does not declare job kind {kind!r}",
             )
 
-        directory = runtime.cache_root() / "jobs" / uuid.uuid4().hex
+        directory = runtime.cache_root() / "jobs" / self._plugin_id / uuid.uuid4().hex
         directory.mkdir(parents=True, exist_ok=True)
         (directory / KIND_FILE).write_text(kind, encoding="utf-8")
 
@@ -89,7 +89,9 @@ class BackendContext:
         """The URL a file inside `job` is reachable at.
 
         Spelling follows the plugin contract (`jobUrl`), not Python's usual
-        snake_case: both languages name the same capability the same way.
+        snake_case: both languages name the same capability the same way. The
+        plugin id is the first segment, so the app can refuse an id it has not
+        discovered even when the directory exists on disk.
         """
 
-        return f"{JOB_SCHEME}/{job.name}/{quote(file)}"
+        return f"{JOB_SCHEME}/{self._plugin_id}/{job.name}/{quote(file)}"
