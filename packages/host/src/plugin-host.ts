@@ -4,7 +4,6 @@ import { pathToFileURL } from 'node:url';
 import type {
   PickFileOptions,
   PluginBackend,
-  PluginCommand,
   PluginContext,
   PluginHostServices,
   PluginMethod,
@@ -95,7 +94,6 @@ export function servePlugin(
   options: ServePluginOptions = {},
 ): void {
   const methods = new Map<string, PluginMethod>();
-  const commands = new Map<string, PluginCommand>();
   const disposers: (() => unknown | Promise<unknown>)[] = [];
   const pendingHost = new Map<
     number,
@@ -179,31 +177,6 @@ export function servePlugin(
     methods.set(name, handler);
   }
 
-  function registerCommand(id: string, handler: PluginCommand): void {
-    if (!registering) {
-      throw new PluginHostError(
-        'core/methods-mismatch',
-        'a command must be registered while activate() runs',
-      );
-    }
-
-    if (typeof handler !== 'function') {
-      throw new PluginHostError(
-        'core/methods-mismatch',
-        `command ${id} has no handler`,
-      );
-    }
-
-    if (commands.has(id)) {
-      throw new PluginHostError(
-        'core/methods-mismatch',
-        `command ${id} is registered twice`,
-      );
-    }
-
-    commands.set(id, handler);
-  }
-
   function onDispose(handler: () => unknown | Promise<unknown>): void {
     if (!registering) {
       throw new PluginHostError(
@@ -233,7 +206,6 @@ export function servePlugin(
       pluginId: command.pluginId,
       api: command.api,
       method: registerMethod,
-      command: registerCommand,
       onDispose,
       host,
       ...(command.hasBackend === false ? {} : { backend }),
@@ -247,7 +219,6 @@ export function servePlugin(
       v: UTILITY_PROTOCOL_VERSION,
       kind: 'ready',
       methods: [...methods.keys()],
-      commands: [...commands.keys()],
     });
   }
 
@@ -296,56 +267,6 @@ export function servePlugin(
         v: UTILITY_PROTOCOL_VERSION,
         kind: 'failure',
         seq: request.seq,
-        error: asWireError(error),
-      });
-    }
-  }
-
-  async function answerCommand(
-    command: Extract<HostCommand, { kind: 'command' }>,
-  ): Promise<void> {
-    const handler = commands.get(command.name);
-
-    if (handler === undefined) {
-      send({
-        v: UTILITY_PROTOCOL_VERSION,
-        kind: 'failure',
-        seq: command.seq,
-        error: wireError(
-          'protocol/unknown-method',
-          `the host asked for an unregistered command ${command.name}`,
-        ),
-      });
-      return;
-    }
-
-    try {
-      const result = await handler();
-
-      if (exceedsPayload(result)) {
-        send({
-          v: UTILITY_PROTOCOL_VERSION,
-          kind: 'failure',
-          seq: command.seq,
-          error: wireError(
-            'protocol/oversize',
-            'the result is larger than the payload bound',
-          ),
-        });
-        return;
-      }
-
-      send({
-        v: UTILITY_PROTOCOL_VERSION,
-        kind: 'result',
-        seq: command.seq,
-        result,
-      });
-    } catch (error) {
-      send({
-        v: UTILITY_PROTOCOL_VERSION,
-        kind: 'failure',
-        seq: command.seq,
         error: asWireError(error),
       });
     }
@@ -441,11 +362,6 @@ export function servePlugin(
 
         if (message.kind === 'request') {
           await answer(message);
-          return;
-        }
-
-        if (message.kind === 'command') {
-          await answerCommand(message);
           return;
         }
 

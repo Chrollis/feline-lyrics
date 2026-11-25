@@ -7,7 +7,6 @@ const media = {
   id: 'felyrics.media',
   state: 'ACTIVE',
   methods: ['felyrics.media/probe'],
-  commands: [],
 };
 
 test('a failure with a free id is listed under that id', () => {

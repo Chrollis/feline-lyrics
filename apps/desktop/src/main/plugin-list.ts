@@ -33,7 +33,6 @@ export function mergePluginList(
       id,
       state: 'FAILED' as const,
       methods: [],
-      commands: [],
       message: `${issue.code}: ${issue.message}`,
     };
   });

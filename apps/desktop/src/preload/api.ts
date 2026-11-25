@@ -8,7 +8,7 @@
  * the compiler sees one shape.
  *
  * Plugin answers are `unknown` on purpose: the host routes JSON and cannot know
- * a plugin's method types. The sample cards narrow the two answers they render.
+ * a plugin's method types.
  */
 
 /** What a handler returns. A rejection would reach the renderer as a plain string. */
@@ -31,7 +31,6 @@ export interface PluginSummary {
   readonly id: string;
   readonly state: string;
   readonly methods: readonly string[];
-  readonly commands: readonly { readonly id: string; readonly title: string }[];
   /** Present when the plugin failed before it could register. */
   readonly message?: string;
 }
@@ -43,12 +42,6 @@ export interface PluginRequest {
   readonly timeoutMs?: number;
 }
 
-/** One command invocation; commands take no parameters. */
-export interface PluginCommandRequest {
-  readonly name: string;
-  readonly timeoutMs?: number;
-}
-
 export interface FelyricsApi {
   ping(): Promise<string>;
   backendPing(): Promise<IpcResult<{ readonly pong: boolean }>>;
@@ -56,6 +49,5 @@ export interface FelyricsApi {
     /** Every discovered plugin, active or not, with its public method names. */
     list(): Promise<IpcResult<readonly PluginSummary[]>>;
     request(request: PluginRequest): Promise<IpcResult<unknown>>;
-    command(request: PluginCommandRequest): Promise<IpcResult<unknown>>;
   };
 }

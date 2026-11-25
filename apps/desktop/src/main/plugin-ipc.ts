@@ -41,12 +41,6 @@ export interface PluginCall {
   readonly timeoutMs?: number;
 }
 
-/** A command invocation; commands take no parameters. */
-export interface PluginCommandCall {
-  readonly name: string;
-  readonly timeoutMs?: number;
-}
-
 export function parsePluginCall(value: unknown): PluginCall {
   if (typeof value !== 'object' || value === null) {
     throw new BackendError('protocol/bad-request', 'request must be an object');
@@ -71,26 +65,6 @@ export function parsePluginCall(value: unknown): PluginCall {
   return {
     name,
     params: answer as Record<string, unknown>,
-    ...(timeoutMs === undefined ? {} : { timeoutMs: positive(timeoutMs) }),
-  };
-}
-
-export function parsePluginCommand(value: unknown): PluginCommandCall {
-  if (typeof value !== 'object' || value === null) {
-    throw new BackendError('protocol/bad-request', 'request must be an object');
-  }
-
-  const { name, timeoutMs } = value as {
-    name?: unknown;
-    timeoutMs?: unknown;
-  };
-
-  if (typeof name !== 'string') {
-    throw new BackendError('protocol/bad-request', 'name must be a string');
-  }
-
-  return {
-    name,
     ...(timeoutMs === undefined ? {} : { timeoutMs: positive(timeoutMs) }),
   };
 }

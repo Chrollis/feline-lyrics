@@ -18,12 +18,6 @@ export const WORKER_LIMIT = 8;
 
 export type PluginHost = (typeof PLUGIN_HOSTS)[number];
 
-/** One button the host draws; the handler lives in `activate`. */
-export interface CommandContribution {
-  readonly id: string;
-  readonly title: string;
-}
-
 /** The `python` key of `felyrics.backend`, already split at the colon. */
 export interface PythonTarget {
   readonly module: string;
@@ -46,7 +40,6 @@ export interface PluginManifest {
   readonly enginesPython?: string;
   readonly methods: readonly string[];
   readonly internal: readonly string[];
-  readonly commands: readonly CommandContribution[];
   readonly errors: readonly string[];
   readonly jobs: readonly string[];
 }
@@ -104,9 +97,7 @@ const CONTRIBUTES_KEYS = new Set([
   'internal',
   'errors',
   'jobs',
-  'commands',
 ]);
-const COMMAND_KEYS = new Set(['id', 'title']);
 
 export function isShortName(value: unknown): value is string {
   return typeof value === 'string' && SHORT.test(value);
@@ -277,7 +268,6 @@ export async function loadManifest(
   const contributes = felyrics['contributes'];
   let methods: string[] = [];
   let internal: string[] = [];
-  let commands: CommandContribution[] = [];
   let errors: string[] = [];
   let jobs: string[] = [];
 
@@ -317,7 +307,6 @@ export async function loadManifest(
       path: 'felyrics.contributes.jobs',
       issues,
     });
-    commands = commandList(contributes['commands'], issues);
   }
 
   if (issues.length > 0) {
@@ -373,7 +362,6 @@ export async function loadManifest(
     ...(enginesPython !== null ? { enginesPython } : {}),
     methods,
     internal,
-    commands,
     errors,
     jobs,
   };
@@ -598,52 +586,6 @@ function shortList(input: ShortListInput): string[] {
   }
 
   return names;
-}
-
-function commandList(value: unknown, issues: ManifestIssue[]): CommandContribution[] {
-  if (value === undefined) {
-    return [];
-  }
-
-  if (!Array.isArray(value)) {
-    issue(issues, 'felyrics.contributes.commands', 'must be an array');
-
-    return [];
-  }
-
-  const commands: CommandContribution[] = [];
-  const seen = new Set<string>();
-
-  value.forEach((item, index) => {
-    const path = `felyrics.contributes.commands[${index}]`;
-
-    if (!isRecord(item)) {
-      issue(issues, path, 'must be an object');
-
-      return;
-    }
-
-    refuseUnknown(item, COMMAND_KEYS, path, issues);
-
-    const id = text(item['id'], `${path}.id`, issues);
-    const title = text(item['title'], `${path}.title`, issues);
-
-    if (id !== null && !isShortName(id)) {
-      issue(issues, `${path}.id`, 'must be lowercase kebab');
-    } else if (id !== null) {
-      if (seen.has(id)) {
-        issue(issues, `${path}.id`, `${id} is listed twice`);
-      } else {
-        seen.add(id);
-
-        if (title !== null) {
-          commands.push({ id, title });
-        }
-      }
-    }
-  });
-
-  return commands;
 }
 
 function refuseUnknown(

@@ -1,4 +1,4 @@
-import type { CommandContribution, PluginManifest } from './manifest.js';
+import type { PluginManifest } from './manifest.js';
 import type { PluginHostServices, PluginParams } from './plugin.js';
 import { BackendError, exceedsPayload } from './protocol.js';
 import {
@@ -115,7 +115,6 @@ export class PluginHandle {
   private ready: {
     readonly resolve: (value: {
       readonly methods: readonly string[];
-      readonly commands: readonly string[];
     }) => void;
     readonly reject: (error: Error) => void;
   } | null = null;
@@ -134,10 +133,6 @@ export class PluginHandle {
   /** The public names the app may call, `<id>/<short>`. */
   get publicMethods(): readonly string[] {
     return this.manifest.methods.map((name) => `${this.manifest.id}/${name}`);
-  }
-
-  get commands(): readonly CommandContribution[] {
-    return this.manifest.commands;
   }
 
   /**
@@ -247,45 +242,13 @@ export class PluginHandle {
     );
   }
 
-  /** Runs one command, e.g. `felyrics.media/pick-audio`. */
-  async command(publicName: string, timeoutMs?: number): Promise<unknown> {
-    if (this.stateValue !== 'ACTIVE' || this.channel === null) {
-      throw new PluginLifecycleError(
-        'core/not-ready',
-        `${this.manifest.id} is not active`,
-      );
-    }
-
-    const prefix = `${this.manifest.id}/`;
-
-    if (!publicName.startsWith(prefix) || publicName.length === prefix.length) {
-      throw new PluginLifecycleError(
-        'protocol/unknown-method',
-        `no command named ${publicName}`,
-      );
-    }
-
-    const short = publicName.slice(prefix.length);
-
-    if (!this.manifest.commands.some((command) => command.id === short)) {
-      throw new PluginLifecycleError(
-        'protocol/unknown-method',
-        `no command named ${publicName}`,
-      );
-    }
-
-    return this.invoke({ kind: 'command', name: short }, timeoutMs, publicName);
-  }
-
-  /** Sends one request or command and pairs the answer by its sequence. */
+  /** Sends one request and pairs the answer by its sequence. */
   private async invoke(
-    message:
-      | {
-          readonly kind: 'request';
-          readonly name: string;
-          readonly params: PluginParams;
-        }
-      | { readonly kind: 'command'; readonly name: string },
+    message: {
+      readonly kind: 'request';
+      readonly name: string;
+      readonly params: PluginParams;
+    },
     timeoutMs: number | undefined,
     label: string,
   ): Promise<unknown> {
@@ -310,13 +273,6 @@ export class PluginHandle {
         seq,
         name: message.name,
         params: message.params,
-      });
-    } else {
-      channel.send({
-        v: UTILITY_PROTOCOL_VERSION,
-        kind: 'command',
-        seq,
-        name: message.name,
       });
     }
 
@@ -374,7 +330,6 @@ export class PluginHandle {
 
     const registered = new Promise<{
       readonly methods: readonly string[];
-      readonly commands: readonly string[];
     }>((resolve, reject) => {
       this.ready = { resolve, reject };
     });
@@ -421,7 +376,6 @@ export class PluginHandle {
    */
   private assertRegistrations(answer: {
     readonly methods: readonly string[];
-    readonly commands: readonly string[];
   }): void {
     const issues: PluginIssue[] = [];
 
@@ -430,12 +384,6 @@ export class PluginHandle {
     );
     const extraMethods = answer.methods.filter(
       (name) => !this.manifest.methods.includes(name),
-    );
-    const missingCommands = this.manifest.commands
-      .map((command) => command.id)
-      .filter((id) => !answer.commands.includes(id));
-    const extraCommands = answer.commands.filter(
-      (id) => !this.manifest.commands.some((command) => command.id === id),
     );
 
     if (missingMethods.length > 0) {
@@ -449,20 +397,6 @@ export class PluginHandle {
       issues.push({
         path: 'registered methods',
         message: `not declared: ${extraMethods.join(', ')}`,
-      });
-    }
-
-    if (missingCommands.length > 0) {
-      issues.push({
-        path: 'contributes.commands',
-        message: `declared but not registered: ${missingCommands.join(', ')}`,
-      });
-    }
-
-    if (extraCommands.length > 0) {
-      issues.push({
-        path: 'registered commands',
-        message: `not declared: ${extraCommands.join(', ')}`,
       });
     }
 
@@ -614,7 +548,7 @@ export class PluginHandle {
     if (event.kind === 'ready') {
       const ready = this.ready;
       this.ready = null;
-      ready?.resolve({ methods: event.methods, commands: event.commands });
+      ready?.resolve({ methods: event.methods });
       return;
     }
 
@@ -720,7 +654,6 @@ export interface PluginSummary {
   readonly id: string;
   readonly state: PluginState;
   readonly methods: readonly string[];
-  readonly commands: readonly CommandContribution[];
 }
 
 /** All plugins of one host run, looked up by id or by public method name. */
@@ -755,19 +688,11 @@ export class PluginHosts {
     return this.get(id).request(publicName, params, timeoutMs);
   }
 
-  async command(publicName: string, timeoutMs?: number): Promise<unknown> {
-    const slash = publicName.indexOf('/');
-    const id = slash === -1 ? publicName : publicName.slice(0, slash);
-
-    return this.get(id).command(publicName, timeoutMs);
-  }
-
   list(): readonly PluginSummary[] {
     return [...this.handles.values()].map((handle) => ({
       id: handle.manifest.id,
       state: handle.state,
       methods: handle.publicMethods,
-      commands: handle.commands,
     }));
   }
 

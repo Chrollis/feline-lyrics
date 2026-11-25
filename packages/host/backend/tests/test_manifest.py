@@ -298,75 +298,17 @@ class ManifestTest(unittest.TestCase):
             load_manifest(path)
 
         self.assertEqual(caught.exception.code, "core/manifest-invalid")
-    def test_commands_are_optional_and_carry_a_title(self):
+
+    def test_commands_are_not_part_of_the_contract(self):
         package = self.package()
         package["felyrics"]["contributes"]["commands"] = [
             {"id": "pick-audio", "title": "Pick audio"},
-            {"id": "decode-audio", "title": "Decode audio"},
-        ]
-
-        manifest = load_manifest(self.write(package))
-
-        self.assertEqual(
-            [(command.id, command.title) for command in manifest.commands],
-            [("pick-audio", "Pick audio"), ("decode-audio", "Decode audio")],
-        )
-
-    def test_a_plugin_without_commands_has_an_empty_tuple(self):
-        manifest = load_manifest(self.write(self.package()))
-
-        self.assertEqual(manifest.commands, ())
-
-    def test_command_ids_must_be_lowercase_kebab(self):
-        package = self.package()
-        package["felyrics"]["contributes"]["commands"] = [
-            {"id": "PickAudio", "title": "Pick audio"},
         ]
 
         error = self.expect("core/manifest-invalid", package)
 
         self.assertIn(
-            "felyrics.contributes.commands[0].id",
-            [issue["path"] for issue in error.issues],
-        )
-
-    def test_command_ids_are_unique(self):
-        package = self.package()
-        package["felyrics"]["contributes"]["commands"] = [
-            {"id": "pick-audio", "title": "Pick audio"},
-            {"id": "pick-audio", "title": "Pick again"},
-        ]
-
-        error = self.expect("core/manifest-invalid", package)
-
-        self.assertIn(
-            "felyrics.contributes.commands[1].id",
-            [issue["path"] for issue in error.issues],
-        )
-
-    def test_a_command_needs_a_non_empty_title(self):
-        package = self.package()
-        package["felyrics"]["contributes"]["commands"] = [
-            {"id": "pick-audio", "title": ""},
-        ]
-
-        error = self.expect("core/manifest-invalid", package)
-
-        self.assertIn(
-            "felyrics.contributes.commands[0].title",
-            [issue["path"] for issue in error.issues],
-        )
-
-    def test_unknown_command_keys_are_refused(self):
-        package = self.package()
-        package["felyrics"]["contributes"]["commands"] = [
-            {"id": "pick-audio", "title": "Pick audio", "icon": "x"},
-        ]
-
-        error = self.expect("core/manifest-invalid", package)
-
-        self.assertIn(
-            "felyrics.contributes.commands[0].icon",
+            "felyrics.contributes.commands",
             [issue["path"] for issue in error.issues],
         )
 

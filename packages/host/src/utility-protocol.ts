@@ -46,13 +46,6 @@ export type HostCommand =
     }
   | {
       readonly v: 1;
-      readonly kind: 'command';
-      readonly seq: number;
-      /** The short command id, without the `<id>/` prefix. */
-      readonly name: string;
-    }
-  | {
-      readonly v: 1;
       readonly kind: 'host-reply';
       readonly seq: number;
       readonly result?: unknown;
@@ -66,7 +59,6 @@ export type PluginEvent =
       readonly v: 1;
       readonly kind: 'ready';
       readonly methods: readonly string[];
-      readonly commands: readonly string[];
     }
   | {
       readonly v: 1;

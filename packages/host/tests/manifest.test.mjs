@@ -65,7 +65,6 @@ test('a scoped name derives the id and every declared field', async () => {
   assert.equal(manifest.enginesPython, '>=3.10');
   assert.deepEqual(manifest.methods, ['probe']);
   assert.deepEqual(manifest.internal, ['probe']);
-  assert.deepEqual(manifest.commands, []);
   assert.equal(manifest.name, '@felyrics/echo');
 });
 
@@ -198,48 +197,6 @@ test('version and main are validated together', async () => {
     assert.deepEqual(
       error.issues.map((entry) => entry.path).sort(),
       ['main', 'version'],
-    );
-
-    return true;
-  });
-});
-
-test('commands are parsed with their title', async () => {
-  const pkg = copy(BASE);
-  pkg.felyrics.contributes.commands = [
-    { id: 'pick-audio', title: 'Pick audio' },
-    { id: 'decode-audio', title: 'Decode audio' },
-  ];
-
-  const manifest = await loadManifest(await fixture(pkg));
-
-  assert.deepEqual(manifest.commands, [
-    { id: 'pick-audio', title: 'Pick audio' },
-    { id: 'decode-audio', title: 'Decode audio' },
-  ]);
-});
-
-test('command problems name the entry and the key', async () => {
-  const pkg = copy(BASE);
-  pkg.felyrics.contributes.commands = [
-    { id: 'PickAudio', title: 'Pick audio' },
-    { id: 'pick-audio', title: '' },
-    { id: 'pick-audio', title: 'Again' },
-    { id: 'pick-video', title: 'Pick video', icon: 'x' },
-  ];
-
-  const path = await fixture(pkg);
-
-  await assert.rejects(loadManifest(path), (error) => {
-    assert.equal(error.code, 'core/manifest-invalid');
-    assert.deepEqual(
-      error.issues.map((entry) => entry.path),
-      [
-        'felyrics.contributes.commands[0].id',
-        'felyrics.contributes.commands[1].title',
-        'felyrics.contributes.commands[2].id',
-        'felyrics.contributes.commands[3].icon',
-      ],
     );
 
     return true;

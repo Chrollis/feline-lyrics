@@ -10,7 +10,7 @@ import {
   type DiscoveryIssue,
   type PluginTransport,
 } from '@felyrics/host';
-import { asResult, parsePluginCall, parsePluginCommand } from './plugin-ipc.js';
+import { asResult, parsePluginCall } from './plugin-ipc.js';
 import { mergePluginList } from './plugin-list.js';
 import { mirrorConfigPath } from '@felyrics/toolchain';
 import { APP_ENTRY_URL } from './app-assets.js';
@@ -284,17 +284,6 @@ async function requestPlugin(request: unknown): Promise<unknown> {
   return pluginHosts.request(name, params as Record<string, unknown>, timeoutMs);
 }
 
-/** One command invocation; commands take no parameters. */
-async function commandPlugin(request: unknown): Promise<unknown> {
-  if (pluginHosts === null) {
-    throw new BackendError('core/not-ready', 'the plugin hosts are not enabled');
-  }
-
-  const { name, timeoutMs } = parsePluginCommand(request);
-
-  return pluginHosts.command(name, timeoutMs);
-}
-
 /**
  * Closes plugin hosts on the way out; the process exit is the real deadline.
  * The table is cleared before the async stops so a second quit is a no-op.
@@ -439,10 +428,6 @@ ipcMain.handle('plugin:list', () => asResult(async () => listPlugins()));
 
 ipcMain.handle('plugin:request', (_event, request: unknown) =>
   asResult(() => requestPlugin(request)),
-);
-
-ipcMain.handle('plugin:command', (_event, request: unknown) =>
-  asResult(() => commandPlugin(request)),
 );
 
 // The startup window asks for the latest status after it subscribes, because the

@@ -11,7 +11,6 @@ import { ToolchainError } from '@felyrics/toolchain';
 import {
   asResult,
   parsePluginCall,
-  parsePluginCommand,
 } from '../src/main/plugin-ipc.ts';
 
 test('asResult hands back the value', async () => {
@@ -104,26 +103,6 @@ test('a malformed request is refused before the host sees it', () => {
   for (const value of bad) {
     assert.throws(
       () => parsePluginCall(value),
-      (error) => error.code === 'protocol/bad-request',
-      JSON.stringify(value),
-    );
-  }
-});
-
-test('a command carries only a name and an optional timeout', () => {
-  assert.deepEqual(parsePluginCommand({ name: 'felyrics.media/pick-audio' }), {
-    name: 'felyrics.media/pick-audio',
-  });
-  assert.deepEqual(
-    parsePluginCommand({ name: 'felyrics.media/decode-audio', timeoutMs: 60_000 }),
-    { name: 'felyrics.media/decode-audio', timeoutMs: 60_000 },
-  );
-});
-
-test('a malformed command is refused', () => {
-  for (const value of [null, {}, { name: 1 }, { name: 'x', timeoutMs: 0 }]) {
-    assert.throws(
-      () => parsePluginCommand(value),
       (error) => error.code === 'protocol/bad-request',
       JSON.stringify(value),
     );

@@ -77,7 +77,6 @@ function manifest(directory, overrides = {}) {
     main: 'index.mjs',
     methods: ['echo'],
     internal: [],
-    commands: [],
     errors: [],
     jobs: [],
     ...overrides,
@@ -285,102 +284,48 @@ export async function activate(ctx) {
   });
 });
 
-test('a command must be declared and registered like a method', async (t) => {
-  const handle = await start(
-    t,
-    `
-export async function activate(ctx) {
-  ctx.method('echo', () => ({}));
-}
-`,
-    { commands: [{ id: 'hello', title: 'Hello' }] },
-  );
-
-  await assert.rejects(handle.enable(), (error) => {
-    assert.equal(error.code, 'core/methods-mismatch');
-    assert.equal(error.issues[0].path, 'contributes.commands');
-
-    return true;
-  });
-});
-
 const CHOOSE = `
 export async function activate(ctx) {
-  ctx.method('echo', () => ({}));
-  ctx.command('choose', () => ctx.host.pickFile({ kind: 'audio' }));
+  ctx.method('choose', () => ctx.host.pickFile({ kind: 'audio' }));
 }
 `;
 
-test('a command runs in the plugin and can ask the host to pick a file', async (t) => {
+test('a method can ask the host to pick a file', async (t) => {
   const picked = [];
 
-  const handle = await start(
-    t,
-    CHOOSE,
-    { commands: [{ id: 'choose', title: 'Choose' }] },
-    {
-      host: {
-        pickFile: async (options) => {
-          picked.push(options.kind);
+  const handle = await start(t, CHOOSE, { methods: ['choose'] }, {
+    host: {
+      pickFile: async (options) => {
+        picked.push(options.kind);
 
-          return '/tmp/song.flac';
-        },
+        return '/tmp/song.flac';
       },
     },
-  );
+  });
 
   await handle.enable();
 
-  assert.equal(await handle.command('fixtures.echo/choose'), '/tmp/song.flac');
+  assert.equal(await handle.request('fixtures.echo/choose', {}), '/tmp/song.flac');
   assert.deepEqual(picked, ['audio']);
 });
 
 test('a cancelled picker answers null, not an error', async (t) => {
-  const handle = await start(
-    t,
-    CHOOSE,
-    { commands: [{ id: 'choose', title: 'Choose' }] },
-    { host: { pickFile: async () => null } },
-  );
-
-  await handle.enable();
-
-  assert.equal(await handle.command('fixtures.echo/choose'), null);
-});
-
-test('a command nobody declared is refused before it reaches the plugin', async (t) => {
-  const handle = await start(t, ECHO);
-
-  await assert.rejects(
-    handle.command('fixtures.echo/choose'),
-    (error) => {
-      assert.equal(error.code, 'core/not-ready');
-
-      return true;
-    },
-  );
-
-  await handle.enable();
-
-  await assert.rejects(
-    handle.command('fixtures.echo/choose'),
-    (error) => {
-      assert.equal(error.code, 'protocol/unknown-method');
-
-      return true;
-    },
-  );
-});
-
-test('a host without a picker refuses the call instead of hanging', async (t) => {
-  const handle = await start(t, CHOOSE, {
-    commands: [{ id: 'choose', title: 'Choose' }],
+  const handle = await start(t, CHOOSE, { methods: ['choose'] }, {
+    host: { pickFile: async () => null },
   });
 
   await handle.enable();
 
+  assert.equal(await handle.request('fixtures.echo/choose', {}), null);
+});
+
+test('a host without a picker refuses the call instead of hanging', async (t) => {
+  const handle = await start(t, CHOOSE, { methods: ['choose'] });
+
+  await handle.enable();
+
   await assert.rejects(
-    handle.command('fixtures.echo/choose'),
+    handle.request('fixtures.echo/choose', {}),
     (error) => {
       assert.equal(error.code, 'core/not-ready');
 
@@ -394,17 +339,17 @@ test('a picker kind the host does not know is a bad request', async (t) => {
     t,
     `
 export async function activate(ctx) {
-  ctx.command('choose', () => ctx.host.pickFile({ kind: 'movie' }));
+  ctx.method('choose', () => ctx.host.pickFile({ kind: 'movie' }));
 }
 `,
-    { commands: [{ id: 'choose', title: 'Choose' }], methods: [] },
+    { methods: ['choose'] },
     { host: { pickFile: async () => '/tmp/never' } },
   );
 
   await handle.enable();
 
   await assert.rejects(
-    handle.command('fixtures.echo/choose'),
+    handle.request('fixtures.echo/choose', {}),
     (error) => {
       assert.equal(error.code, 'protocol/bad-request');
 
@@ -603,7 +548,6 @@ test('the host table lists plugins and routes by id', async (t) => {
       id: 'fixtures.echo',
       state: 'ACTIVE',
       methods: ['fixtures.echo/echo'],
-      commands: [],
     },
   ]);
   assert.deepEqual(await hosts.request('fixtures.echo/echo', { value: 3 }), {
