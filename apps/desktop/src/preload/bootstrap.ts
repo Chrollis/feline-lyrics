@@ -21,6 +21,7 @@ export interface BootstrapApi {
   rebuild(): Promise<void>;
   quit(): Promise<void>;
   openLog(): Promise<void>;
+  openConfig(): Promise<void>;
 }
 
 const api: BootstrapApi = {
@@ -42,6 +43,7 @@ const api: BootstrapApi = {
   rebuild: () => ipcRenderer.invoke('bootstrap:rebuild'),
   quit: () => ipcRenderer.invoke('bootstrap:quit'),
   openLog: () => ipcRenderer.invoke('bootstrap:open-log'),
+  openConfig: () => ipcRenderer.invoke('bootstrap:open-config'),
 };
 
 contextBridge.exposeInMainWorld('felyricsBootstrap', api);

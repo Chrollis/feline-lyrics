@@ -83,6 +83,14 @@ function App() {
             <button
               type="button"
               onClick={() => {
+                void window.felyricsBootstrap.openConfig();
+              }}
+            >
+              Open config
+            </button>{' '}
+            <button
+              type="button"
+              onClick={() => {
                 void window.felyricsBootstrap.quit();
               }}
             >

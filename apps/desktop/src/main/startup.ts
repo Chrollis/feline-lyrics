@@ -11,6 +11,7 @@ import {
   readReadyMarker,
   type ProvisionStep,
   type ReadyMarker,
+  type ResolvedMirrorConfig,
   type ToolchainPaths,
 } from '@felyrics/toolchain';
 
@@ -52,6 +53,8 @@ export interface StartupOptions {
   readonly userDataDir: string;
   readonly hostBackendRoot: string;
   readonly builtinPluginsRoot: string;
+  /** Where the uv/python/package downloads come from, mirrors first. */
+  readonly mirrors: ResolvedMirrorConfig;
   /** Rebuild even when the marker matches. */
   readonly force?: boolean;
   readonly onStatus: (status: StartupStatus) => void;
@@ -144,6 +147,7 @@ export async function runStartup(
           tempDir,
           requirements: environment.requirements,
           importPaths: environment.importPaths,
+          mirrors: options.mirrors,
           ...(options.force === true ? { force: true } : {}),
           onStep: (step) => {
             status({

@@ -20,6 +20,7 @@ export {
   DEFAULT_MIRRORS,
   defaultUserDataDir,
   loadMirrorConfig,
+  mirrorConfigDocument,
   mirrorConfigPath,
   parseMirrorConfig,
   resolveMirrorConfig,

@@ -210,6 +210,26 @@ export function resolveMirrorConfig(
   };
 }
 
+/**
+ * The file the app writes on first run. It spells the built-in sources out so a
+ * user staring at `mirrors.json` can see the shape the parser accepts; editing
+ * a URL is the whole point of the file.
+ */
+export function mirrorConfigDocument(): string {
+  return `${JSON.stringify(
+    {
+      sources: {
+        uv: DEFAULT_MIRRORS.uv,
+        python: DEFAULT_MIRRORS.python,
+        packages: DEFAULT_MIRRORS.packages,
+      },
+      release: { python: DEFAULT_MIRRORS.pythonRelease },
+    },
+    null,
+    2,
+  )}\n`;
+}
+
 /** Reads `mirrors.json`; a missing file means "use the built-in sources". */
 export async function loadMirrorConfig(
   path: string,

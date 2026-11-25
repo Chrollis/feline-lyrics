@@ -12,6 +12,7 @@ import {
 } from '@felyrics/host';
 import { asResult, parsePluginCall, parsePluginCommand } from './plugin-ipc.js';
 import { mergePluginList } from './plugin-list.js';
+import { mirrorConfigPath } from '@felyrics/toolchain';
 import { APP_ENTRY_URL } from './app-assets.js';
 import { registerAppScheme, serveAppProtocol } from './app-protocol.js';
 import {
@@ -24,6 +25,7 @@ import {
 import { restartBuiltinHosts, shutdownHosts } from './plugin-boot.js';
 import type { PluginSummary } from '../preload/api.js';
 import { describeFailure, runStartup, type StartupStatus } from './startup.js';
+import { loadOrCreateMirrorConfig } from './mirror-config.js';
 
 // Before `app.whenReady()`: the scheme registry is frozen at startup.
 registerAppScheme();
@@ -112,9 +114,29 @@ async function start(force = false): Promise<void> {
     // what keeps the old utility processes from piling up behind the new one.
     await shutdownPlugins();
 
+    const userDataDir = app.getPath('userData');
+    let mirrors;
+
+    try {
+      // Re-read on every attempt: the progress window offers "Open config", and
+      // Retry is how the user gets the edited file picked up.
+      mirrors = await loadOrCreateMirrorConfig(userDataDir);
+    } catch (error) {
+      const failure = describeFailure(error);
+      publishStatus({
+        phase: 'failed',
+        title: 'The mirror configuration is not usable',
+        code: failure.code,
+        message: failure.message,
+        log: latestStatus?.log ?? [],
+      });
+      throw error;
+    }
+
     const marker = await runStartup({
       paths: resolvePaths(),
-      userDataDir: app.getPath('userData'),
+      userDataDir,
+      mirrors,
       hostBackendRoot: hostPaths().hostBackendRoot,
       builtinPluginsRoot: hostPaths().builtinPluginsRoot,
       ...(force ? { force: true } : {}),
@@ -400,6 +422,9 @@ ipcMain.handle('bootstrap:quit', () => {
 });
 ipcMain.handle('bootstrap:open-log', async () => {
   await shell.openPath(join(app.getPath('userData'), 'logs', 'provision.log'));
+});
+ipcMain.handle('bootstrap:open-config', async () => {
+  await shell.openPath(mirrorConfigPath(app.getPath('userData')));
 });
 
 /**

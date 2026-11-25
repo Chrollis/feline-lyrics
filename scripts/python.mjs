@@ -22,6 +22,11 @@ const paths = {
 const hostBackend = join(root, 'packages', 'host', 'backend');
 const pluginsRoot = join(root, 'plugins');
 
+// Optional: the checkout's own mirror list. The app keeps its file in userData;
+// here the repository root is the one place a developer would look, and the file
+// is ignored by git so a local mirror does not travel with the code.
+const mirrorsPath = join(root, 'mirrors.json');
+
 /**
  * The plugins a development environment must satisfy. The directory name is the
  * plugin id -- the manifest says the same, and checking that belongs to the
@@ -109,6 +114,13 @@ async function loadToolchain() {
 
 async function setup(toolchain) {
   const env = environment(toolchain);
+  let mirrors;
+
+  try {
+    mirrors = await toolchain.loadMirrorConfig(mirrorsPath);
+  } catch (error) {
+    fail(`cannot use ${mirrorsPath}: ${error.code ?? ''} ${error.message}`);
+  }
 
   // The scratch directory is the caller's: the toolchain never remembers it,
   // so a killed run cannot leave a directory behind that nobody owns.
@@ -118,6 +130,7 @@ async function setup(toolchain) {
       tempDir,
       requirements: env.requirements,
       importPaths: env.importPaths,
+      mirrors,
       onOutput: (chunk, stream) => {
         (stream === 'stdout' ? process.stdout : process.stderr).write(chunk);
       },

@@ -15,6 +15,7 @@ pytest-cache-files-*
 # Environment
 /python/
 /models/
+/mirrors.json
 
 # Node
 node_modules
