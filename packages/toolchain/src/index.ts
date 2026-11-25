@@ -30,6 +30,23 @@ export {
 } from './mirrors.js';
 export { download, type DownloadOptions } from './python/download.js';
 export {
+  PYTHON_LATEST_URL,
+  PYTHON_TRIPLES,
+  MIN_PYTHON_BYTES,
+  ensurePython,
+  parseListing,
+  parseReleasePage,
+  parseTags,
+  resolvePythonRelease,
+  selectPythonAsset,
+  type EnsurePythonOptions,
+  type InstalledPython,
+  type PythonRelease,
+  type ReleasePageAsset,
+  type ResolvePythonOptions,
+  type SelectedAsset,
+} from './python/download-python.js';
+export {
   MIN_DOWNLOAD_BYTES,
   PACKAGE_INDEX_URL,
   PYTHON_BUILD,
