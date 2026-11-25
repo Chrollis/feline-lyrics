@@ -64,11 +64,13 @@ export function markerMatches(
   // policy can follow the newest 3.12 patch, and a marker written by an older
   // run must still count as ready when only uv/imports/requirements are being
   // compared. `provision` writes the real version; only the pre-check uses ''.
+  // `uv` works the same way now that its source follows `latest`.
   const python = expected.python === '' || marker?.python === expected.python;
+  const uv = expected.uv === '' || marker?.uv === expected.uv;
 
   return (
     marker !== null &&
-    marker.uv === expected.uv &&
+    uv &&
     python &&
     marker.imports === expected.imports &&
     marker.requirements === expected.requirements

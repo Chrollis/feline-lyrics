@@ -1,6 +1,8 @@
 import { rm } from 'node:fs/promises';
 import { resolve } from 'node:path';
 
+import { execa } from 'execa';
+
 import type { ToolchainPaths } from '../layout/paths.js';
 import { backendPaths } from '../layout/paths.js';
 import { DEFAULT_MIRRORS, type ResolvedMirrorConfig } from '../mirrors.js';
@@ -87,6 +89,8 @@ export interface ProvisionOptions {
     total: number | null,
   ) => void;
   readonly signal?: AbortSignal;
+  /** Reads the downloaded uv's own version; a seam for tests. */
+  readonly readUvVersion?: (exe: string) => Promise<string>;
 }
 
 /**
@@ -96,13 +100,38 @@ export interface ProvisionOptions {
  * of "what makes a backend ready" drift the moment one of the four inputs gains
  * a field.
  */
+/**
+ * The version the downloaded binary reports. The source follows `latest`, so the
+ * marker must name what actually landed, not the version this build hoped for.
+ */
+async function readUvVersion(
+  exe: string,
+  read: ((exe: string) => Promise<string>) | undefined,
+): Promise<string> {
+  if (read !== undefined) {
+    return read(exe);
+  }
+
+  try {
+    const result = await execa(exe, ['--version']);
+    const version = /^uv\s+(\S+)/.exec(result.stdout.trim())?.[1];
+
+    return version ?? UV_VERSION;
+  } catch {
+    return UV_VERSION;
+  }
+}
+
 export function expectedMarker(
   importPaths: readonly string[],
   requirements: readonly string[],
   python = '',
+  uv = '',
 ): ReadyMarker {
   return {
-    uv: UV_VERSION,
+    // '' means "the version the last install picked": the uv source follows
+    // `latest`, so the pre-check cannot know it without downloading.
+    uv,
     // '' means "the version the archive carries"; the pre-check does not know
     // it without downloading, and a real version is written after the install.
     python,
@@ -182,6 +211,7 @@ export async function provision(
     options.importPaths,
     requirements,
     installed.release.version,
+    await readUvVersion(backend.uvExe, options.readUvVersion),
   );
   step('venv');
   await createVenv(ctx, installed.pythonPath);

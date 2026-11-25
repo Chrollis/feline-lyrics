@@ -280,8 +280,11 @@ export async function doctor(
   // The marker is the record of what was installed, so its python wins over a
   // constant: a 3.12.16 install must not be reported as a broken 3.12.15.
   const pythonVersion = options.pythonVersion ?? marker?.python;
+  // Same reasoning as python: the uv source follows `latest`, so the marker's
+  // record beats the constant when one exists.
+  const uvVersion = marker?.uv ?? UV_VERSION;
 
-  checks.push(checkVersion('uv', backend.uvExe, ['--version'], UV_VERSION, run));
+  checks.push(checkVersion('uv', backend.uvExe, ['--version'], uvVersion, run));
 
   if (pythonVersion === undefined) {
     checks.push(checkSeries('python', backend.venvPython, PYTHON_SHORT_VERSION, run));
@@ -326,7 +329,7 @@ export async function doctor(
   }
 
   const matches = await isReady(backend, {
-    uv: UV_VERSION,
+    uv: uvVersion,
     python: pythonVersion ?? '',
     imports: imports.join('\n'),
     requirements: requirementsFingerprint(requirements),
