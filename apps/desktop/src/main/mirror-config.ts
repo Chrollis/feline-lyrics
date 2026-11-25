@@ -37,5 +37,6 @@ export async function loadOrCreateMirrorConfig(
     return resolveMirrorConfig();
   }
 
-  return resolveMirrorConfig(parseMirrorConfig(text));
+  // Notepad and PowerShell both like a UTF-8 BOM; JSON.parse does not.
+  return resolveMirrorConfig(parseMirrorConfig(text.replace(/^\uFEFF/, '')));
 }

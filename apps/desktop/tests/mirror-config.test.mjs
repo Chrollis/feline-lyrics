@@ -48,6 +48,22 @@ test('reads an edited configuration', async () => {
   });
 });
 
+test('reads a configuration saved with a BOM', async () => {
+  await withRoot(async (root) => {
+    await loadOrCreateMirrorConfig(root);
+
+    const path = mirrorConfigPath(root);
+    const config = JSON.parse(readFileSync(path, 'utf8'));
+
+    config.sources.packages = ['https://mirror.example/simple'];
+    writeFileSync(path, `\uFEFF${JSON.stringify(config)}`, 'utf8');
+
+    const mirrors = await loadOrCreateMirrorConfig(root);
+
+    assert.deepEqual(mirrors.packages, ['https://mirror.example/simple']);
+  });
+});
+
 test('rejects a configuration that is not valid JSON', async () => {
   await withRoot(async (root) => {
     await loadOrCreateMirrorConfig(root);
