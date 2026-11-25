@@ -108,6 +108,21 @@ function lastPathSegment(path: string): string {
   return decodeHtml(path.slice(path.lastIndexOf('/') + 1));
 }
 
+/** A dead proxy answers nothing at all; these ceiling the small page requests. */
+const PAGE_TIMEOUT_MS = 15_000;
+
+function pageSignal(signal: AbortSignal | undefined): AbortSignal {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), PAGE_TIMEOUT_MS);
+
+  controller.signal.addEventListener('abort', () => clearTimeout(timer), {
+    once: true,
+  });
+  signal?.addEventListener('abort', () => controller.abort(), { once: true });
+
+  return controller.signal;
+}
+
 /**
  * Reads a small HTML page and turns mirror blocks into a code a caller can act
  * on. USTC answers 403 with a browser challenge instead of 404, so a plain
@@ -119,7 +134,7 @@ async function readPage(
   signal: AbortSignal | undefined,
 ): Promise<string> {
   const response = await fetchImpl(url, {
-    ...(signal === undefined ? {} : { signal }),
+    signal: pageSignal(signal),
   });
 
   if (response.ok) {
@@ -323,7 +338,7 @@ async function resolveTag(
     try {
       const response = await fetchImpl(latestTagUrl, {
         redirect: 'manual',
-        ...(signal === undefined ? {} : { signal }),
+        signal: pageSignal(signal),
       });
       const location = response.headers.get('location') ?? '';
       const tag = tagLink.exec(location)?.[1];
