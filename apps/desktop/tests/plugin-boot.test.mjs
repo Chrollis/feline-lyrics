@@ -94,6 +94,40 @@ test('a retry stops the previous hosts before creating the next table', async ()
   assert.deepEqual(order, ['disable:felyrics.media', 'create', 'enable:felyrics.media']);
 });
 
+test('a failed enable closes the hosts it already started', async () => {
+  const disabled = [];
+  const next = {
+    enable: async (id) => {
+      if (id === 'felyrics.second') {
+        throw new Error('activate did not finish');
+      }
+    },
+    list: () => [{ id: 'felyrics.first', state: 'ACTIVE' }],
+    disable: async (id) => {
+      disabled.push(id);
+    },
+  };
+
+  await assert.rejects(
+    restartBuiltinHosts(
+      undefined,
+      [
+        plugin('felyrics.first', 'utility', 'builtin'),
+        plugin('felyrics.second', 'utility', 'builtin'),
+      ],
+      () => next,
+    ),
+    (error) => {
+      assert.equal(error.code, 'core/backend-failed');
+      assert.match(error.message, /felyrics\.second/);
+
+      return true;
+    },
+  );
+
+  assert.deepEqual(disabled, ['felyrics.first']);
+});
+
 test('a shutdown skips hosts that stopped and survives a failed stop', async () => {
   const disabled = [];
 

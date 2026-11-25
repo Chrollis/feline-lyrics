@@ -62,12 +62,19 @@ export async function shutdownHosts(hosts: PluginShutdown): Promise<void> {
   }
 }
 
+/** The table this module starts and stops; `PluginHosts` satisfies it. */
+export interface PluginTable extends PluginEnabler, PluginShutdown {}
+
 /**
  * Replaces the host table: stop the previous hosts first, then start the new
  * ones. Doing it in this order is what keeps one enable from leaving the
  * previous utility process running.
+ *
+ * A failure half-way through the new table closes what it already started:
+ * otherwise the child of the first plugin would be alive but unreachable, and
+ * the next shutdown would not know about it.
  */
-export async function restartBuiltinHosts<Hosts extends PluginEnabler>(
+export async function restartBuiltinHosts<Hosts extends PluginTable>(
   previous: PluginShutdown | undefined,
   plugins: readonly DiscoveredPlugin[],
   create: () => Hosts,
@@ -77,7 +84,13 @@ export async function restartBuiltinHosts<Hosts extends PluginEnabler>(
   }
 
   const next = create();
-  await enableBuiltinHosts(next, plugins);
+
+  try {
+    await enableBuiltinHosts(next, plugins);
+  } catch (error) {
+    await shutdownHosts(next);
+    throw error;
+  }
 
   return next;
 }
