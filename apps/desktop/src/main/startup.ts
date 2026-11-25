@@ -140,6 +140,11 @@ export async function runStartup(
     }
   };
   let lastProgress = { step: 'uv' as 'uv' | 'python', title: '', at: 0 };
+  // The window shows live state; the log records the phases so a stuck install
+  // can be read after the fact.
+  const note = (line: string): void => {
+    void appendLog(options.userDataDir, [line]).catch(() => {});
+  };
   const onProgress = (
     step: 'uv' | 'python',
     received: number,
@@ -165,6 +170,7 @@ export async function runStartup(
       title: 'Checking the Python environment',
       log,
     });
+    note('phase: checking');
 
     const backend = backendPaths(options.paths.backendRoot);
     // The marker is the only place the installed python version is written; a
@@ -196,6 +202,7 @@ export async function runStartup(
           ...(options.force === true ? { force: true } : {}),
           onStep: (step) => {
             lastProgress = { step: 'uv', title: '', at: 0 };
+            note(`step: ${step}`);
             status({
               phase: 'installing',
               title: STEP_TITLES[step],
@@ -226,6 +233,7 @@ export async function runStartup(
       title: 'Verifying the environment',
       log,
     });
+    note('phase: verifying');
 
     // The install may have picked a newer 3.12 patch than the pinned constant;
     // doctor trusts the marker for the version, not a number in the source.
@@ -249,6 +257,7 @@ export async function runStartup(
     }
 
     status({ phase: 'ready', title: 'Ready', log });
+    note('phase: ready');
 
     const verified = await readReadyMarker(backend);
 

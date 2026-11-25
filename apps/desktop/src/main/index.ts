@@ -101,9 +101,31 @@ function createProgressWindow(): BrowserWindow {
   return win;
 }
 
+/** A dead proxy must not leave the progress window spinning forever. */
+const STARTUP_DEADLINE_MS = 10 * 60_000;
+
+function withDeadline<T>(work: Promise<T>): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => {
+      reject(new BackendError('core/timeout', 'the startup did not finish'));
+    }, STARTUP_DEADLINE_MS);
+
+    timer.unref?.();
+    work.then(
+      (value) => {
+        clearTimeout(timer);
+        resolve(value);
+      },
+      (error: unknown) => {
+        clearTimeout(timer);
+        reject(error);
+      },
+    );
+  });
+}
+
 /** Runs the environment check, then opens the real window once it verifies. */
-async function start(force = false): Promise<void> {
-  if (starting) {
+async function start(force = false): Promise<void> {  if (starting) {
     return;
   }
 
@@ -133,15 +155,30 @@ async function start(force = false): Promise<void> {
       throw error;
     }
 
-    const marker = await runStartup({
-      paths: resolvePaths(),
-      userDataDir,
-      mirrors,
-      fetchImpl: net.fetch as unknown as typeof fetch,
-      hostBackendRoot: hostPaths().hostBackendRoot,
-      builtinPluginsRoot: hostPaths().builtinPluginsRoot,
-      ...(force ? { force: true } : {}),
-      onStatus: publishStatus,
+    const marker = await withDeadline(
+      runStartup({
+        paths: resolvePaths(),
+        userDataDir,
+        mirrors,
+        fetchImpl: net.fetch as unknown as typeof fetch,
+        hostBackendRoot: hostPaths().hostBackendRoot,
+        builtinPluginsRoot: hostPaths().builtinPluginsRoot,
+        ...(force ? { force: true } : {}),
+        onStatus: publishStatus,
+      }),
+    ).catch((error: unknown) => {
+      if (latestStatus?.phase !== 'failed') {
+        const failure = describeFailure(error);
+        publishStatus({
+          phase: 'failed',
+          title: 'The Python environment is not ready',
+          code: failure.code,
+          message: failure.message,
+          log: latestStatus?.log ?? [],
+        });
+      }
+
+      throw error;
     });
 
     try {
