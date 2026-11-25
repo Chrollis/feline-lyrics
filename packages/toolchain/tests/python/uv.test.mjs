@@ -234,6 +234,43 @@ test('reports an archive that does not contain uv.exe', async () => {
   });
 });
 
+test('tries the next uv source when one answers 404', async () => {
+  await withRoot(async (ctx) => {
+    const urls = [];
+
+    const uvExe = await downloadUv(ctx, target, {
+      sources: [
+        'https://one.invalid/{asset}',
+        'https://two.invalid/{asset}',
+      ],
+      fetchImpl: async (url) => {
+        urls.push(String(url));
+
+        return String(url).includes('one.invalid')
+          ? new Response('', { status: 404 })
+          : zipResponse(ZIP_WITH_UV);
+      },
+    });
+
+    assert.equal(urls.length, 2);
+    assert.match(urls[0], /one\.invalid/);
+    assert.match(urls[1], /two\.invalid/);
+    assert.ok(existsSync(uvExe));
+  });
+});
+
+test('reports the last source when every uv source fails', async () => {
+  await withRoot(async (ctx) => {
+    await assert.rejects(
+      downloadUv(ctx, target, {
+        sources: ['https://one.invalid/{asset}', 'https://two.invalid/{asset}'],
+        fetchImpl: async () => new Response('', { status: 404 }),
+      }),
+      (error) => error.code === 'download/failed',
+    );
+  });
+});
+
 test('re-fetches a cached archive that turns out to be damaged', async () => {
   await withRoot(async (ctx) => {
     const archive = uvArchivePath(ctx.paths.cacheDir, target);

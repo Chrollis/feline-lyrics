@@ -143,6 +143,7 @@ export async function provision(
 
   step('uv');
   await downloadUv(ctx, options.target ?? currentTarget(), {
+    ...(options.mirrors ? { sources: options.mirrors.uv } : {}),
     ...(options.fetchImpl ? { fetchImpl: options.fetchImpl } : {}),
   });
   step('python');

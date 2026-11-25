@@ -99,10 +99,6 @@ export const PYTHON_SHORT_VERSION = PYTHON_VERSION.split('.')
   .slice(0, 2)
   .join('.');
 
-/** The USTC mirror carries both GitHub releases we need, uv and the Python builds. */
-export const UV_DOWNLOAD_BASE =
-  'https://mirrors.ustc.edu.cn/github-release/astral-sh/uv';
-
 /**
  * python-build-standalone releases. Order matters: the mirror is tried first
  * because it is fast from China, but it proxies GitHub on demand, so a tag it
@@ -123,10 +119,6 @@ export const PYTHON_BUILD = '20261021';
 export const PACKAGE_INDEX_URL = 'https://pypi.tuna.tsinghua.edu.cn/simple';
 
 export const MIN_DOWNLOAD_BYTES = 1024 ** 2;
-
-export function uvDownloadUrl(filename: string): string {
-  return `${UV_DOWNLOAD_BASE}/${UV_VERSION}/${filename}`;
-}
 
 /**
  * The target this process runs on. `SUPPORTED_TARGETS` is checked first, so a

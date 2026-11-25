@@ -1,20 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
-import {
-  SUPPORTED_TARGETS,
-  TARGETS,
-  UV_DOWNLOAD_BASE,
-  UV_VERSION,
-  uvDownloadUrl,
-} from '../../out/index.js';
-
-test('builds the uv download URL from the mirrored release', () => {
-  assert.equal(
-    uvDownloadUrl('uv-x86_64-pc-windows-msvc.zip'),
-    `${UV_DOWNLOAD_BASE}/${UV_VERSION}/uv-x86_64-pc-windows-msvc.zip`,
-  );
-});
+import { SUPPORTED_TARGETS, TARGETS } from '../../out/index.js';
 
 test('names every uv asset its archive format can unpack', () => {
   for (const [key, target] of Object.entries(TARGETS)) {

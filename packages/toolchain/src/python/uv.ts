@@ -12,6 +12,7 @@ import {
   cachePaths,
   type ToolchainPaths,
 } from '../layout/paths.js';
+import { DEFAULT_MIRRORS } from '../mirrors.js';
 import { extractZip } from '../process/zip.js';
 import { download } from './download.js';
 import {
@@ -20,7 +21,6 @@ import {
   PYTHON_BUILD,
   PYTHON_INSTALL_MIRRORS,
   UV_VERSION,
-  uvDownloadUrl,
   type PlatformTarget,
 } from './target.js';
 
@@ -196,6 +196,48 @@ function hasCachedArchive(file: string): boolean {
 export interface DownloadUvOptions {
   readonly fetchImpl?: typeof fetch;
   readonly onProgress?: (received: number, total: number | null) => void;
+  /**
+   * URL templates for the uv zip, tried in order. Omitted means the built-in
+   * official source; the app passes the user's `mirrors.json` list.
+   */
+  readonly sources?: readonly string[];
+}
+
+/**
+ * Tries one URL per source until one download completes.
+ *
+ * `download` already retries the same URL through transient failures; this is
+ * the layer above it, for sources that answer 404 (a mirror that only keeps the
+ * newest tag) or refuse the request outright. Cancellation is not a fallback.
+ */
+async function fetchFirst(
+  urls: readonly string[],
+  attempt: (url: string) => Promise<unknown>,
+): Promise<void> {
+  let last: unknown;
+
+  for (const url of urls) {
+    try {
+      await attempt(url);
+
+      return;
+    } catch (error) {
+      if (
+        error instanceof ToolchainError &&
+        error.code === 'download/cancelled'
+      ) {
+        throw error;
+      }
+
+      last = error;
+    }
+  }
+
+  if (last instanceof Error) {
+    throw last;
+  }
+
+  throw new ToolchainError('download/failed', 'no uv source is configured', {});
 }
 
 /**
@@ -217,16 +259,22 @@ export async function downloadUv(
 
   const backend = backendPaths(ctx.paths.backendRoot);
   const archive = uvArchivePath(ctx.paths.cacheDir, target);
+  const templates = options.sources ?? DEFAULT_MIRRORS.uv;
+  const urls = templates.map((source) =>
+    source.replaceAll('{asset}', target.uvFilename),
+  );
 
   const fetchArchive = () =>
-    download({
-      url: uvDownloadUrl(target.uvFilename),
-      dest: archive,
-      minBytes: MIN_DOWNLOAD_BYTES,
-      ...(options.fetchImpl ? { fetchImpl: options.fetchImpl } : {}),
-      ...(options.onProgress ? { onProgress: options.onProgress } : {}),
-      ...(ctx.signal ? { signal: ctx.signal } : {}),
-    });
+    fetchFirst(urls, (url) =>
+      download({
+        url,
+        dest: archive,
+        minBytes: MIN_DOWNLOAD_BYTES,
+        ...(options.fetchImpl ? { fetchImpl: options.fetchImpl } : {}),
+        ...(options.onProgress ? { onProgress: options.onProgress } : {}),
+        ...(ctx.signal ? { signal: ctx.signal } : {}),
+      }),
+    );
 
   if (!hasCachedArchive(archive)) {
     await fetchArchive();

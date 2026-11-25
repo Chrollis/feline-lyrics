@@ -56,10 +56,8 @@ export {
   PYTHON_VERSION_SLOT,
   SUPPORTED_TARGETS,
   TARGETS,
-  UV_DOWNLOAD_BASE,
   UV_VERSION,
   currentTarget,
-  uvDownloadUrl,
   type PlatformTarget,
   type TargetKey,
 } from './python/target.js';
