@@ -105,7 +105,6 @@ export {
   createVenv,
   downloadUv,
   installPackages,
-  installPython,
   uvArchivePath,
   uvEnv,
   runUv,

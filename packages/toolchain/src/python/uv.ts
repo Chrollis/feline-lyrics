@@ -19,7 +19,6 @@ import {
   PACKAGE_INDEX_URL,
   PYTHON_BUILD,
   PYTHON_INSTALL_MIRRORS,
-  PYTHON_VERSION,
   UV_VERSION,
   uvDownloadUrl,
   type PlatformTarget,
@@ -265,54 +264,20 @@ export async function downloadUv(
   return backend.uvExe;
 }
 
-export async function installPython(
+/**
+ * Rebuilds the venv from scratch with the interpreter the downloader unpacked.
+ * `--clear` is deliberate: provisioning is an all-or-nothing operation, and a
+ * venv left over from an older layout or an older dependency set must not
+ * survive. `--python` takes the absolute path, so uv does not go looking for a
+ * managed 3.12 it may have installed earlier under another version.
+ */
+export async function createVenv(
   ctx: UvContext,
-  mirrors: readonly string[] = PYTHON_INSTALL_MIRRORS,
+  pythonExecutable: string,
 ): Promise<void> {
   const backend = backendPaths(ctx.paths.backendRoot);
   const run = ctx.run ?? runUv;
-  const args = [
-    'python',
-    'install',
-    PYTHON_VERSION,
-    '--no-bin',
-    '--no-registry',
-  ];
-  let last: ToolchainError | undefined;
-
-  // A mirror caches GitHub releases rather than duplicating them, so a fresh tag
-  // can be missing for days. Falling through costs one failed attempt and gets
-  // the same file from the next host, not a different install.
-  for (const mirror of mirrors) {
-    const result = await run(backend.uvExe, args, runOptions(ctx, mirror));
-
-    if (result.status === 0) {
-      return;
-    }
-
-    last = failure('uv/install-failed', 'python install', result);
-  }
-
-  if (last === undefined) {
-    throw new ToolchainError(
-      'uv/install-failed',
-      'no python mirror is configured',
-      { command: 'uv python install' },
-    );
-  }
-
-  throw last;
-}
-
-/**
- * Rebuilds the venv from scratch. `--clear` is deliberate: provisioning is an
- * all-or-nothing operation, and a venv left over from an older layout or an
- * older dependency set must not survive.
- */
-export async function createVenv(ctx: UvContext): Promise<void> {
-  const backend = backendPaths(ctx.paths.backendRoot);
-  const run = ctx.run ?? runUv;
-  const args = ['venv', backend.venvDir, '--python', PYTHON_VERSION, '--clear'];
+  const args = ['venv', backend.venvDir, '--python', pythonExecutable, '--clear'];
 
   const result = await run(backend.uvExe, args, runOptions(ctx));
 

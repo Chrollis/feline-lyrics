@@ -50,6 +50,12 @@ export interface DoctorOptions {
   readonly importPaths: readonly string[];
   /** The plugins whose backends share this environment. */
   readonly plugins: readonly PluginDoctorSpec[];
+  /**
+   * The interpreter version the marker recorded. The pinned 3.12 is only the
+   * fallback for a first run; an install that followed a newer 3.12 patch must
+   * not be reported as wrong by a constant.
+   */
+  readonly pythonVersion?: string;
 }
 
 const HOST_ENTRY = 'felyrics_host.__main__';
@@ -235,6 +241,7 @@ export async function doctor(
   const run = options.run ?? runBinary;
   const checks: DoctorCheck[] = [];
   const requirements = options.requirements;
+  const pythonVersion = options.pythonVersion ?? PYTHON_VERSION;
 
   checks.push(
     checkVersion('uv', backend.uvExe, ['--version'], UV_VERSION, run),
@@ -242,7 +249,7 @@ export async function doctor(
       'python',
       backend.venvPython,
       ['--version'],
-      PYTHON_VERSION,
+      pythonVersion,
       run,
     ),
   );
@@ -284,7 +291,7 @@ export async function doctor(
   const marker = await readReadyMarker(backend);
   const matches = await isReady(backend, {
     uv: UV_VERSION,
-    python: PYTHON_VERSION,
+    python: pythonVersion,
     imports: imports.join('\n'),
     requirements: requirementsFingerprint(requirements),
   });

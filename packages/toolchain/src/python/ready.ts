@@ -60,10 +60,16 @@ export function markerMatches(
   marker: ReadyMarker | null,
   expected: ReadyMarker,
 ): boolean {
+  // An empty `python` means "whatever the last install picked": the release
+  // policy can follow the newest 3.12 patch, and a marker written by an older
+  // run must still count as ready when only uv/imports/requirements are being
+  // compared. `provision` writes the real version; only the pre-check uses ''.
+  const python = expected.python === '' || marker?.python === expected.python;
+
   return (
     marker !== null &&
     marker.uv === expected.uv &&
-    marker.python === expected.python &&
+    python &&
     marker.imports === expected.imports &&
     marker.requirements === expected.requirements
   );

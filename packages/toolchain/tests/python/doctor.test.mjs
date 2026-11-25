@@ -296,3 +296,37 @@ test('fails when the marker records another import list', async () => {
     assert.match(byLabel(report, 'marker').detail, /elsewhere/);
   });
 });
+
+test('trusts the marker for the interpreter patch', async () => {
+  await withBackend(async (toolchain, backend, importsDir) => {
+    await writeReadyMarker(backend, {
+      uv: UV_VERSION,
+      python: '3.12.16',
+      imports: resolve(importsDir),
+      requirements: REQUIREMENTS.join('\n'),
+    });
+
+    const patched = (file, args) => {
+      if (args[1]?.includes('importlib.metadata')) {
+        return { status: 0, output: '' };
+      }
+
+      return {
+        status: 0,
+        output: file.endsWith('uv.exe')
+          ? `uv ${UV_VERSION} (abc)`
+          : 'Python 3.12.16',
+      };
+    };
+
+    const trusted = await doctor(
+      toolchain,
+      options(importsDir, patched, { pythonVersion: '3.12.16' }),
+    );
+    const pinned = await doctor(toolchain, options(importsDir, patched));
+
+    assert.equal(trusted.ok, true);
+    assert.equal(pinned.ok, false);
+    assert.match(byLabel(pinned, 'python').detail, /3\.12\.15/);
+  });
+});

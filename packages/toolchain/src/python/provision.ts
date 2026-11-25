@@ -3,11 +3,22 @@ import { resolve } from 'node:path';
 
 import type { ToolchainPaths } from '../layout/paths.js';
 import { backendPaths } from '../layout/paths.js';
+import { DEFAULT_MIRRORS, type ResolvedMirrorConfig } from '../mirrors.js';
+import {
+  ensurePython,
+  type EnsurePythonOptions,
+  type InstalledPython,
+} from './download-python.js';
 import { writePth } from './pth.js';
 import { requirementsFingerprint } from './requirements.js';
-import { isReady, writeReadyMarker, type ReadyMarker } from './ready.js';
 import {
-  PYTHON_VERSION,
+  isReady,
+  readReadyMarker,
+  writeReadyMarker,
+  type ReadyMarker,
+} from './ready.js';
+import {
+  PYTHON_SHORT_VERSION,
   UV_VERSION,
   currentTarget,
   type PlatformTarget,
@@ -16,7 +27,6 @@ import {
   createVenv,
   downloadUv,
   installPackages,
-  installPython,
   type RunUv,
   type UvContext,
 } from './uv.js';
@@ -48,6 +58,18 @@ export interface ProvisionOptions {
   readonly importPaths: readonly string[];
   /** Rebuild even when the marker says the backend is ready. */
   readonly force?: boolean;
+  /**
+   * Where the interpreter archive comes from. Omitted means the built-in
+   * official sources; the application passes the user's `mirrors.json` once
+   * the startup path reads it.
+   */
+  readonly mirrors?: ResolvedMirrorConfig;
+  /** Which python series to install; the pinned 3.12 by default. */
+  readonly pythonSeries?: string;
+  /** Tests replace the downloader; production uses the real one. */
+  readonly ensurePython?: (
+    options: EnsurePythonOptions,
+  ) => Promise<InstalledPython>;
   readonly fetchImpl?: typeof fetch;
   readonly run?: RunUv;
   readonly target?: PlatformTarget;
@@ -67,10 +89,13 @@ export interface ProvisionOptions {
 export function expectedMarker(
   importPaths: readonly string[],
   requirements: readonly string[],
+  python = '',
 ): ReadyMarker {
   return {
     uv: UV_VERSION,
-    python: PYTHON_VERSION,
+    // '' means "the version the archive carries"; the pre-check does not know
+    // it without downloading, and a real version is written after the install.
+    python,
     imports: importPaths.map((directory) => resolve(directory)).join('\n'),
     requirements: requirementsFingerprint(requirements),
   };
@@ -96,7 +121,9 @@ export async function provision(
   const step = options.onStep ?? (() => {});
 
   if (!options.force && (await isReady(backend, marker))) {
-    return marker;
+    // The pre-check does not know which 3.12 patch the install picked; the
+    // marker on disk does, so hand that one back.
+    return (await readReadyMarker(backend)) ?? marker;
   }
 
   // From here on this directory is being rebuilt, so the marker must stop
@@ -119,15 +146,31 @@ export async function provision(
     ...(options.fetchImpl ? { fetchImpl: options.fetchImpl } : {}),
   });
   step('python');
-  await installPython(ctx);
+  const install = options.ensurePython ?? ensurePython;
+  const installed = await install({
+    config: options.mirrors ?? DEFAULT_MIRRORS,
+    destination: backend.root,
+    cacheDir: options.paths.cacheDir,
+    series: options.pythonSeries ?? PYTHON_SHORT_VERSION,
+    ...(options.fetchImpl ? { fetchImpl: options.fetchImpl } : {}),
+    ...(options.signal ? { signal: options.signal } : {}),
+    ...(options.onOutput
+      ? { onProgress: (received: number) => options.onOutput!(`${received} bytes\n`, 'stdout') }
+      : {}),
+  });
+  const installedMarker = expectedMarker(
+    options.importPaths,
+    requirements,
+    installed.release.version,
+  );
   step('venv');
-  await createVenv(ctx);
+  await createVenv(ctx, installed.pythonPath);
   step('pth');
   writePth(backend, options.importPaths);
   step('packages');
   await installPackages(ctx, requirements);
   step('marker');
-  await writeReadyMarker(backend, marker);
+  await writeReadyMarker(backend, installedMarker);
 
-  return marker;
+  return installedMarker;
 }

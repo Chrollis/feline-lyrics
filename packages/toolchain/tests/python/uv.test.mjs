@@ -16,7 +16,6 @@ import {
   createVenv,
   downloadUv,
   installPackages,
-  installPython,
   MIN_DOWNLOAD_BYTES,
   runUv,
   TARGETS,
@@ -119,112 +118,13 @@ test('drops inherited uv, pip and python settings', () => {
   assert.equal('PIP_INDEX_URL' in env, false);
 });
 
-test('installs the pinned interpreter without writing outside the backend', async () => {
-  await withRoot(async (ctx) => {
-    const { calls, run } = fakeRun();
-
-    await installPython({ ...ctx, run });
-
-    assert.equal(calls.length, 1);
-    const [call] = calls;
-
-    assert.equal(call.file, join(ctx.paths.backendRoot, 'uv', 'uv.exe'));
-    assert.deepEqual(call.args, [
-      'python',
-      'install',
-      '3.12.15',
-      '--no-bin',
-      '--no-registry',
-    ]);
-    assert.equal(
-      call.options.env.UV_PYTHON_INSTALL_DIR,
-      join(ctx.paths.backendRoot, 'python'),
-    );
-  });
-});
-
-test('reports a failed python install with the last stderr line', async () => {
-  await withRoot(async (ctx) => {
-    const { run } = fakeRun({
-      status: 1,
-      stderr: 'hint: try upgrading uv\n  error: no download found\n',
-    });
-
-    await assert.rejects(installPython({ ...ctx, run }), (error) => {
-      assert.ok(error instanceof ToolchainError);
-      assert.equal(error.code, 'uv/install-failed');
-      assert.equal(error.context.status, 1);
-      assert.equal(error.context.command, 'uv python install');
-      assert.match(error.message, /no download found/);
-      assert.doesNotMatch(error.message, /hint:/);
-
-      return true;
-    });
-  });
-});
-
-test('reports a killed command without inventing a status', async () => {
-  await withRoot(async (ctx) => {
-    const { run } = fakeRun({ status: null });
-
-    await assert.rejects(installPython({ ...ctx, run }), (error) => {
-      assert.equal(error.code, 'uv/install-failed');
-      assert.match(error.message, /was killed/);
-      assert.equal('status' in error.context, false);
-
-      return true;
-    });
-  });
-});
-
-test('falls through to the next python mirror', async () => {
-  await withRoot(async (ctx) => {
-    const calls = [];
-    let attempt = 0;
-    const run = async (file, args, options) => {
-      calls.push({ file, args, options });
-      attempt += 1;
-
-      return attempt === 1
-        ? { status: 1, stdout: '', stderr: 'error: connection reset' }
-        : { status: 0, stdout: '', stderr: '' };
-    };
-
-    await installPython({ ...ctx, run });
-
-    assert.equal(calls.length, 2);
-    assert.match(calls[0].options.env.UV_PYTHON_INSTALL_MIRROR, /ustc/);
-    assert.match(calls[1].options.env.UV_PYTHON_INSTALL_MIRROR, /github/);
-    assert.equal(calls[0].options.env.UV_PYTHON_CPYTHON_BUILD, '20261021');
-  });
-});
-
-test('throws the last mirror failure when every mirror fails', async () => {
-  await withRoot(async (ctx) => {
-    const run = async () => ({
-      status: 1,
-      stdout: '',
-      stderr: 'error: no such build',
-    });
-
-    await assert.rejects(
-      installPython({ ...ctx, run }, ['a', 'b']),
-      (error) => {
-        assert.equal(error.code, 'uv/install-failed');
-        assert.equal(error.context.status, 1);
-        assert.match(error.message, /no such build/);
-
-        return true;
-      },
-    );
-  });
-});
-
 test('rebuilds the venv from the installed interpreter', async () => {
   await withRoot(async (ctx) => {
     const { calls, run } = fakeRun();
 
-    await createVenv({ ...ctx, run });
+    const python = join(ctx.paths.backendRoot, 'python', 'python.exe');
+
+    await createVenv({ ...ctx, run }, python);
 
     const [call] = calls;
 
@@ -232,7 +132,7 @@ test('rebuilds the venv from the installed interpreter', async () => {
       'venv',
       join(ctx.paths.backendRoot, 'venv'),
       '--python',
-      '3.12.15',
+      python,
       '--clear',
     ]);
   });
@@ -242,7 +142,9 @@ test('reports a failed venv rebuild', async () => {
   await withRoot(async (ctx) => {
     const { run } = fakeRun({ status: 2, stderr: 'error: no interpreter' });
 
-    await assert.rejects(createVenv({ ...ctx, run }), (error) => {
+    const python = join(ctx.paths.backendRoot, 'python', 'python.exe');
+
+    await assert.rejects(createVenv({ ...ctx, run }, python), (error) => {
       assert.equal(error.code, 'uv/venv-failed');
       assert.equal(error.context.status, 2);
 

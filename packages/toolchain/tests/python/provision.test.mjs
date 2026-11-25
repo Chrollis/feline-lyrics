@@ -28,6 +28,18 @@ const ZIP_WITH_UV =
 
 const target = TARGETS['win32-x64'];
 
+// The downloader is not the subject here: a stub keeps these tests offline.
+const PYTHON = {
+  release: {
+    tag: '20261021',
+    version: PYTHON_VERSION,
+    asset: 'python.tar.gz',
+    url: 'https://example.invalid/python.tar.gz',
+  },
+  pythonPath: join('C:', 'fake', 'python.exe'),
+};
+const fakeEnsure = async () => PYTHON;
+
 async function withPaths(fn) {
   const root = mkdtempSync(join(tmpdir(), 'felyrics-provision-'));
   const paths = {
@@ -84,6 +96,7 @@ test('provisions in the order that leaves the marker last', async () => {
       tempDir,
       requirements: ['av==15.0.0'],
       importPaths: [paths.imports],
+      ensurePython: fakeEnsure,
       run,
       target,
       fetchImpl: zipResponse,
@@ -91,7 +104,7 @@ test('provisions in the order that leaves the marker last', async () => {
 
     assert.deepEqual(
       calls.map((call) => call.args[0]),
-      ['python', 'venv', 'pip'],
+      ['venv', 'pip'],
     );
     assert.equal(marker.imports, resolve(paths.imports));
 
@@ -120,6 +133,7 @@ test('skips pip when nothing is declared', async () => {
       tempDir,
       requirements: [],
       importPaths: [paths.imports],
+      ensurePython: fakeEnsure,
       run,
       target,
       fetchImpl: zipResponse,
@@ -127,7 +141,7 @@ test('skips pip when nothing is declared', async () => {
 
     assert.deepEqual(
       calls.map((call) => call.args[0]),
-      ['python', 'venv'],
+      ['venv'],
     );
   });
 });
@@ -141,6 +155,7 @@ test('does nothing when the marker already matches', async () => {
       tempDir,
       requirements: [],
       importPaths: [paths.imports],
+      ensurePython: fakeEnsure,
       run: first.run,
       target,
       fetchImpl: zipResponse,
@@ -154,6 +169,7 @@ test('does nothing when the marker already matches', async () => {
       tempDir,
       requirements: [],
       importPaths: [paths.imports],
+      ensurePython: fakeEnsure,
       run: second.run,
       target,
       fetchImpl: () => {
@@ -172,6 +188,7 @@ test('force rebuilds even when the marker matches', async () => {
       tempDir,
       requirements: [],
       importPaths: [paths.imports],
+      ensurePython: fakeEnsure,
       run: fakeRun().run,
       target,
       fetchImpl: zipResponse,
@@ -185,6 +202,7 @@ test('force rebuilds even when the marker matches', async () => {
       tempDir,
       requirements: [],
       importPaths: [paths.imports],
+      ensurePython: fakeEnsure,
       run: forced.run,
       target,
       force: true,
@@ -193,7 +211,7 @@ test('force rebuilds even when the marker matches', async () => {
       fetchImpl: zipResponse,
     });
 
-    assert.equal(forced.calls.length, 2);
+    assert.equal(forced.calls.length, 1);
   });
 });
 
@@ -204,6 +222,7 @@ test('drops the marker before rebuilding, so a killed run cannot look ready', as
       tempDir,
       requirements: [],
       importPaths: [paths.imports],
+      ensurePython: fakeEnsure,
       run: fakeRun().run,
       target,
       fetchImpl: zipResponse,
@@ -224,6 +243,7 @@ test('drops the marker before rebuilding, so a killed run cannot look ready', as
         tempDir,
         requirements: [],
         importPaths: [paths.imports],
+      ensurePython: fakeEnsure,
         run,
         target,
         force: true,
@@ -254,6 +274,7 @@ test('leaves no marker when a step fails', async () => {
         tempDir,
         requirements: ['av'],
         importPaths: [paths.imports],
+      ensurePython: fakeEnsure,
         run,
         target,
         fetchImpl: zipResponse,
@@ -275,6 +296,7 @@ test('re-provisions when the import list moved', async () => {
       tempDir,
       requirements: [],
       importPaths: [paths.imports],
+      ensurePython: fakeEnsure,
       run: fakeRun().run,
       target,
       fetchImpl: zipResponse,
@@ -292,11 +314,12 @@ test('re-provisions when the import list moved', async () => {
       tempDir,
       requirements: [],
       importPaths: [moved.imports],
+      ensurePython: fakeEnsure,
       run: second.run,
       target,
       fetchImpl: zipResponse,
     });
 
-    assert.equal(second.calls.length, 2);
+    assert.equal(second.calls.length, 1);
   });
 });

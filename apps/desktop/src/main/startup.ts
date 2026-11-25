@@ -176,10 +176,14 @@ export async function runStartup(
       log,
     });
 
+    // The install may have picked a newer 3.12 patch than the pinned constant;
+    // doctor trusts the marker for the version, not a number in the source.
+    const current = await readReadyMarker(backend);
     const report = await doctor(options.paths, {
       requirements: environment.requirements,
       importPaths: environment.importPaths,
       plugins: environment.plugins,
+      ...(current === null ? {} : { pythonVersion: current.python }),
     });
 
     if (!report.ok) {

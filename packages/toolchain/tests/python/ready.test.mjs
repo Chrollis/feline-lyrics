@@ -98,6 +98,7 @@ test('rejects a backend whose venv was deleted', async () => {
 
     rmSync(join(dir, 'venv', 'Scripts', 'python.exe'), { force: true });
 
+
     assert.equal(await isReady(paths, MARKER), false);
   });
 });
@@ -107,5 +108,17 @@ test('ignores fields a newer version might add', async () => {
     writeFileSync(paths.readyMarker, JSON.stringify({ ...MARKER, extra: 1 }));
 
     assert.equal(await isReady(paths, MARKER), true);
+  });
+});
+
+test('an empty expected python accepts the patch the install picked', async () => {
+  await withBackend(async (paths) => {
+    await writeReadyMarker(paths, { ...MARKER, python: '3.12.16' });
+
+    assert.equal(
+      await isReady(paths, { ...MARKER, python: '' }),
+      true,
+    );
+    assert.equal(await isReady(paths, MARKER), false);
   });
 });
