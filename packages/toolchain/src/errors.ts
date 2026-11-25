@@ -4,6 +4,7 @@ export type ToolchainErrorCode =
   | 'target/unsupported'
   | 'download/cancelled'
   | 'download/failed'
+  | 'mirrors/invalid'
   | 'backend/not-provisioned'
   | 'backend/unavailable'
   | 'backend/timeout'
@@ -22,6 +23,8 @@ export interface ToolchainErrorContext {
   readonly command?: string;
   readonly url?: string;
   readonly status?: number;
+  /** A dotted path into a configuration file, e.g. `sources.uv[1]`. */
+  readonly path?: string;
   /**
    * The protocol version the other side stated, when it stated one. `message` is
    * English fallback text, so anything a caller has to render must arrive as a

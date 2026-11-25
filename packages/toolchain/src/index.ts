@@ -16,6 +16,18 @@ export {
   type CachePaths,
   type ToolchainPaths,
 } from './layout/paths.js';
+export {
+  DEFAULT_MIRRORS,
+  defaultUserDataDir,
+  loadMirrorConfig,
+  mirrorConfigPath,
+  parseMirrorConfig,
+  resolveMirrorConfig,
+  type MirrorConfig,
+  type MirrorReleasePolicy,
+  type MirrorSources,
+  type ResolvedMirrorConfig,
+} from './mirrors.js';
 export { download, type DownloadOptions } from './python/download.js';
 export {
   MIN_DOWNLOAD_BYTES,
