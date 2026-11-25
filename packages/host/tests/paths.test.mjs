@@ -18,6 +18,7 @@ test('development paths hang off the checkout', () => {
   assert.deepEqual(paths, {
     cacheDir: join(repo, 'cache'),
     backendRoot: join(repo, 'python'),
+    pluginEnvsRoot: join(repo, 'python', 'plugin-envs'),
     hostBackendRoot: join(repo, 'packages', 'host', 'backend'),
     builtinPluginsRoot: join(repo, 'plugins'),
     userPluginsRoot: join(userData, 'plugins'),
@@ -37,6 +38,7 @@ test('packaged paths split resources from writable state', () => {
   assert.deepEqual(paths, {
     cacheDir: join(userData, 'cache'),
     backendRoot: join(userData, 'backend'),
+    pluginEnvsRoot: join(userData, 'backend', 'plugin-envs'),
     hostBackendRoot: join(resources, 'host', 'backend'),
     builtinPluginsRoot: join(resources, 'plugins'),
     userPluginsRoot: join(userData, 'plugins'),

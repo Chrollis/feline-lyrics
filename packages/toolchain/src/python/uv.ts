@@ -322,10 +322,11 @@ export async function downloadUv(
 export async function createVenv(
   ctx: UvContext,
   pythonExecutable: string,
+  venvDir: string = backendPaths(ctx.paths.backendRoot).venvDir,
 ): Promise<void> {
   const backend = backendPaths(ctx.paths.backendRoot);
   const run = ctx.run ?? runUv;
-  const args = ['venv', backend.venvDir, '--python', pythonExecutable, '--clear'];
+  const args = ['venv', venvDir, '--python', pythonExecutable, '--clear'];
 
   const result = await run(backend.uvExe, args, runOptions(ctx));
 
@@ -342,6 +343,11 @@ export interface InstallPackagesOptions {
    * official index; the app passes the user's list.
    */
   readonly indexes?: readonly string[];
+  /**
+   * The interpreter to install into. Omitted means the builtin backend's venv;
+   * a plugin environment passes its own venv python.
+   */
+  readonly pythonExecutable?: string;
 }
 
 /** Installs exact requirement strings into the venv; an empty list is a no-op. */
@@ -361,7 +367,7 @@ export async function installPackages(
     'pip',
     'install',
     '--python',
-    backend.venvPython,
+    options.pythonExecutable ?? backend.venvPython,
     ...requirements,
   ];
   let last: ToolchainError | undefined;

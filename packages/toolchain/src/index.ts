@@ -99,6 +99,12 @@ export {
   type ReadyMarker,
 } from './python/ready.js';
 export {
+  pluginEnvironmentPaths,
+  provisionPluginEnvironment,
+  type PluginEnvironment,
+  type PluginEnvironmentOptions,
+} from './python/plugin-env.js';
+export {
   createVenv,
   downloadUv,
   installPackages,

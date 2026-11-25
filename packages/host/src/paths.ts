@@ -10,6 +10,8 @@ export interface HostPaths {
   readonly cacheDir: string;
   /** Where the Python interpreter and the venv live. */
   readonly backendRoot: string;
+  /** One environment per user plugin, beside the builtin venv. */
+  readonly pluginEnvsRoot: string;
   /**
    * The python half of the host itself. It is a native dependency, not a plugin:
    * the loader never scans for it, and provisioning puts it on the `.pth` beside
@@ -43,10 +45,12 @@ export function resolveHostPaths(inputs: HostPathInputs): HostPaths {
   if (inputs.packaged) {
     const userData = resolve(inputs.userData);
     const resources = resolve(inputs.resourcesPath);
+    const backendRoot = join(userData, 'backend');
 
     return {
       cacheDir: join(userData, 'cache'),
-      backendRoot: join(userData, 'backend'),
+      backendRoot,
+      pluginEnvsRoot: join(backendRoot, 'plugin-envs'),
       hostBackendRoot: join(resources, 'host', 'backend'),
       builtinPluginsRoot: join(resources, 'plugins'),
       userPluginsRoot: join(userData, 'plugins'),
@@ -55,10 +59,12 @@ export function resolveHostPaths(inputs: HostPathInputs): HostPaths {
 
   // `appPath` is the application package, not the repository: two levels up.
   const repoRoot = resolve(inputs.appPath, '..', '..');
+  const backendRoot = join(repoRoot, 'python');
 
   return {
     cacheDir: join(repoRoot, 'cache'),
-    backendRoot: join(repoRoot, 'python'),
+    backendRoot,
+    pluginEnvsRoot: join(backendRoot, 'plugin-envs'),
     hostBackendRoot: join(repoRoot, 'packages', 'host', 'backend'),
     builtinPluginsRoot: join(repoRoot, 'plugins'),
     userPluginsRoot: join(resolve(inputs.userData), 'plugins'),
