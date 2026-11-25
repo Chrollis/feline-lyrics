@@ -1,6 +1,5 @@
 import assert from 'node:assert/strict';
 import { createHash, randomBytes } from 'node:crypto';
-import { execFileSync } from 'node:child_process';
 import {
   existsSync,
   mkdirSync,
@@ -13,6 +12,8 @@ import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
+
+import { c } from 'tar';
 
 import {
   ensurePython,
@@ -214,20 +215,20 @@ test('reports a browser challenge instead of calling it a missing file', async (
   }
 });
 
-function pythonArchive(root) {
+async function pythonArchive(root) {
   const source = join(root, 'tree');
   mkdirSync(join(source, 'python'), { recursive: true });
   writeFileSync(join(source, 'python', 'python.exe'), 'not really python');
   // Above the cache floor, so a second call can prove it reused the download.
   writeFileSync(join(source, 'python', 'payload.bin'), randomBytes(2 * 1024 * 1024));
   const archive = join(root, 'python.tar.gz');
-  execFileSync('tar', ['-czf', archive, '-C', source, '.']);
+  await c({ gzip: true, file: archive, cwd: source }, ['python']);
   return archive;
 }
 
 test('downloads, verifies, unpacks and reuses the cached archive', async () => {
   const root = tempDir('felyrics-python-');
-  const archive = pythonArchive(root);
+  const archive = await pythonArchive(root);
   const bytes = readFileSync(archive);
   const digest = createHash('sha256').update(bytes).digest('hex');
   let downloads = 0;
@@ -273,7 +274,7 @@ test('downloads, verifies, unpacks and reuses the cached archive', async () => {
 
 test('refuses an archive that does not match the published digest', async () => {
   const root = tempDir('felyrics-python-');
-  const archive = pythonArchive(root);
+  const archive = await pythonArchive(root);
   const bytes = readFileSync(archive);
 
   const server = await serve((request, response) => {

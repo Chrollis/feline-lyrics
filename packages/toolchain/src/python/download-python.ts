@@ -3,6 +3,7 @@ import { readFile, mkdir, rm, stat } from 'node:fs/promises';
 import { basename, dirname, join } from 'node:path';
 
 import { execa } from 'execa';
+import { x } from 'tar';
 
 import { ToolchainError } from '../errors.js';
 import type { ResolvedMirrorConfig } from '../mirrors.js';
@@ -451,26 +452,26 @@ async function reusableArchive(
 }
 
 /**
- * Unpacks the archive with the platform `tar`. The archive is trusted (a
- * published release), so this does not try to police entries; it only refuses
- * an exit code that says the unpack did not happen.
+ * Unpacks the archive with node-tar, which understands gzip, ustar prefixes,
+ * GNU long names and pax headers without asking the machine for a `tar`.
+ * The archive is a published release, so this does not re-police entries; it
+ * only refuses a failed unpack.
  */
 async function unpack(archive: string, destination: string): Promise<void> {
   await rm(destination, { recursive: true, force: true });
   await mkdir(destination, { recursive: true });
 
-  const result = await execa('tar', ['-xzf', archive, '-C', destination], {
-    reject: false,
-  });
-
-  if (result.exitCode !== 0) {
+  try {
+    await x({ file: archive, cwd: destination, strict: true });
+  } catch (error) {
     throw new ToolchainError(
       'archive/unusable',
       'tar could not unpack the python archive',
       {
         archive: basename(archive),
-        reason: (result.stderr ?? '').slice(0, 200),
+        reason: String(error).slice(0, 200),
       },
+      { cause: error },
     );
   }
 }
