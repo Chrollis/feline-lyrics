@@ -123,11 +123,20 @@ test('unknown keys inside felyrics are refused', async () => {
   });
 });
 
-test('a backend declares at most one of python and exec', async () => {
+test('exec is not a backend', async () => {
   const pkg = copy(BASE);
   pkg.felyrics.backend.exec = 'backend/bin/run';
 
-  await expectError('core/manifest-invalid', pkg);
+  const path = await fixture(pkg);
+
+  await assert.rejects(loadManifest(path), (error) => {
+    assert.equal(error.code, 'core/manifest-invalid');
+    assert.ok(
+      error.issues.some((entry) => entry.path === 'felyrics.backend.exec'),
+    );
+
+    return true;
+  });
 });
 
 test('a python backend requires engines', async () => {

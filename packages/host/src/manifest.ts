@@ -170,7 +170,7 @@ export async function loadManifest(
   }
 
   const backend = felyrics['backend'];
-  let backendLabel: 'python' | 'exec' | null = null;
+  let backendLabel: 'python' | null = null;
   let python: PythonTarget | null = null;
 
   if (backend !== undefined) {
@@ -178,41 +178,41 @@ export async function loadManifest(
       issue(issues, 'felyrics.backend', 'must be an object');
     } else {
       refuseUnknown(backend, BACKEND_KEYS, 'felyrics.backend', issues);
-      const present = ['python', 'exec'].filter((key) => key in backend);
 
-      if (present.length > 1) {
-        issue(issues, 'felyrics.backend', 'at most one of python and exec');
-      } else if (present.length === 1) {
-        backendLabel = present[0] as 'python' | 'exec';
+      if ('exec' in backend) {
+        issue(
+          issues,
+          'felyrics.backend.exec',
+          'is not a backend in v0; start a helper from the python backend',
+        );
+      }
 
-        if (backendLabel === 'python') {
-          const target = text(
-            backend['python'],
-            'felyrics.backend.python',
-            issues,
-          );
+      if ('python' in backend) {
+        backendLabel = 'python';
+        const target = text(
+          backend['python'],
+          'felyrics.backend.python',
+          issues,
+        );
 
-          if (target !== null) {
-            const [module, attribute, extra] = target.split(':');
+        if (target !== null) {
+          const [module, attribute, extra] = target.split(':');
 
-            if (
-              extra !== undefined ||
-              module === undefined ||
-              attribute === undefined ||
-              !MODULE.test(module) ||
-              !ATTRIBUTE.test(attribute)
-            ) {
-              issue(
-                issues,
-                'felyrics.backend.python',
-                "must be 'module:callable'",
-              );
-            } else {
-              python = { module, attribute };
-            }
+          if (
+            extra !== undefined ||
+            module === undefined ||
+            attribute === undefined ||
+            !MODULE.test(module) ||
+            !ATTRIBUTE.test(attribute)
+          ) {
+            issue(
+              issues,
+              'felyrics.backend.python',
+              "must be 'module:callable'",
+            );
+          } else {
+            python = { module, attribute };
           }
-        } else {
-          relative(backend['exec'], 'felyrics.backend.exec', issues);
         }
       }
     }

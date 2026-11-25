@@ -146,32 +146,27 @@ def load_manifest(directory: Path) -> PluginManifest:
             _issue(issues, "felyrics.backend", "must be an object")
         else:
             _refuse_unknown(backend, _BACKEND_KEYS, "felyrics.backend", issues)
-            present = [key for key in ("python", "exec") if key in backend]
 
-            if len(present) > 1:
+            if "exec" in backend:
                 _issue(
                     issues,
-                    "felyrics.backend",
-                    "at most one of python and exec",
+                    "felyrics.backend.exec",
+                    "is not a backend in v0; start a helper from the python backend",
                 )
-            elif present:
-                backend_label = present[0]
-                value = backend[backend_label]
 
-                if backend_label == "python":
-                    python_target = _text(
-                        value, "felyrics.backend.python", issues
+            if "python" in backend:
+                backend_label = "python"
+                python_target = _text(
+                    backend["python"], "felyrics.backend.python", issues
+                )
+                if python_target is not None and not _TARGET.match(
+                    python_target
+                ):
+                    _issue(
+                        issues,
+                        "felyrics.backend.python",
+                        "must be 'module:callable'",
                     )
-                    if python_target is not None and not _TARGET.match(
-                        python_target
-                    ):
-                        _issue(
-                            issues,
-                            "felyrics.backend.python",
-                            "must be 'module:callable'",
-                        )
-                else:
-                    _relative(value, "felyrics.backend.exec", issues)
 
     engines = felyrics.get("engines")
     engines_python: str | None = None

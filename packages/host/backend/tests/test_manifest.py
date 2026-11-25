@@ -159,14 +159,14 @@ class ManifestTest(unittest.TestCase):
 
         self.assertIn("felyrics.host", [issue["path"] for issue in error.issues])
 
-    def test_backend_has_at_most_one_label(self):
+    def test_exec_is_not_a_backend(self):
         package = self.package()
         package["felyrics"]["backend"]["exec"] = "bin/plugin"
 
         error = self.expect("core/manifest-invalid", package)
 
         self.assertIn(
-            "felyrics.backend",
+            "felyrics.backend.exec",
             [issue["path"] for issue in error.issues],
         )
 
