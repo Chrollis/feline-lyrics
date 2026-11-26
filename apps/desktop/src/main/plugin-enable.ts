@@ -1,4 +1,5 @@
 import { BackendError, type PluginManifest } from '@felyrics/host';
+import { readRequirements } from '@felyrics/toolchain';
 
 /**
  * What enabling a user plugin has to do before its hosts may activate it.
@@ -22,4 +23,29 @@ export function planUserEnable(manifest: PluginManifest): UserEnablePlan {
   }
 
   return { provision: manifest.python !== undefined };
+}
+
+/**
+ * Reads a user plugin's requirements, naming the missing file as a manifest
+ * error. `readRequirements` throws ENOENT, which the IPC layer would flatten
+ * into `ipc/unexpected`; the builtin path already treats a missing file as
+ * `core/manifest-invalid`, and the two must read the same to the user.
+ */
+export function readPluginRequirements(
+  id: string,
+  backendDirectory: string,
+  read: (directory: string) => readonly string[] = readRequirements,
+): readonly string[] {
+  try {
+    return read(backendDirectory);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+      throw new BackendError(
+        'core/manifest-invalid',
+        `${id}: backend/requirements.txt is missing`,
+      );
+    }
+
+    throw error;
+  }
 }

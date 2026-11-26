@@ -14,11 +14,13 @@ import {
 } from '@felyrics/host';
 import { asResult, parsePluginCall } from './plugin-ipc.js';
 import { mergePluginList } from './plugin-list.js';
-import { planUserEnable } from './plugin-enable.js';
+import {
+  planUserEnable,
+  readPluginRequirements,
+} from './plugin-enable.js';
 import {
   mirrorConfigPath,
   provisionPluginEnvironment,
-  readRequirements,
   type ResolvedMirrorConfig,
 } from '@felyrics/toolchain';
 import { APP_ENTRY_URL } from './app-assets.js';
@@ -383,14 +385,13 @@ async function enableUserPlugin(
   if (plan.provision) {
     const backendDirectory = join(plugin.manifest.directory, 'backend');
     const tempDir = await mkdtemp(join(app.getPath('userData'), 'plugin-env-'));
-
     try {
       await provisionPluginEnvironment({
         paths: resolvePaths(),
         envRoot: host.pluginEnvsRoot,
         id,
         importPaths: [host.hostBackendRoot, backendDirectory],
-        requirements: readRequirements(backendDirectory),
+        requirements: readPluginRequirements(id, backendDirectory),
         tempDir,
         mirrors,
       });
