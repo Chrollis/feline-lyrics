@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import importlib
 import sys
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -36,15 +36,39 @@ def load_plugin(directory: Path) -> LoadedPlugin:
 
 
 def load_plugins(
-    directories: Sequence[Path], requested: Sequence[str]
+    directories: Sequence[Path],
+    requested: Sequence[str],
+    on_issue: Callable[[Path, PluginError], None] | None = None,
 ) -> list[LoadedPlugin]:
     """Loads the plugin directories, optionally limited to `requested` ids.
 
-    Every manifest is validated before any plugin code runs, so a broken second
-    plugin cannot leave the first one half-activated.
+    With `requested` empty every manifest is validated before any plugin code
+    runs, so a broken second plugin cannot leave the first one half-activated.
+    With `requested` non-empty the unrequested directories may be broken: their
+    error goes to `on_issue` and the directory is skipped, so one bad user plugin
+    cannot stop the host from starting the builtin ones.
     """
 
-    manifests = [load_manifest(directory) for directory in directories]
+    wanted = set(requested)
+    manifests: list[PluginManifest] = []
+
+    for raw in directories:
+        directory = Path(raw)
+
+        try:
+            manifest = load_manifest(directory)
+        except PluginError as error:
+            if wanted and directory.name not in wanted:
+                if on_issue is not None:
+                    on_issue(directory, error)
+                continue
+            raise
+
+        if wanted and manifest.id not in wanted:
+            continue
+
+        manifests.append(manifest)
+
     by_id: dict[str, PluginManifest] = {}
 
     for manifest in manifests:
@@ -62,7 +86,7 @@ def load_plugins(
 
         by_id[manifest.id] = manifest
 
-    if requested:
+    if wanted:
         missing = [
             plugin_id for plugin_id in requested if plugin_id not in by_id
         ]

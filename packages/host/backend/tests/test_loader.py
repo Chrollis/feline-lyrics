@@ -246,6 +246,44 @@ class LoaderTest(unittest.TestCase):
 
         self.assertEqual([plugin.manifest.id for plugin in loaded], ["fixtures.other"])
 
+    def test_a_broken_unrequested_manifest_is_skipped(self):
+        echo = self.build(module=self.module() + "_echo", source=REGISTER)
+        broken = self.build(
+            module=self.module() + "_broken",
+            source=REGISTER,
+            plugin_id="fixtures.broken",
+            mutate=lambda package: package["felyrics"].__setitem__(
+                "wat", True
+            ),
+        )
+        issues = []
+
+        loaded = load_plugins(
+            [broken, echo],
+            ["fixtures.echo"],
+            on_issue=lambda directory, error: issues.append(
+                (directory, error)
+            ),
+        )
+
+        self.assertEqual([plugin.manifest.id for plugin in loaded], ["fixtures.echo"])
+        self.assertEqual([directory.name for directory, _ in issues], ["fixtures.broken"])
+        self.assertEqual(issues[0][1].code, "core/manifest-invalid")
+
+    def test_a_broken_requested_manifest_still_fails(self):
+        broken = self.build(
+            module=self.module(),
+            source=REGISTER,
+            mutate=lambda package: package["felyrics"].__setitem__(
+                "wat", True
+            ),
+        )
+
+        with self.assertRaises(PluginError) as caught:
+            load_plugins([broken], ["fixtures.echo"])
+
+        self.assertEqual(caught.exception.code, "core/manifest-invalid")
+
     def test_registration_after_freeze_is_refused(self):
         registry = Registry("fixtures.echo")
         context = BackendContext("fixtures.echo", 1, (), registry)

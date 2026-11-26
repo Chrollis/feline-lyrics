@@ -230,5 +230,51 @@ class HostMainTest(unittest.TestCase):
         self.assertEqual(lines[1]["result"], {"other": True})
 
 
+    def test_a_broken_unrequested_plugin_does_not_stop_the_host(self):
+        echo = self.write_plugin()
+        broken = self.write_plugin(
+            "fixtures.broken",
+            module="broken_plugin",
+            mutate=lambda package: package["felyrics"].__setitem__(
+                "wat", True
+            ),
+        )
+
+        result = self.run_host(
+            [
+                "--plugin-dir",
+                str(broken),
+                "--plugin-dir",
+                str(echo),
+                "--plugin",
+                "fixtures.echo",
+            ],
+            '{"v":1,"id":1,"method":"fixtures.echo/echo","params":{"hi":2}}\n',
+        )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("skipping fixtures.broken", result.stderr)
+        lines = [json.loads(line) for line in result.stdout.splitlines()]
+
+        self.assertEqual(lines[0]["result"], {"echo": {"hi": 2}})
+
+    def test_a_broken_requested_plugin_still_fails(self):
+        broken = self.write_plugin(
+            "fixtures.broken",
+            module="broken_plugin",
+            mutate=lambda package: package["felyrics"].__setitem__(
+                "wat", True
+            ),
+        )
+
+        result = self.run_host(
+            ["--plugin-dir", str(broken), "--plugin", "fixtures.broken"],
+            "",
+        )
+
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("core/manifest-invalid", result.stderr)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -51,7 +51,13 @@ def main(argv: list[str] | None = None) -> int:
 
     try:
         loaded = load_plugins(
-            arguments.plugin_dir, arguments.plugin
+            arguments.plugin_dir,
+            arguments.plugin,
+            on_issue=lambda directory, error: print(
+                f"skipping {directory.name}: "
+                f"{error.code}: {error.message}",
+                file=sys.stderr,
+            ),
         )
 
         for plugin in loaded:
