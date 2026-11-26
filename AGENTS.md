@@ -3,7 +3,7 @@
 Working agreement for a human who decides and agents that plan, build or review,
 one role per session. This file is injected into every session, so it holds
 behaviour only: the past -- state, decisions, dead ends -- lives in
-`memories/`: `MEMORY.md` for the current state, `decisions.md` for the rules in
+`memories/`: `MEMORY.md` for the current state, `decisions/` for the rules in
 force, `archive/` for what no longer changes the work.
 
 ## 0. Roles: one per session, chosen by the human
@@ -14,15 +14,15 @@ and what it must not touch. The human schedules; no role starts another.
 
 | role | reads | writes | never | ends with |
 | --- | --- | --- | --- | --- |
-| planner | repo, `reference/ideas/`, memories | `reference/ideas/` notes | code, the status files | a decision list for the human |
-| builder | code, memories, `to-fix.md` | code, tests, commits | `reference/ideas/`, review | a report naming a commit |
-| reviewer | one commit, its report, ideas | `to-fix.md`, `fixed.md`, `keep-as-is.md` | code, commits | findings filed (current state / why / how to fix / acceptance) |
+| planner | code, `memories/notes/`, `memories/plans/` | `memories/notes/`, `memories/plans/` | code, findings | a decision list for the human |
+| builder | code, memories, `memories/findings/` | code, tests, commits | `memories/notes/`, `memories/plans/`, review | a report naming a commit |
+| reviewer | one commit, its report, notes | `memories/findings/` | code, commits | findings filed (current state / why / how to fix / acceptance) |
 
 - Only the builder commits. The planner and the reviewer only touch gitignored
   files or the read side.
 - Roles may run in parallel while their writes are disjoint: builder -> code,
-  planner -> ideas, reviewer -> status files. One writer per file. At most one
-  builder runs at a time; if a role must leave its column, it stops and asks.
+  planner -> notes and plans, reviewer -> findings. One writer per file. At most
+  one builder runs at a time; if a role must leave its column, it stops and asks.
 - Handoffs travel as files plus the human's words, never as messages between
   sessions. There is no teammate to spawn, message or poll.
 
@@ -46,7 +46,7 @@ and what it must not touch. The human schedules; no role starts another.
   3. when the human brings findings back: what the review changed, or "nothing
      fixed", with the unfixed findings moved into part 4;
   4. the next step you propose, or the question that has to be answered before
-     one exists. At a boundary -- a subsystem finished, `to-fix.md` empty --
+     one exists. At a boundary -- a subsystem finished, `memories/findings/` empty --
      naming the next step is the human's, so ask instead of assuming it;
   5. what only the human can decide, one sentence each, with the tradeoff.
   Do not restate the diff, do not narrate the wait, and do not open a new step
@@ -65,10 +65,9 @@ and what it must not touch. The human schedules; no role starts another.
 
 - Green tests only prove the code does what the tests say.
 - The reviewer runs in a separate session the human starts by hand. It reads the
-  code and appends findings to `reference/ideas/to-fix.md` in the shape
+  code and appends findings to `memories/findings/` in the shape
   current state / why / how to fix / acceptance. It is not a teammate: do not
-  spawn it, do not message it, do not poll it, and do not edit those three files
-  yourself.
+  spawn it, do not message it, do not poll it, and do not edit findings yourself.
 - The reviewer reviews a commit, not the working tree. That is what makes a
   parallel builder safe: the commit it reads does not move.
 - When a P0 is found in commit N while the builder has moved on to N+1, the human
@@ -78,20 +77,19 @@ and what it must not touch. The human schedules; no role starts another.
   as the next step's input, never as a reason to keep working inside a step that
   has already been reported.
 - Do not ask the human to explain the code. Ask only what cannot be derived from
-  it: a new dependency, a decision recorded in `keep-as-is.md` that should be
+  it: a new dependency, a decision recorded in `memories/decisions/` that should be
   reversed, anything expensive to undo. One sentence, with the tradeoff.
 
-## 3. `reference/` is the human's area, with three roles
+## 3. `reference/` is evidence; `memories/` is the working set
 
-- The roles and what each may write are in section 0; do not infer them from names.
-- `ideas/` is the agents' working area: read and write it freely. Everything
-  else under `reference/` is gated.
-- Do not read, search, grep or glob under the gated part unless the human names
-  an exact path in the current request. Then read that path and nothing beside it.
+- `reference/` is the human's area, gated. Do not read, search, grep or glob
+  under it unless the human names an exact path in the current request. Then read
+  that path and nothing beside it.
 - A named path is evidence about the past, never a template: copy nothing -- no
   code, naming, layout or dependency -- from it unless asked. The predecessor
   exists so this repository can regain control, not to be copied from.
-- `reference/` is gitignored, so the idea notes are not versioned.
+- `memories/` is the agents' working area: read it freely and write it as
+  section 8 says. It is its own git repository; `reference/` is gitignored.
 
 ## 4. Language and encoding
 
@@ -128,14 +126,14 @@ and what it must not touch. The human schedules; no role starts another.
 
 ## 8. Working memory
 
-- Read `memories/MEMORY.md` at session start, and `memories/decisions.md` before
+- Read `memories/MEMORY.md` at session start, and `memories/decisions/` before
   changing a subsystem; update them before ending a session.
 - `MEMORY.md` holds the rules and the current state, and no next-step section:
   a next step the agent picks for itself is the agent's plan, not the human's,
   and the two diverge at a boundary. When none is recorded, ask.
-  `decisions.md` holds the decisions in force with their reasons; `archive/`
-  holds what no longer changes the work. Never a changelog, never a file index,
-  never a test count. Delete what went stale.
+  `decisions/` holds the decisions in force, one file per decision with its
+  reason; `archive/` holds what no longer changes the work. Never a changelog,
+  never a file index, never a test count. Delete what went stale.
 
 ## 9. Autonomy and the team
 
