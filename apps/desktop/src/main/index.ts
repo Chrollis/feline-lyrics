@@ -10,13 +10,13 @@ import {
   PluginHosts,
   type DiscoveredPlugin,
   type DiscoveryIssue,
+  type PluginManifest,
   type PluginTransport,
 } from '@felyrics/host';
 import { asResult, parsePluginCall } from './plugin-ipc.js';
 import { mergePluginList } from './plugin-list.js';
 import {
-  oncePerId,
-  planUserEnable,
+  UserPluginController,
   readPluginRequirements,
 } from './plugin-enable.js';
 import {
@@ -71,7 +71,6 @@ let pluginHosts: PluginHosts | null = null;
 let pluginFailures: readonly DiscoveryIssue[] = [];
 let discoveredPlugins: readonly DiscoveredPlugin[] = [];
 let startupMirrors: ResolvedMirrorConfig | null = null;
-const enabling = new Map<string, Promise<readonly PluginSummary[]>>();
 let progressWindow: BrowserWindow | null = null;
 let mainWindow: BrowserWindow | null = null;
 let latestStatus: StartupStatus | null = null;
@@ -363,24 +362,14 @@ function findUserPlugin(id: string): DiscoveredPlugin {
   return plugin;
 }
 
-/**
- * Enabling a user plugin is two operations with one failure story: build its
- * environment first (so a missing dependency is reported before any plugin code
- * runs), then let the host table activate it. The backend process starts on the
- * first method call, so an enabled plugin with no traffic costs no process.
- */
-async function enableUserPlugin(
-  request: unknown,
-): Promise<readonly PluginSummary[]> {
-  const id = pluginIdFromRequest(request);
-
-  return oncePerId(enabling, id, () => performEnable(id));
+function findUserManifest(id: string): PluginManifest {
+  return findUserPlugin(id).manifest;
 }
 
-async function performEnable(
+async function provisionUserPlugin(
   id: string,
-): Promise<readonly PluginSummary[]> {
-  const plugin = findUserPlugin(id);
+  manifest: PluginManifest,
+): Promise<void> {
   const hosts = pluginHosts;
   const mirrors = startupMirrors;
 
@@ -389,54 +378,57 @@ async function performEnable(
   }
 
   const host = hostPaths();
-  const plan = planUserEnable(plugin.manifest);
+  const backendDirectory = join(manifest.directory, 'backend');
+  const tempDir = await mkdtemp(join(app.getPath('userData'), 'plugin-env-'));
 
-  if (plan.provision) {
-    const backendDirectory = join(plugin.manifest.directory, 'backend');
-    const tempDir = await mkdtemp(join(app.getPath('userData'), 'plugin-env-'));
-    try {
-      await provisionPluginEnvironment({
-        paths: resolvePaths(),
-        envRoot: host.pluginEnvsRoot,
-        id,
-        importPaths: [host.hostBackendRoot, backendDirectory],
-        requirements: readPluginRequirements(id, backendDirectory),
-        tempDir,
-        mirrors,
-      });
-    } finally {
-      await rm(tempDir, { recursive: true, force: true });
-    }
+  try {
+    await provisionPluginEnvironment({
+      paths: resolvePaths(),
+      envRoot: host.pluginEnvsRoot,
+      id,
+      importPaths: [host.hostBackendRoot, backendDirectory],
+      requirements: readPluginRequirements(id, backendDirectory),
+      tempDir,
+      mirrors,
+    });
+  } finally {
+    await rm(tempDir, { recursive: true, force: true });
   }
-
-  await hosts.enable(id);
-
-  return listPlugins();
 }
 
-/** Disable first, then close the process: a closed process cannot answer. */
+const userPlugins = new UserPluginController(findUserManifest, {
+  provision: provisionUserPlugin,
+  enableHost: async (id) => {
+    const hosts = pluginHosts;
+
+    if (hosts === null) {
+      throw new BackendError(
+        'core/not-ready',
+        'the plugin hosts are not enabled',
+      );
+    }
+
+    await hosts.enable(id);
+  },
+  disableHost: async (id) => {
+    if (pluginHosts !== null) {
+      await pluginHosts.disable(id);
+    }
+  },
+  stopBackend: stopPluginBackend,
+  list: listPlugins,
+});
+
+async function enableUserPlugin(
+  request: unknown,
+): Promise<readonly PluginSummary[]> {
+  return userPlugins.enable(pluginIdFromRequest(request));
+}
+
 async function disableUserPlugin(
   request: unknown,
 ): Promise<readonly PluginSummary[]> {
-  const id = pluginIdFromRequest(request);
-
-  findUserPlugin(id);
-
-  // An enable that is still building the environment must settle first: its
-  // `uv venv --clear` and the disable's process stop would otherwise race.
-  const pending = enabling.get(id);
-
-  if (pending !== undefined) {
-    await pending.catch(() => undefined);
-  }
-
-  if (pluginHosts !== null) {
-    await pluginHosts.disable(id);
-  }
-
-  await stopPluginBackend(id);
-
-  return listPlugins();
+  return userPlugins.disable(pluginIdFromRequest(request));
 }
 
 /**

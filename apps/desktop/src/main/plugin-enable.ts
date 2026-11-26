@@ -1,6 +1,8 @@
 import { BackendError, type PluginManifest } from '@felyrics/host';
 import { readRequirements } from '@felyrics/toolchain';
 
+import type { PluginSummary } from '../preload/api.js';
+
 /**
  * What enabling a user plugin has to do before its hosts may activate it.
  *
@@ -75,4 +77,68 @@ export function oncePerId<T>(
   pending.set(id, task);
 
   return task;
+}
+
+/** What the controller needs from the app: no Electron, no globals. */
+export interface UserPluginActions {
+  provision(id: string, plugin: PluginManifest): Promise<void>;
+  enableHost(id: string): Promise<void>;
+  disableHost(id: string): Promise<void>;
+  stopBackend(id: string): Promise<void>;
+  list(): Promise<readonly PluginSummary[]> | readonly PluginSummary[];
+}
+
+/**
+ * Enabling a user plugin is two operations with one failure story: build its
+ * environment first (so a missing dependency is reported before any plugin code
+ * runs), then let the host table activate it. The backend process starts on the
+ * first method call, so an enabled plugin with no traffic costs no process.
+ *
+ * One controller per app keeps the per-id in-flight map; two windows or a
+ * double-clicked button must not build the same venv twice.
+ */
+export class UserPluginController {
+  readonly #pending = new Map<string, Promise<readonly PluginSummary[]>>();
+  readonly #find: (id: string) => PluginManifest;
+  readonly #actions: UserPluginActions;
+
+  constructor(
+    find: (id: string) => PluginManifest,
+    actions: UserPluginActions,
+  ) {
+    this.#find = find;
+    this.#actions = actions;
+  }
+
+  enable(id: string): Promise<readonly PluginSummary[]> {
+    return oncePerId(this.#pending, id, async () => {
+      const manifest = this.#find(id);
+
+      if (planUserEnable(manifest).provision) {
+        await this.#actions.provision(id, manifest);
+      }
+
+      await this.#actions.enableHost(id);
+
+      return this.#actions.list();
+    });
+  }
+
+  /** Disable first, then close the process: a closed process cannot answer. */
+  async disable(id: string): Promise<readonly PluginSummary[]> {
+    this.#find(id);
+
+    // An enable that is still building the environment must settle first: its
+    // `uv venv --clear` and the disable's process stop would otherwise race.
+    const pending = this.#pending.get(id);
+
+    if (pending !== undefined) {
+      await pending.catch(() => undefined);
+    }
+
+    await this.#actions.disableHost(id);
+    await this.#actions.stopBackend(id);
+
+    return this.#actions.list();
+  }
 }
