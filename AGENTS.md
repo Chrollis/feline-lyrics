@@ -66,8 +66,9 @@ and what it must not touch. The human schedules; no role starts another.
 - Green tests only prove the code does what the tests say.
 - The reviewer runs in a separate session the human starts by hand. It reads the
   code and appends findings to `reference/ideas/to-fix.md` in the shape
-  current state / why / how to fix / acceptance. It is not a teammate: do not spawn it, do not
-  message it, do not poll it, and do not edit those three files yourself.
+  current state / why / how to fix / acceptance. It is not a teammate: do not
+  spawn it, do not message it, do not poll it, and do not edit those three files
+  yourself.
 - The reviewer reviews a commit, not the working tree. That is what makes a
   parallel builder safe: the commit it reads does not move.
 - When a P0 is found in commit N while the builder has moved on to N+1, the human
