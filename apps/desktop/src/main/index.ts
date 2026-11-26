@@ -393,6 +393,11 @@ async function installUserPlugin(): Promise<readonly PluginSummary[]> {
   const manifest = await installPluginDirectory(
     picked.filePaths[0],
     hostPaths().userPluginsRoot,
+    {
+      knownIds: new Set(
+        discoveredPlugins.map((plugin) => plugin.manifest.id),
+      ),
+    },
   );
 
   if (!discoveredPlugins.some((plugin) => plugin.manifest.id === manifest.id)) {

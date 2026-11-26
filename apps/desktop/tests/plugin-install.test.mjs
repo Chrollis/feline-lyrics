@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
@@ -82,3 +82,44 @@ test('a broken package is refused before anything is copied', async (t) => {
     () => readFile(join(root, 'plugins', 'someone.broken', 'package.json')),
   );
 });
+
+test('an id that is already loaded is refused before it is copied', async (t) => {
+  const root = await scratch(t);
+  const source = await packageAt(join(root, 'source'), 'someone.echo');
+  const target = join(root, 'plugins');
+
+  await assert.rejects(
+    () =>
+      installPluginDirectory(source, target, {
+        knownIds: new Set(['someone.echo']),
+      }),
+    (error) => error.code === 'core/duplicate-id',
+  );
+  await assert.rejects(() => readFile(join(target, 'someone.echo', 'package.json'))); 
+});
+
+test('a copy that fails leaves no half-installed directory', async (t) => {
+  const root = await scratch(t);
+  const source = await packageAt(join(root, 'source'), 'someone.echo');
+  const target = join(root, 'plugins');
+
+  await assert.rejects(
+    () =>
+      installPluginDirectory(source, target, {
+        copy: async (from, to) => {
+          await mkdir(to, { recursive: true });
+          await writeFile(join(to, 'half.txt'), 'half');
+          throw new Error('disk full');
+        },
+      }),
+    /disk full/,
+  );
+
+  await assert.rejects(() => readFile(join(target, 'someone.echo', 'half.txt')));
+  assert.deepEqual(await readdir(target), []);
+
+  const manifest = await installPluginDirectory(source, target);
+
+  assert.equal(manifest.directory, join(target, 'someone.echo'));
+});
+
