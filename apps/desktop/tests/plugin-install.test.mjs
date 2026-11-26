@@ -45,6 +45,7 @@ test('copies the package under its id and returns the manifest', async (t) => {
   const manifest = await installPluginDirectory(source, target);
 
   assert.equal(manifest.id, 'someone.echo');
+  assert.equal(manifest.directory, join(target, 'someone.echo'));
   assert.match(
     await readFile(join(target, 'someone.echo', 'package.json'), 'utf8'),
     /@someone\/echo/,

@@ -27,6 +27,7 @@ import {
 import { APP_ENTRY_URL } from './app-assets.js';
 import { registerAppScheme, serveAppProtocol } from './app-protocol.js';
 import {
+  addUserBackend,
   callBackend,
   configureBackends,
   pingBackend,
@@ -398,9 +399,13 @@ async function installUserPlugin(): Promise<readonly PluginSummary[]> {
     discoveredPlugins = [...discoveredPlugins, { manifest, root: 'user' }];
   }
 
+  jobPluginIds.add(manifest.id);
+
   if (pluginHosts !== null) {
     pluginHosts.add(manifest);
   }
+
+  addUserBackend({ id: manifest.id, directory: manifest.directory });
 
   return listPlugins();
 }

@@ -30,6 +30,7 @@ export interface BackendService {
   ): Promise<T>;
   stop(id: string): Promise<void>;
   close(): Promise<number | null>;
+  addUser?(plugin: BackendPlugin): void;
 }
 
 export type BackendFactory = (plugins: BackendPlugins) => BackendService;
@@ -98,4 +99,21 @@ export async function stopPluginBackend(id: string): Promise<void> {
   if (service !== null) {
     await service.stop(id);
   }
+}
+
+/**
+ * Teaches the live pool about a user plugin installed at runtime; without this
+ * the plugin activates and then has no process to call.
+ */
+export function addUserBackend(plugin: BackendPlugin): void {
+  const current = requireService();
+
+  if (current.addUser === undefined) {
+    throw new BackendError(
+      'core/not-ready',
+      'the backend pool cannot accept a plugin at runtime',
+    );
+  }
+
+  current.addUser(plugin);
 }

@@ -65,6 +65,7 @@ export async function configureBackends(
 }
 
 export {
+  addUserBackend,
   callBackend,
   pingBackend,
   shutdownBackend,

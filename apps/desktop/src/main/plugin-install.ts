@@ -57,5 +57,7 @@ export async function installPluginDirectory(
   await mkdir(pluginsRoot, { recursive: true });
   await copy(source, target, { recursive: true });
 
-  return manifest;
+  // Return the manifest of the copied package: its `directory` must point at
+  // the installed copy, not at the folder the user picked (which may move).
+  return load(target);
 }

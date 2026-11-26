@@ -180,6 +180,22 @@ export class BackendPool {
     };
   }
 
+  /**
+   * Adds a plugin installed while the app runs. The pool is the routing table
+   * for the backend processes, so a plugin that only reached `PluginHosts`
+   * would activate its TS face and then fail at its first backend call.
+   */
+  addUser(plugin: PooledPlugin): void {
+    if (this.#builtinIds.has(plugin.id) || this.#userById.has(plugin.id)) {
+      throw new BackendError(
+        'core/duplicate-id',
+        `${plugin.id} already has a backend entry`,
+      );
+    }
+
+    this.#userById.set(plugin.id, plugin);
+  }
+
   /** Stops one user plugin's process; the next call spawns it again. */
   async stop(id: string): Promise<void> {
     const service = this.#user.get(id);

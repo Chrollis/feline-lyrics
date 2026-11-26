@@ -135,6 +135,35 @@ test('stopping a user plugin closes its process and the next call respawns it', 
   assert.equal(starts.length, 2, 'the next call starts a fresh process');
 });
 
+test('a plugin installed at runtime joins the user routes', async () => {
+  const starts = [];
+  const pool = new BackendPool({
+    cacheDir: 'C:\\cache',
+    cwd: 'C:\\backend',
+    builtinPython: 'python.exe',
+    builtin: [],
+    user: [],
+    userPython: (id) => `C:\\envs\\${id}\\venv\\python.exe`,
+    start: fakeStarter(starts, []),
+  });
+
+  pool.addUser({ id: 'fixtures.echo', directory: 'C:\\user\\fixtures.echo' });
+
+  assert.deepEqual(await pool.call('fixtures.echo/echo', { value: 7 }, 1000), {
+    method: 'fixtures.echo/echo',
+  });
+  assert.equal(
+    starts[0].pythonExe,
+    'C:\\envs\\fixtures.echo\\venv\\python.exe',
+  );
+
+  assert.throws(
+    () =>
+      pool.addUser({ id: 'fixtures.echo', directory: 'C:\\user\\other' }),
+    { code: 'core/duplicate-id' },
+  );
+});
+
 test('a method without a plugin id is refused', async () => {
   const pool = new BackendPool({
     cacheDir: 'C:\\cache',
