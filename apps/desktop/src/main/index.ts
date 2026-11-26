@@ -143,7 +143,8 @@ function withDeadline<T>(work: Promise<T>): Promise<T> {
 }
 
 /** Runs the environment check, then opens the real window once it verifies. */
-async function start(force = false): Promise<void> {  if (starting) {
+async function start(force = false): Promise<void> {
+  if (starting) {
     return;
   }
 
@@ -153,6 +154,9 @@ async function start(force = false): Promise<void> {  if (starting) {
     // A retry replaces the host table; stopping the previous hosts first is
     // what keeps the old utility processes from piling up behind the new one.
     await shutdownPlugins();
+    // The pool outlives the host table; close it too, or a pool that answered
+    // a ping before Retry keeps its Python processes until the app exits.
+    await shutdownBackend();
 
     const userDataDir = app.getPath('userData');
     let mirrors;
@@ -259,7 +263,7 @@ async function enableBuiltinPlugins(pythonVersion: string): Promise<void> {
     console.error('[plugin]', issue.directory, issue.code, issue.message);
   }
 
-  configureBackends({
+  await configureBackends({
     host: hostPaths(),
     // A builtin plugin without a python half contributes no process to the
     // group; a user plugin gets a process only when its environment exists.

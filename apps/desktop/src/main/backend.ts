@@ -1,15 +1,16 @@
 import { app } from 'electron';
 import { join } from 'node:path';
 
-import {
-  BackendError,
-  resolveHostPaths,
-  type HostPaths,
-} from '@felyrics/host';
+import { resolveHostPaths, type HostPaths } from '@felyrics/host';
 
 import { backendPaths, type ToolchainPaths } from '@felyrics/toolchain';
 
-import { BackendPool, type PooledPlugin } from './backend-pool.js';
+import { BackendPool } from './backend-pool.js';
+import {
+  configureBackends as configure,
+  type BackendPlugins,
+  type BackendService,
+} from './backend-registry.js';
 
 /**
  * Where the four directories live for this process. Development points at the
@@ -40,20 +41,8 @@ export function resolvePaths(): ToolchainPaths {
   };
 }
 
-let pool: BackendPool | null = null;
-
-export interface BackendPlugins {
-  readonly host: HostPaths;
-  readonly builtin: readonly PooledPlugin[];
-  readonly user: readonly PooledPlugin[];
-}
-
-/**
- * Hands the discovered plugins to the pool. Called after discovery, before the
- * first request; a call with no pool is a bug, not a state to retry.
- */
-export function configureBackends(plugins: BackendPlugins): void {
-  pool = new BackendPool({
+function createPool(plugins: BackendPlugins): BackendService {
+  return new BackendPool({
     cacheDir: plugins.host.cacheDir,
     cwd: plugins.host.backendRoot,
     builtinPython: backendPaths(plugins.host.backendRoot).venvPython,
@@ -64,58 +53,21 @@ export function configureBackends(plugins: BackendPlugins): void {
   });
 }
 
-function requirePool(): BackendPool {
-  if (pool === null) {
-    throw new BackendError(
-      'core/not-ready',
-      'the backend pool is not configured yet',
-    );
-  }
-
-  return pool;
-}
-
 /**
- * `ping` is the liveness check, so it has to answer faster than anything else:
- * the button that awaits it sits on `asking...` until this settles, and the
- * backend may be busy inside a long synchronous decode, where the queued ping
- * waits for the whole job to finish.
+ * Hands the discovered plugins to the pool. Called after discovery, before the
+ * first request. The previous pool is closed first: a retry must not leave the
+ * processes it started behind.
  */
-const PING_TIMEOUT_MS = 5_000;
-
-export async function pingBackend(): Promise<unknown> {
-  return requirePool().ping(PING_TIMEOUT_MS);
+export async function configureBackends(
+  plugins: BackendPlugins,
+): Promise<void> {
+  await configure(plugins, createPool);
 }
 
-/**
- * The one way to ask a backend anything. The plugin id in `method` picks the
- * process: the builtin group, or the user plugin's own environment.
- *
- * `timeoutMs` is required on purpose. A default here would be a second opinion
- * about how long a method may take, held in a file that knows nothing about the
- * method: a legitimately slow call would fail at the toolchain's default, the
- * backend would keep working, and nothing would say which number to change. With
- * it required, a new call site has to name its budget in the same line that
- * names the method.
- */
-export async function callBackend<T>(
-  method: string,
-  params: Record<string, unknown>,
-  timeoutMs: number,
-): Promise<T> {
-  return requirePool().call<T>(method, params, timeoutMs);
-}
-
-export async function shutdownBackend(): Promise<number | null> {
-  const current = pool;
-  pool = null;
-
-  return current === null ? null : current.close();
-}
-
-/** Stops the process of one user plugin after its hosts are disabled. */
-export async function stopPluginBackend(id: string): Promise<void> {
-  if (pool !== null) {
-    await pool.stop(id);
-  }
-}
+export {
+  callBackend,
+  pingBackend,
+  shutdownBackend,
+  stopPluginBackend,
+} from './backend-registry.js';
+export type { BackendPlugins, BackendService } from './backend-registry.js';
