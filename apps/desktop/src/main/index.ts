@@ -17,6 +17,7 @@ import { APP_ENTRY_URL } from './app-assets.js';
 import { registerAppScheme, serveAppProtocol } from './app-protocol.js';
 import {
   callBackend,
+  configureBackends,
   pingBackend,
   hostPaths,
   resolvePaths,
@@ -244,6 +245,27 @@ async function enableBuiltinPlugins(pythonVersion: string): Promise<void> {
   for (const issue of discovery.issues) {
     console.error('[plugin]', issue.directory, issue.code, issue.message);
   }
+
+  configureBackends({
+    host: hostPaths(),
+    // A builtin plugin without a python half contributes no process to the
+    // group; a user plugin gets a process only when its environment exists.
+    builtin: discovery.plugins
+      .filter(
+        (plugin) =>
+          plugin.root === 'builtin' && plugin.manifest.python !== undefined,
+      )
+      .map((plugin) => ({
+        id: plugin.manifest.id,
+        directory: plugin.manifest.directory,
+      })),
+    user: discovery.plugins
+      .filter((plugin) => plugin.root === 'user')
+      .map((plugin) => ({
+        id: plugin.manifest.id,
+        directory: plugin.manifest.directory,
+      })),
+  });
 
   pluginHosts = await restartBuiltinHosts(
     pluginHosts ?? undefined,
