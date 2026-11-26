@@ -49,3 +49,30 @@ export function readPluginRequirements(
     throw error;
   }
 }
+
+/**
+ * Runs `run` once per id; a second call while the first is in flight gets the
+ * same promise. `uv venv --clear` writes one directory per id, so two enables
+ * racing would have the second clear the environment the first is building.
+ */
+export function oncePerId<T>(
+  pending: Map<string, Promise<T>>,
+  id: string,
+  run: () => Promise<T>,
+): Promise<T> {
+  const running = pending.get(id);
+
+  if (running !== undefined) {
+    return running;
+  }
+
+  const task = run().finally(() => {
+    if (pending.get(id) === task) {
+      pending.delete(id);
+    }
+  });
+
+  pending.set(id, task);
+
+  return task;
+}

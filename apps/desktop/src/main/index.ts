@@ -15,6 +15,7 @@ import {
 import { asResult, parsePluginCall } from './plugin-ipc.js';
 import { mergePluginList } from './plugin-list.js';
 import {
+  oncePerId,
   planUserEnable,
   readPluginRequirements,
 } from './plugin-enable.js';
@@ -70,6 +71,7 @@ let pluginHosts: PluginHosts | null = null;
 let pluginFailures: readonly DiscoveryIssue[] = [];
 let discoveredPlugins: readonly DiscoveredPlugin[] = [];
 let startupMirrors: ResolvedMirrorConfig | null = null;
+const enabling = new Map<string, Promise<readonly PluginSummary[]>>();
 let progressWindow: BrowserWindow | null = null;
 let mainWindow: BrowserWindow | null = null;
 let latestStatus: StartupStatus | null = null;
@@ -371,6 +373,13 @@ async function enableUserPlugin(
   request: unknown,
 ): Promise<readonly PluginSummary[]> {
   const id = pluginIdFromRequest(request);
+
+  return oncePerId(enabling, id, () => performEnable(id));
+}
+
+async function performEnable(
+  id: string,
+): Promise<readonly PluginSummary[]> {
   const plugin = findUserPlugin(id);
   const hosts = pluginHosts;
   const mirrors = startupMirrors;
@@ -412,6 +421,14 @@ async function disableUserPlugin(
   const id = pluginIdFromRequest(request);
 
   findUserPlugin(id);
+
+  // An enable that is still building the environment must settle first: its
+  // `uv venv --clear` and the disable's process stop would otherwise race.
+  const pending = enabling.get(id);
+
+  if (pending !== undefined) {
+    await pending.catch(() => undefined);
+  }
 
   if (pluginHosts !== null) {
     await pluginHosts.disable(id);
