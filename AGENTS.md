@@ -16,18 +16,21 @@ The human schedules; the planner starts subagents; no subagent starts another.
 
 | role | reads | writes | never | ends with |
 | --- | --- | --- | --- | --- |
-| planner | code, memories | `memories/notes/`, `memories/plans/`, its own commits | code, findings | a decision list for the human |
+| planner | code, memories | `memories/notes/`, `memories/plans/`, code fixes, commits | findings | a decision list for the human |
 | builder | code, memories | code, tests, commits | notes, plans, findings | a report naming a commit |
 | reviewer | one commit, its report, notes | `memories/findings/` | code, commits, working tree | findings filed (current state / why / how to fix / acceptance) |
 
 - The builder commits code. The planner commits its own notes, plans and
-  decisions in `memories/`. The reviewer commits findings. One writer per file.
+  decisions in `memories/`, and may commit a small fix or a revert itself; the
+  reviewer commits findings. One writer per file.
 - Roles may run in parallel while their writes are disjoint: builder -> code,
-  planner -> notes and plans, reviewer -> findings. At most one builder runs at a
-  time; if a role must leave its column, it stops and asks.
+  planner -> notes, plans and small fixes, reviewer -> findings. At most one
+  builder runs at a time; if two roles want the same file, stop and ask.
 - A subagent's closing message goes to the planner, never straight to action: the
   planner quotes it to the human and re-checks its claim first (section 9).
   Durable handoffs still travel as files plus the human's words.
+- The operational details -- startup prompts, the three-part relay, the review
+  range, the task board -- are in `memories/notes/team-runbook.md`.
 
 ## 1. One step: plan, write, verify, report
 
