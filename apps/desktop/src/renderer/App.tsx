@@ -1,6 +1,10 @@
 import { useEffect, useState } from 'react';
 
-import type { FelyricsApi, IpcResult } from '../preload/api.js';
+import type {
+  FelyricsApi,
+  IpcResult,
+  PluginSummary,
+} from '../preload/api.js';
 
 declare global {
   interface Window {
@@ -8,47 +12,81 @@ declare global {
   }
 }
 
-/** A failure is data here, not a thrown exception: show its code. */
-function show<T>(result: IpcResult<T>): string {
-  return result.ok
-    ? JSON.stringify(result.value, null, 2)
-    : `${result.code}: ${result.message}`;
+function messageOf<T>(result: IpcResult<T>): string {
+  return result.ok ? '' : `${result.code}: ${result.message}`;
 }
 
 export function App() {
-  const [reply, setReply] = useState('...');
-  const [backend, setBackend] = useState('not asked');
+  const [plugins, setPlugins] = useState<readonly PluginSummary[]>([]);
+  const [notice, setNotice] = useState('');
+
+  const showList = (result: IpcResult<readonly PluginSummary[]>) => {
+    if (result.ok) {
+      setPlugins(result.value);
+      setNotice('');
+    } else {
+      setNotice(messageOf(result));
+    }
+  };
 
   useEffect(() => {
-    let cancelled = false;
-
-    void window.felyrics.ping().then((value) => {
-      if (!cancelled) {
-        setReply(value);
-      }
-    });
-
-    return () => {
-      cancelled = true;
-    };
+    void window.felyrics.plugins.list().then(showList);
   }, []);
 
   return (
     <main>
       <h1>Felyrics</h1>
-      <p>main process says: {reply}</p>
-      <button
-        type="button"
-        onClick={() => {
-          setBackend('asking...');
-          void window.felyrics.backendPing().then((result) => {
-            setBackend(show(result));
-          });
-        }}
-      >
-        ping backend
-      </button>
-      <p>backend says: {backend}</p>
+      <section>
+        <h2>Plugins</h2>
+        <p>
+          <button
+            type="button"
+            onClick={() => {
+              void window.felyrics.plugins.install().then(showList);
+            }}
+          >
+            Install from folder...
+          </button>{' '}
+          <button
+            type="button"
+            onClick={() => {
+              void window.felyrics.plugins.folder();
+            }}
+          >
+            Open plugin folder
+          </button>
+        </p>
+        {notice === '' ? null : <p className="notice">{notice}</p>}
+        <ul>
+          {plugins.map((plugin) => (
+            <li key={plugin.id}>
+              <strong>{plugin.id}</strong> <span>{plugin.state}</span>
+              {plugin.builtin === true ? <em> (builtin)</em> : null}{' '}
+              {plugin.builtin === true ? null : plugin.state === 'ACTIVE' ? (
+                <button
+                  type="button"
+                  onClick={() => {
+                    void window.felyrics.plugins.disable(plugin.id).then(showList);
+                  }}
+                >
+                  Disable
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => {
+                    void window.felyrics.plugins.enable(plugin.id).then(showList);
+                  }}
+                >
+                  Enable
+                </button>
+              )}
+              {plugin.message === undefined ? null : <p>{plugin.message}</p>}
+              <p>{plugin.methods.join(', ') || 'no public methods'}</p>
+            </li>
+          ))}
+        </ul>
+      </section>
     </main>
   );
 }

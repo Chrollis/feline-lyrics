@@ -15,6 +15,8 @@ const api: FelyricsApi = {
     request: (request) => ipcRenderer.invoke('plugin:request', request),
     enable: (id) => ipcRenderer.invoke('plugin:enable', { id }),
     disable: (id) => ipcRenderer.invoke('plugin:disable', { id }),
+    folder: () => ipcRenderer.invoke('plugin:folder'),
+    install: () => ipcRenderer.invoke('plugin:install'),
   },
 };
 

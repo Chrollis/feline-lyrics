@@ -1,6 +1,6 @@
 import { app, BrowserWindow, dialog, ipcMain, net, shell, utilityProcess } from 'electron';
 import type { OpenDialogOptions } from 'electron';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 
 import {
@@ -39,6 +39,7 @@ import { restartBuiltinHosts, shutdownHosts } from './plugin-boot.js';
 import type { PluginSummary } from '../preload/api.js';
 import { describeFailure, runStartup, type StartupStatus } from './startup.js';
 import { loadOrCreateMirrorConfig } from './mirror-config.js';
+import { installPluginDirectory } from './plugin-install.js';
 
 // Before `app.whenReady()`: the scheme registry is frozen at startup.
 registerAppScheme();
@@ -70,6 +71,7 @@ const jobPluginIds = new Set<string>();
 let pluginHosts: PluginHosts | null = null;
 let pluginFailures: readonly DiscoveryIssue[] = [];
 let discoveredPlugins: readonly DiscoveredPlugin[] = [];
+const builtinIds = new Set<string>();
 let startupMirrors: ResolvedMirrorConfig | null = null;
 let progressWindow: BrowserWindow | null = null;
 let mainWindow: BrowserWindow | null = null;
@@ -258,9 +260,14 @@ async function enableBuiltinPlugins(pythonVersion: string): Promise<void> {
 
   pluginFailures = discovery.issues;
   discoveredPlugins = discovery.plugins;
+  builtinIds.clear();
 
   for (const plugin of discovery.plugins) {
     jobPluginIds.add(plugin.manifest.id);
+
+    if (plugin.root === 'builtin') {
+      builtinIds.add(plugin.manifest.id);
+    }
   }
 
   for (const issue of discovery.issues) {
@@ -324,7 +331,9 @@ async function enableBuiltinPlugins(pythonVersion: string): Promise<void> {
 
 /** Hosts plus the directories discovery could not turn into a plugin. */
 function listPlugins(): readonly PluginSummary[] {
-  return mergePluginList(pluginHosts?.list() ?? [], pluginFailures);
+  return mergePluginList(pluginHosts?.list() ?? [], pluginFailures).map(
+    (summary) => ({ ...summary, builtin: builtinIds.has(summary.id) }),
+  );
 }
 
 /** One public method call, validated before it reaches the lifecycle. */
@@ -364,6 +373,36 @@ function findUserPlugin(id: string): DiscoveredPlugin {
 
 function findUserManifest(id: string): PluginManifest {
   return findUserPlugin(id).manifest;
+}
+
+/**
+ * Installs a plugin package the user picked and makes it visible as PENDING.
+ * The runtime still only runs it after an explicit `enabled`.
+ */
+async function installUserPlugin(): Promise<readonly PluginSummary[]> {
+  const picked = await dialog.showOpenDialog({
+    title: 'Choose a plugin directory',
+    properties: ['openDirectory'],
+  });
+
+  if (picked.canceled || picked.filePaths[0] === undefined) {
+    return listPlugins();
+  }
+
+  const manifest = await installPluginDirectory(
+    picked.filePaths[0],
+    hostPaths().userPluginsRoot,
+  );
+
+  if (!discoveredPlugins.some((plugin) => plugin.manifest.id === manifest.id)) {
+    discoveredPlugins = [...discoveredPlugins, { manifest, root: 'user' }];
+  }
+
+  if (pluginHosts !== null) {
+    pluginHosts.add(manifest);
+  }
+
+  return listPlugins();
 }
 
 async function provisionUserPlugin(
@@ -588,6 +627,18 @@ ipcMain.handle('plugin:enable', (_event, request: unknown) =>
 ipcMain.handle('plugin:disable', (_event, request: unknown) =>
   asResult(() => disableUserPlugin(request)),
 );
+
+ipcMain.handle('plugin:folder', () =>
+  asResult(async () => {
+    const root = hostPaths().userPluginsRoot;
+
+    await mkdir(root, { recursive: true });
+
+    return shell.openPath(root);
+  }),
+);
+
+ipcMain.handle('plugin:install', () => asResult(() => installUserPlugin()));
 
 // The startup window asks for the latest status after it subscribes, because the
 // run may have started before its page finished loading.

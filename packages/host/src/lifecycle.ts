@@ -659,11 +659,13 @@ export interface PluginSummary {
 /** All plugins of one host run, looked up by id or by public method name. */
 export class PluginHosts {
   private readonly handles = new Map<string, PluginHandle>();
+  private readonly options: PluginHandleOptions;
 
   constructor(
     manifests: readonly PluginManifest[],
     options: PluginHandleOptions,
   ) {
+    this.options = options;
     for (const manifest of manifests) {
       this.handles.set(manifest.id, new PluginHandle(manifest, options));
     }
@@ -671,6 +673,21 @@ export class PluginHosts {
 
   async enable(id: string): Promise<void> {
     await this.get(id).enable();
+  }
+
+  /**
+   * Adds a manifest discovered after the table was built (a plugin installed
+   * while the app runs). The new handle starts PENDING like any other.
+   */
+  add(manifest: PluginManifest): void {
+    if (this.handles.has(manifest.id)) {
+      throw new BackendError(
+        'core/duplicate-id',
+        `plugin ${manifest.id} is already in the table`,
+      );
+    }
+
+    this.handles.set(manifest.id, new PluginHandle(manifest, this.options));
   }
 
   async disable(id: string): Promise<void> {

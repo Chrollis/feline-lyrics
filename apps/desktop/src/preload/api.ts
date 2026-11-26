@@ -31,6 +31,8 @@ export interface PluginSummary {
   readonly id: string;
   readonly state: string;
   readonly methods: readonly string[];
+  /** True for a plugin that ships with the app; it cannot be uninstalled. */
+  readonly builtin?: boolean;
   /** Present when the plugin failed before it could register. */
   readonly message?: string;
 }
@@ -53,5 +55,9 @@ export interface FelyricsApi {
     enable(id: string): Promise<IpcResult<readonly PluginSummary[]>>;
     /** Stops the plugin's hosts and its backend process. */
     disable(id: string): Promise<IpcResult<readonly PluginSummary[]>>;
+    /** Opens the user plugin directory in the file manager. */
+    folder(): Promise<IpcResult<string>>;
+    /** Copies a picked plugin package into the user root; it starts PENDING. */
+    install(): Promise<IpcResult<readonly PluginSummary[]>>;
   };
 }

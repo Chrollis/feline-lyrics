@@ -557,3 +557,28 @@ test('the host table lists plugins and routes by id', async (t) => {
   await hosts.disable('fixtures.echo');
   assert.equal(hosts.handle('fixtures.echo').state, 'DISPOSED');
 });
+
+test('a manifest installed later joins the table as PENDING', async () => {
+  const channels = createPair();
+  servePlugin(channels.plugin);
+
+  const hosts = new PluginHosts([], {
+    createChannel: () => channels.host,
+    activationTimeoutMs: 200,
+  });
+  const directory = await fixture('fixtures.echo');
+
+  hosts.add(manifest(directory));
+  assert.deepEqual(hosts.list(), [
+    {
+      id: 'fixtures.echo',
+      state: 'PENDING',
+      methods: ['fixtures.echo/echo'],
+    },
+  ]);
+
+  assert.throws(
+    () => hosts.add(manifest(directory)),
+    (error) => error.code === 'core/duplicate-id',
+  );
+});
