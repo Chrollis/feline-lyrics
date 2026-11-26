@@ -19,6 +19,9 @@ function messageOf<T>(result: IpcResult<T>): string {
 export function App() {
   const [plugins, setPlugins] = useState<readonly PluginSummary[]>([]);
   const [notice, setNotice] = useState('');
+  const [method, setMethod] = useState('');
+  const [params, setParams] = useState('{}');
+  const [answer, setAnswer] = useState('');
 
   const showList = (result: IpcResult<readonly PluginSummary[]>) => {
     if (result.ok) {
@@ -27,6 +30,23 @@ export function App() {
     } else {
       setNotice(messageOf(result));
     }
+  };
+
+  const call = () => {
+    let parsed: Record<string, unknown>;
+
+    try {
+      parsed = JSON.parse(params) as Record<string, unknown>;
+    } catch {
+      setAnswer('params: not JSON');
+      return;
+    }
+
+    void window.felyrics.plugins
+      .request({ name: method, params: parsed })
+      .then((result) => {
+        setAnswer(JSON.stringify(result, null, 2));
+      });
   };
 
   useEffect(() => {
@@ -86,6 +106,37 @@ export function App() {
             </li>
           ))}
         </ul>
+      </section>
+      <section>
+        <h2>Call a method</h2>
+        <p>
+          <input
+            aria-label="method"
+            placeholder="felyrics.media/probe"
+            size={32}
+            value={method}
+            onChange={(event) => {
+              setMethod(event.target.value);
+            }}
+          />
+        </p>
+        <p>
+          <textarea
+            aria-label="params"
+            rows={4}
+            cols={60}
+            value={params}
+            onChange={(event) => {
+              setParams(event.target.value);
+            }}
+          />
+        </p>
+        <p>
+          <button type="button" onClick={call}>
+            Call
+          </button>
+        </p>
+        <pre>{answer}</pre>
       </section>
     </main>
   );
