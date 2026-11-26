@@ -164,6 +164,84 @@ test('a plugin installed at runtime joins the user routes', async () => {
   );
 });
 
+test('stopping while a process starts still closes it', async () => {
+  let release;
+  const gate = new Promise((resolve) => {
+    release = resolve;
+  });
+  const closes = [];
+  const pool = new BackendPool({
+    cacheDir: 'C:\\cache',
+    cwd: 'C:\\backend',
+    builtinPython: 'python.exe',
+    builtin: [],
+    user: [{ id: 'someone.echo', directory: 'C:\\user\\someone.echo' }],
+    userPython: () => 'python.exe',
+    start: (options) =>
+      gate.then(() => ({
+        async request() {
+          return {};
+        },
+        async close() {
+          closes.push(options.pythonExe);
+
+          return 0;
+        },
+      })),
+  });
+
+  const call = pool.call('someone.echo/echo', {}, 1000).catch(() => undefined);
+
+  await Promise.resolve();
+
+  const stopped = pool.stop('someone.echo');
+
+  release();
+  await stopped;
+  await call;
+
+  assert.equal(closes.length, 1);
+});
+
+test('closing while a process starts closes it once it arrives', async () => {
+  let release;
+  const gate = new Promise((resolve) => {
+    release = resolve;
+  });
+  const closes = [];
+  const pool = new BackendPool({
+    cacheDir: 'C:\\cache',
+    cwd: 'C:\\backend',
+    builtinPython: 'python.exe',
+    builtin: [{ id: 'builtin.one', directory: 'C:\\plugins\\builtin.one' }],
+    user: [],
+    userPython: () => 'unused',
+    start: (options) =>
+      gate.then(() => ({
+        async request() {
+          return {};
+        },
+        async close() {
+          closes.push(options.pythonExe);
+
+          return 0;
+        },
+      })),
+  });
+
+  const call = pool.call('builtin.one/a', {}, 1000).catch(() => undefined);
+
+  await Promise.resolve();
+
+  const closed = pool.close();
+
+  release();
+  await closed;
+  await call;
+
+  assert.equal(closes.length, 1);
+});
+
 test('a method without a plugin id is refused', async () => {
   const pool = new BackendPool({
     cacheDir: 'C:\\cache',

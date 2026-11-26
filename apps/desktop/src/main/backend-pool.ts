@@ -53,6 +53,7 @@ export class BackendPool {
   #builtinPending: Promise<ServiceClient> | null = null;
   readonly #user = new Map<string, ServiceClient>();
   readonly #userPending = new Map<string, Promise<ServiceClient>>();
+  #closed = false;
 
   constructor(options: BackendPoolOptions) {
     this.#options = options;
@@ -116,7 +117,12 @@ export class BackendPool {
 
     this.#builtinPending ??= Promise.resolve()
       .then(() => this.#start(this.#serviceOptions(this.#options.builtinPython, this.#options.builtin, 'builtin')))
-      .then((service) => {
+      .then(async (service) => {
+        if (this.#closed) {
+          await service.close();
+          throw new BackendError('core/not-ready', 'the backend pool is closed');
+        }
+
         this.#builtin = service;
 
         return service;
@@ -148,7 +154,12 @@ export class BackendPool {
           this.#serviceOptions(this.#options.userPython(id), [plugin], id),
         ),
       )
-      .then((service) => {
+      .then(async (service) => {
+        if (this.#closed) {
+          await service.close();
+          throw new BackendError('core/not-ready', 'the backend pool is closed');
+        }
+
         this.#user.set(id, service);
 
         return service;
@@ -198,6 +209,14 @@ export class BackendPool {
 
   /** Stops one user plugin's process; the next call spawns it again. */
   async stop(id: string): Promise<void> {
+    const pending = this.#userPending.get(id);
+
+    if (pending) {
+      // A stop that races a start must wait for it, or the process appears in
+      // the map after the stop returns and nothing ever closes it.
+      await pending.catch(() => undefined);
+    }
+
     const service = this.#user.get(id);
 
     this.#user.delete(id);
@@ -207,8 +226,16 @@ export class BackendPool {
     }
   }
 
-  /** Closes every process; the pool is reusable afterwards. */
+  /** Closes every process; the pool is not reused after close. */
   async close(): Promise<number | null> {
+    this.#closed = true;
+
+    const pending = [this.#builtinPending, ...this.#userPending.values()].filter(
+      (entry): entry is Promise<ServiceClient> => entry !== null,
+    );
+
+    await Promise.all(pending.map((entry) => entry.catch(() => undefined)));
+
     const clients = [
       ...(this.#builtin === null ? [] : [this.#builtin]),
       ...this.#user.values(),
