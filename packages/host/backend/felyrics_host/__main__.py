@@ -6,8 +6,9 @@ again, and the caller is the only party that knows where the app keeps its
 state.
 
 `--plugin-dir` takes a plugin package directory (the one holding package.json)
-and may repeat; `--plugin` narrows the set to those ids. Scanning the two plugin
-roots is the next step, so this one keeps the paths explicit.
+and may repeat; `--plugin` narrows the set to those ids. The app discovers the
+plugins and passes each package directory, so this entry point never guesses
+where the roots are.
 """
 
 from __future__ import annotations
@@ -62,11 +63,10 @@ def main(argv: list[str] | None = None) -> int:
 
         for plugin in loaded:
             for name, handler in plugin.registry.handlers().items():
-                # The backend speaks internal short names only: the public
-                # `<id>/<short>` form belongs to the TypeScript face, which
-                # forwards the short name after its own lookup. The internal
-                # name is scoped to the plugin, so two plugins may both use
-                # `probe` without colliding.
+                # The registry keeps internal short names; the wire form is
+                # `<id>/<short>`, because one process may hold several plugins
+                # and `probe` alone would collide. The TypeScript face holds the
+                # public name and sends the scoped one.
                 if (plugin.manifest.id, name) in PLUGIN_METHODS:
                     raise PluginError(
                         "core/methods-mismatch",
