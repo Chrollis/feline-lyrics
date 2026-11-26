@@ -1,30 +1,33 @@
 # AGENTS.md
 
-Working agreement for a human who decides and agents that plan, build or review,
-one role per session. This file is injected into every session, so it holds
-behaviour only: the past -- state, decisions, dead ends -- lives in
-`memories/`: `MEMORY.md` for the current state, `decisions/` for the rules in
-force, `archive/` for what no longer changes the work.
+Working agreement for a human who decides, a planner in the main session, and
+builder and reviewer subagents the planner starts. This file is injected into
+every session, so it holds behaviour only: the past -- state, decisions, dead
+ends -- lives in `memories/`: `MEMORY.md` for the current state, `decisions/`
+for the rules in force, `archive/` for what no longer changes the work.
 
-## 0. Roles: one per session, chosen by the human
+## 0. Roles: a planner in the main session, builder and reviewer as subagents
 
-Every session names its role in its first message; if the role is unclear, ask
-before acting. A role is a preset, not a rank: it says what this session writes
-and what it must not touch. The human schedules; no role starts another.
+The main session is the planner; it is the only one that talks to the human. The
+builder and the reviewer are subagents the planner starts when the human asks,
+and only then: they do one job, return a closing message and stop. A role is a
+preset, not a rank: it says what that agent writes and what it must not touch.
+The human schedules; the planner starts subagents; no subagent starts another.
 
 | role | reads | writes | never | ends with |
 | --- | --- | --- | --- | --- |
-| planner | code, `memories/notes/`, `memories/plans/` | `memories/notes/`, `memories/plans/` | code, findings | a decision list for the human |
-| builder | code, memories, `memories/findings/` | code, tests, commits | `memories/notes/`, `memories/plans/`, review | a report naming a commit |
-| reviewer | one commit, its report, notes | `memories/findings/` | code, commits | findings filed (current state / why / how to fix / acceptance) |
+| planner | code, memories | `memories/notes/`, `memories/plans/`, its own commits | code, findings | a decision list for the human |
+| builder | code, memories | code, tests, commits | notes, plans, findings | a report naming a commit |
+| reviewer | one commit, its report, notes | `memories/findings/` | code, commits, working tree | findings filed (current state / why / how to fix / acceptance) |
 
-- Only the builder commits. The planner and the reviewer only touch gitignored
-  files or the read side.
+- The builder commits code. The planner commits its own notes, plans and
+  decisions in `memories/`. The reviewer commits findings. One writer per file.
 - Roles may run in parallel while their writes are disjoint: builder -> code,
-  planner -> notes and plans, reviewer -> findings. One writer per file. At most
-  one builder runs at a time; if a role must leave its column, it stops and asks.
-- Handoffs travel as files plus the human's words, never as messages between
-  sessions. There is no teammate to spawn, message or poll.
+  planner -> notes and plans, reviewer -> findings. At most one builder runs at a
+  time; if a role must leave its column, it stops and asks.
+- A subagent's closing message goes to the planner, never straight to action: the
+  planner quotes it to the human and re-checks its claim first (section 9).
+  Durable handoffs still travel as files plus the human's words.
 
 ## 1. One step: plan, write, verify, report
 
@@ -41,9 +44,9 @@ and what it must not touch. The human schedules; no role starts another.
 - Report a step in this order, and go quiet where it says quiet:
   1. what changed: the files with links, what deliberately did not change, what
      is unproven, the commit hash, and the real tail of the acceptance check;
-  2. then stop and hand the step back to the human. A review never runs inside
-     this session: do not spawn a reviewer, do not wait for one, do not poll;
-  3. when the human brings findings back: what the review changed, or "nothing
+  2. then stop and return the report. The planner decides what happens next; a
+     builder never starts the next step on its own and never spawns a reviewer;
+  3. when the planner brings findings back: what the fix changed, or "nothing
      fixed", with the unfixed findings moved into part 4;
   4. the next step you propose, or the question that has to be answered before
      one exists. At a boundary -- a subsystem finished, `memories/findings/` empty --
@@ -64,10 +67,11 @@ and what it must not touch. The human schedules; no role starts another.
 ## 2. A step ends when it is reported, not at green tests
 
 - Green tests only prove the code does what the tests say.
-- The reviewer runs in a separate session the human starts by hand. It reads the
-  code and appends findings to `memories/findings/` in the shape
-  current state / why / how to fix / acceptance. It is not a teammate: do not
-  spawn it, do not message it, do not poll it, and do not edit findings yourself.
+- The reviewer is a subagent the planner starts when the human asks for a review
+  after a batch. It reads one commit and appends findings to
+  `memories/findings/` in the shape current state / why / how to fix / acceptance.
+  It edits no code, no commits and no working tree; the planner does not edit
+  findings either.
 - The reviewer reviews a commit, not the working tree. That is what makes a
   parallel builder safe: the commit it reads does not move.
 - When a P0 is found in commit N while the builder has moved on to N+1, the human
@@ -140,7 +144,11 @@ and what it must not touch. The human schedules; no role starts another.
 - Long, self-contained work goes to a plain `subagent`, not a fork: a fork re-pays
   this whole conversation, a subagent starts clean and returns only its result.
 - The files a child touches count as files you announced.
-- Never run unattended: a step ends at the report, and the next one waits for the
-  human. Do not keep a turn alive by waiting on a review, a teammate or a poll.
-- There is no reviewer teammate. Review is a separate session the human starts
-  by hand, after a batch of steps, or for a full pass when they say so.
+- Never run unattended: the planner runs a batch only when the human says so. A
+  step ends at the report; the next step waits for the human. Do not keep a turn
+  alive by waiting on a subagent or a poll.
+- The builder is persistent within a batch so it keeps the step's context; the
+  reviewer is fresh every round so the last verdict does not anchor it.
+- A subagent's closing message is a claim, not evidence: the planner re-runs the
+  acceptance command or spot-checks the numbers before it repeats them to the
+  human. What the human never saw did not happen.
