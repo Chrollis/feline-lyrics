@@ -180,6 +180,17 @@ export class BackendPool {
     };
   }
 
+  /** Stops one user plugin's process; the next call spawns it again. */
+  async stop(id: string): Promise<void> {
+    const service = this.#user.get(id);
+
+    this.#user.delete(id);
+
+    if (service) {
+      await service.close();
+    }
+  }
+
   /** Closes every process; the pool is reusable afterwards. */
   async close(): Promise<number | null> {
     const clients = [

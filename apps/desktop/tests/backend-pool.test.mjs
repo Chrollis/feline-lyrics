@@ -114,6 +114,27 @@ test('an unknown plugin id fails before spawning anything', async () => {
   assert.equal(starts.length, 0);
 });
 
+test('stopping a user plugin closes its process and the next call respawns it', async () => {
+  const starts = [];
+  const closes = [];
+  const pool = new BackendPool({
+    cacheDir: 'C:\\cache',
+    cwd: 'C:\\backend',
+    builtinPython: 'python.exe',
+    builtin: [],
+    user: [{ id: 'someone.echo', directory: 'C:\\user\\someone.echo' }],
+    userPython: () => 'C:\\env\\venv\\python.exe',
+    start: fakeStarter(starts, closes),
+  });
+
+  await pool.call('someone.echo/echo', {}, 1000);
+  await pool.stop('someone.echo');
+  assert.equal(closes.length, 1);
+
+  await pool.call('someone.echo/echo', {}, 1000);
+  assert.equal(starts.length, 2, 'the next call starts a fresh process');
+});
+
 test('a method without a plugin id is refused', async () => {
   const pool = new BackendPool({
     cacheDir: 'C:\\cache',

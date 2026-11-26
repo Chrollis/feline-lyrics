@@ -1,5 +1,6 @@
 import { app, BrowserWindow, dialog, ipcMain, net, shell, utilityProcess } from 'electron';
 import type { OpenDialogOptions } from 'electron';
+import { mkdtemp, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 
 import {
@@ -7,12 +8,18 @@ import {
   createUtilityChannel,
   discoverPlugins,
   PluginHosts,
+  type DiscoveredPlugin,
   type DiscoveryIssue,
   type PluginTransport,
 } from '@felyrics/host';
 import { asResult, parsePluginCall } from './plugin-ipc.js';
 import { mergePluginList } from './plugin-list.js';
-import { mirrorConfigPath } from '@felyrics/toolchain';
+import {
+  mirrorConfigPath,
+  provisionPluginEnvironment,
+  readRequirements,
+  type ResolvedMirrorConfig,
+} from '@felyrics/toolchain';
 import { APP_ENTRY_URL } from './app-assets.js';
 import { registerAppScheme, serveAppProtocol } from './app-protocol.js';
 import {
@@ -22,6 +29,7 @@ import {
   hostPaths,
   resolvePaths,
   shutdownBackend,
+  stopPluginBackend,
 } from './backend.js';
 import { restartBuiltinHosts, shutdownHosts } from './plugin-boot.js';
 import type { PluginSummary } from '../preload/api.js';
@@ -57,6 +65,8 @@ const jobPluginIds = new Set<string>();
 
 let pluginHosts: PluginHosts | null = null;
 let pluginFailures: readonly DiscoveryIssue[] = [];
+let discoveredPlugins: readonly DiscoveredPlugin[] = [];
+let startupMirrors: ResolvedMirrorConfig | null = null;
 let progressWindow: BrowserWindow | null = null;
 let mainWindow: BrowserWindow | null = null;
 let latestStatus: StartupStatus | null = null;
@@ -163,6 +173,8 @@ async function start(force = false): Promise<void> {  if (starting) {
       throw error;
     }
 
+    startupMirrors = mirrors;
+
     const marker = await withDeadline(
       runStartup({
         paths: resolvePaths(),
@@ -237,6 +249,7 @@ async function enableBuiltinPlugins(pythonVersion: string): Promise<void> {
   );
 
   pluginFailures = discovery.issues;
+  discoveredPlugins = discovery.plugins;
 
   for (const plugin of discovery.plugins) {
     jobPluginIds.add(plugin.manifest.id);
@@ -315,6 +328,88 @@ async function requestPlugin(request: unknown): Promise<unknown> {
   const { name, params, timeoutMs } = parsePluginCall(request);
 
   return pluginHosts.request(name, params as Record<string, unknown>, timeoutMs);
+}
+
+function pluginIdFromRequest(value: unknown): string {
+  if (typeof value === 'object' && value !== null) {
+    const id = (value as { id?: unknown }).id;
+
+    if (typeof id === 'string' && id.length > 0) {
+      return id;
+    }
+  }
+
+  throw new BackendError('protocol/bad-request', 'a plugin id is required');
+}
+
+function findUserPlugin(id: string): DiscoveredPlugin {
+  const plugin = discoveredPlugins.find(
+    (candidate) => candidate.root === 'user' && candidate.manifest.id === id,
+  );
+
+  if (plugin === undefined) {
+    throw new BackendError('core/not-ready', `no user plugin ${id} is installed`);
+  }
+
+  return plugin;
+}
+
+/**
+ * Enabling a user plugin is two operations with one failure story: build its
+ * environment first (so a missing dependency is reported before any plugin code
+ * runs), then let the host table activate it. The backend process starts on the
+ * first method call, so an enabled plugin with no traffic costs no process.
+ */
+async function enableUserPlugin(
+  request: unknown,
+): Promise<readonly PluginSummary[]> {
+  const id = pluginIdFromRequest(request);
+  const plugin = findUserPlugin(id);
+  const hosts = pluginHosts;
+  const mirrors = startupMirrors;
+
+  if (hosts === null || mirrors === null) {
+    throw new BackendError('core/not-ready', 'the plugin hosts are not enabled');
+  }
+
+  const host = hostPaths();
+  const backendDirectory = join(plugin.manifest.directory, 'backend');
+  const tempDir = await mkdtemp(join(app.getPath('userData'), 'plugin-env-'));
+
+  try {
+    await provisionPluginEnvironment({
+      paths: resolvePaths(),
+      envRoot: host.pluginEnvsRoot,
+      id,
+      importPaths: [host.hostBackendRoot, backendDirectory],
+      requirements: readRequirements(backendDirectory),
+      tempDir,
+      mirrors,
+    });
+  } finally {
+    await rm(tempDir, { recursive: true, force: true });
+  }
+
+  await hosts.enable(id);
+
+  return listPlugins();
+}
+
+/** Disable first, then close the process: a closed process cannot answer. */
+async function disableUserPlugin(
+  request: unknown,
+): Promise<readonly PluginSummary[]> {
+  const id = pluginIdFromRequest(request);
+
+  findUserPlugin(id);
+
+  if (pluginHosts !== null) {
+    await pluginHosts.disable(id);
+  }
+
+  await stopPluginBackend(id);
+
+  return listPlugins();
 }
 
 /**
@@ -465,6 +560,14 @@ ipcMain.handle('plugin:list', () => asResult(async () => listPlugins()));
 
 ipcMain.handle('plugin:request', (_event, request: unknown) =>
   asResult(() => requestPlugin(request)),
+);
+
+ipcMain.handle('plugin:enable', (_event, request: unknown) =>
+  asResult(() => enableUserPlugin(request)),
+);
+
+ipcMain.handle('plugin:disable', (_event, request: unknown) =>
+  asResult(() => disableUserPlugin(request)),
 );
 
 // The startup window asks for the latest status after it subscribes, because the

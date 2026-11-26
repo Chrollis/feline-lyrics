@@ -49,5 +49,9 @@ export interface FelyricsApi {
     /** Every discovered plugin, active or not, with its public method names. */
     list(): Promise<IpcResult<readonly PluginSummary[]>>;
     request(request: PluginRequest): Promise<IpcResult<unknown>>;
+    /** Provisions a user plugin's environment, then enables it. */
+    enable(id: string): Promise<IpcResult<readonly PluginSummary[]>>;
+    /** Stops the plugin's hosts and its backend process. */
+    disable(id: string): Promise<IpcResult<readonly PluginSummary[]>>;
   };
 }

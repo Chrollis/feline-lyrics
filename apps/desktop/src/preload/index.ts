@@ -13,6 +13,8 @@ const api: FelyricsApi = {
   plugins: {
     list: () => ipcRenderer.invoke('plugin:list'),
     request: (request) => ipcRenderer.invoke('plugin:request', request),
+    enable: (id) => ipcRenderer.invoke('plugin:enable', { id }),
+    disable: (id) => ipcRenderer.invoke('plugin:disable', { id }),
   },
 };
 

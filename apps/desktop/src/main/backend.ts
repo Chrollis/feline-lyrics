@@ -112,3 +112,10 @@ export async function shutdownBackend(): Promise<number | null> {
 
   return current === null ? null : current.close();
 }
+
+/** Stops the process of one user plugin after its hosts are disabled. */
+export async function stopPluginBackend(id: string): Promise<void> {
+  if (pool !== null) {
+    await pool.stop(id);
+  }
+}

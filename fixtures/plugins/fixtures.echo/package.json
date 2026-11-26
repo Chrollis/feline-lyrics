@@ -1,0 +1,17 @@
+{
+  "name": "@fixtures/echo",
+  "version": "0.0.0",
+  "private": true,
+  "author": "Felyrics fixtures",
+  "main": "index.js",
+  "felyrics": {
+    "api": 1,
+    "host": "utility",
+    "backend": { "python": "fixtures_echo:serve" },
+    "engines": { "python": ">=3.12" },
+    "contributes": {
+      "methods": ["echo"],
+      "internal": ["echo"]
+    }
+  }
+}
