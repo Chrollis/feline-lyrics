@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+import os
 import sys
 from pathlib import Path
 from urllib.parse import urlparse
@@ -9,50 +11,112 @@ from urllib.parse import urlparse
 import av
 import numpy as np
 
-# The tests live inside the plugin, but they exercise the host's allocator and
-# the plugin's serve() entry point, so both package roots go on the path before
-# anything imports them. The checkout is the only thing that knows the layout.
-PLUGIN_ROOT = Path(__file__).resolve().parents[2]
-REPO_ROOT = PLUGIN_ROOT.parents[1]
 
-for directory in (
-    REPO_ROOT / "packages" / "host" / "backend",
-    PLUGIN_ROOT / "backend",
-):
+def _find_plugin_root() -> Path:
+    """Walks up to the package.json that declares `felyrics`, not a fixed depth.
+
+    The checkout is the only thing that knows how deep this file sits; a copy of
+    the plugin outside the repository should still find its own root.
+    """
+
+    override = os.environ.get("FELYRICS_PLUGIN_ROOT")
+
+    if override:
+        return Path(override).resolve()
+
+    for candidate in Path(__file__).resolve().parents:
+        manifest = candidate / "package.json"
+
+        if not manifest.is_file() or not (candidate / "backend").is_dir():
+            continue
+
+        try:
+            package = json.loads(manifest.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            continue
+
+        if isinstance(package.get("felyrics"), dict):
+            return candidate
+
+    raise RuntimeError("cannot find the plugin root above this test file")
+
+
+def _find_host_backend(plugin_root: Path) -> Path:
+    """The host package root, found by walking up (or given by the caller)."""
+
+    override = os.environ.get("FELYRICS_HOST_BACKEND")
+
+    if override:
+        return Path(override).resolve()
+
+    for candidate in plugin_root.parents:
+        backend = candidate / "packages" / "host" / "backend"
+
+        if (backend / "felyrics_host").is_dir():
+            return backend
+
+    raise RuntimeError("cannot find packages/host/backend above the plugin")
+
+
+PLUGIN_ROOT = _find_plugin_root()
+HOST_BACKEND = _find_host_backend(PLUGIN_ROOT)
+
+for directory in (HOST_BACKEND, PLUGIN_ROOT / "backend"):
     if str(directory) not in sys.path:
         sys.path.insert(0, str(directory))
 
-from felyrics_host.errors import ServiceError  # noqa: E402
+from felyrics_host import server  # noqa: E402
 from felyrics_host.loader import load_plugin  # noqa: E402
+
+_loaded = None
+
+
+def _plugin():
+    """Loads and registers the plugin once; `serve` resets no module state."""
+
+    global _loaded
+
+    if _loaded is None:
+        loaded = load_plugin(PLUGIN_ROOT)
+
+        for name, handler in loaded.registry.handlers().items():
+            server.PLUGIN_METHODS[(loaded.manifest.id, name)] = (
+                server.PluginMethod(
+                    loaded.manifest.id,
+                    frozenset(loaded.manifest.errors),
+                    handler,
+                )
+            )
+
+        _loaded = loaded
+
+    return _loaded
 
 
 def call(name, params=None):
-    """Runs one internal method through the plugin's real `serve` registry.
+    """Runs one internal method through the host's real line handler.
 
-    The host's protocol loop has its own tests; these tests are about what
-    `serve` registers, so the handler is invoked directly and the two failure
-    shapes a client would see are reproduced here.
+    The response is the wire object a client would receive, including `v` and
+    `id`; the tests read `result` / `error` from it, so they assert the server's
+    shape rather than one written next to the test.
     """
 
-    loaded = load_plugin(PLUGIN_ROOT)
-    handler = loaded.registry.handlers()[name]
+    loaded = _plugin()
+    # The host prefixes an internal call with the plugin id; a test that names a
+    # short method should go through the same wire shape, not a second one.
+    method = name if "/" in name else f"{loaded.manifest.id}/{name}"
 
-    try:
-        return {"result": handler({} if params is None else params)}
-    except ServiceError as error:
-        failure = {"code": error.code, "message": error.message}
-
-        if error.data is not None:
-            failure["data"] = error.data
-
-        return {"error": failure}
-    except Exception:
-        return {
-            "error": {
-                "code": "core/internal",
-                "message": "the handler raised",
+    return server.respond(
+        json.dumps(
+            {
+                "v": server.PROTOCOL_VERSION,
+                "id": 1,
+                "method": method,
+                "params": {} if params is None else params,
             }
-        }
+        )
+    )
+
 
 
 def job_file(cache, url):
