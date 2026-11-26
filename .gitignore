@@ -2,6 +2,9 @@
 /reference/
 /tests/
 
+# Working memory (its own repository)
+/memories/
+
 # Cache
 /cache/
 __pycache__
