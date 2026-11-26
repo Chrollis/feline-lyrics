@@ -8,6 +8,7 @@ import { test } from 'node:test';
 import { PluginHosts, servePlugin } from '@felyrics/host';
 
 import { BackendPool } from '../src/main/backend-pool.ts';
+import { installPickedPlugin } from '../src/main/plugin-install-runtime.ts';
 import { installPluginDirectory } from '../src/main/plugin-install.ts';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -96,22 +97,13 @@ test('an installed plugin runs end to end: install, enable, call, disable, re-en
 
   t.after(() => rm(root, { recursive: true, force: true }));
 
-  const installed = await installPluginDirectory(
-    join(REPO, 'fixtures', 'plugins', 'fixtures.echo'),
-    join(root, 'plugins'),
-  );
-
-  assert.equal(installed.id, 'fixtures.echo');
-
   const { pool, calls, closes } = fakePool(root);
-
-  pool.addUser({ id: installed.id, directory: installed.directory });
-
-  let pair = null;
-
-  const hosts = new PluginHosts([installed], {
+  const discovered = [];
+  const jobIds = new Set();
+  const hosts = new PluginHosts([], {
     createChannel: () => {
-      pair = createPair();
+      const pair = createPair();
+
       void servePlugin(pair.plugin);
 
       return pair.host;
@@ -124,26 +116,55 @@ test('an installed plugin runs end to end: install, enable, call, disable, re-en
     },
   });
 
-  await hosts.enable(installed.id);
-  assert.equal(hosts.handle(installed.id)?.state, 'ACTIVE');
-
-  assert.deepEqual(
-    await hosts.request('fixtures.echo/echo', { value: 7 }),
-    { echo: { value: 7 } },
+  const listed = await installPickedPlugin(
+    join(REPO, 'fixtures', 'plugins', 'fixtures.echo'),
+    {
+      pluginsRoot: join(root, 'plugins'),
+      install: installPluginDirectory,
+      discovered: () => discovered,
+      addDiscovered: (manifest) => {
+        discovered.push({ manifest, root: 'user' });
+      },
+      jobIds,
+      hosts: () => hosts,
+      addUserBackend: (plugin) => {
+        pool.addUser(plugin);
+      },
+      list: () => hosts.list(),
+    },
   );
+
+  assert.equal(discovered.length, 1);
+  assert.equal(discovered[0].manifest.id, 'fixtures.echo');
+  assert.equal(
+    discovered[0].manifest.directory,
+    join(root, 'plugins', 'fixtures.echo'),
+  );
+  assert.ok(jobIds.has('fixtures.echo'));
+  assert.deepEqual(
+    listed.map((plugin) => plugin.id),
+    ['fixtures.echo'],
+  );
+  assert.equal(listed[0].state, 'PENDING');
+
+  await hosts.enable('fixtures.echo');
+  assert.equal(hosts.handle('fixtures.echo')?.state, 'ACTIVE');
+
+  assert.deepEqual(await hosts.request('fixtures.echo/echo', { value: 7 }), {
+    echo: { value: 7 },
+  });
   assert.deepEqual(calls, [['fixtures.echo/echo', { value: 7 }]]);
 
-  await hosts.disable(installed.id);
-  await pool.stop(installed.id);
+  await hosts.disable('fixtures.echo');
+  await pool.stop('fixtures.echo');
 
-  assert.equal(hosts.handle(installed.id)?.state, 'DISPOSED');
+  assert.equal(hosts.handle('fixtures.echo')?.state, 'DISPOSED');
   assert.equal(closes.length, 1);
 
-  await hosts.enable(installed.id);
-  assert.deepEqual(
-    await hosts.request('fixtures.echo/echo', { value: 9 }),
-    { echo: { value: 9 } },
-  );
+  await hosts.enable('fixtures.echo');
+  assert.deepEqual(await hosts.request('fixtures.echo/echo', { value: 9 }), {
+    echo: { value: 9 },
+  });
   assert.equal(calls.length, 2);
   assert.equal(closes.length, 1);
 });

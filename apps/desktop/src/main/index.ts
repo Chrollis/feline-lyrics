@@ -40,6 +40,7 @@ import { restartBuiltinHosts, shutdownHosts } from './plugin-boot.js';
 import type { PluginSummary } from '../preload/api.js';
 import { describeFailure, runStartup, type StartupStatus } from './startup.js';
 import { loadOrCreateMirrorConfig } from './mirror-config.js';
+import { installPickedPlugin } from './plugin-install-runtime.js';
 import { installPluginDirectory } from './plugin-install.js';
 
 // Before `app.whenReady()`: the scheme registry is frozen at startup.
@@ -390,29 +391,18 @@ async function installUserPlugin(): Promise<readonly PluginSummary[]> {
     return listPlugins();
   }
 
-  const manifest = await installPluginDirectory(
-    picked.filePaths[0],
-    hostPaths().userPluginsRoot,
-    {
-      knownIds: new Set(
-        discoveredPlugins.map((plugin) => plugin.manifest.id),
-      ),
+  return installPickedPlugin(picked.filePaths[0], {
+    pluginsRoot: hostPaths().userPluginsRoot,
+    install: installPluginDirectory,
+    discovered: () => discoveredPlugins,
+    addDiscovered: (manifest) => {
+      discoveredPlugins = [...discoveredPlugins, { manifest, root: 'user' }];
     },
-  );
-
-  if (!discoveredPlugins.some((plugin) => plugin.manifest.id === manifest.id)) {
-    discoveredPlugins = [...discoveredPlugins, { manifest, root: 'user' }];
-  }
-
-  jobPluginIds.add(manifest.id);
-
-  if (pluginHosts !== null) {
-    pluginHosts.add(manifest);
-  }
-
-  addUserBackend({ id: manifest.id, directory: manifest.directory });
-
-  return listPlugins();
+    jobIds: jobPluginIds,
+    hosts: () => pluginHosts,
+    addUserBackend,
+    list: listPlugins,
+  });
 }
 
 async function provisionUserPlugin(
