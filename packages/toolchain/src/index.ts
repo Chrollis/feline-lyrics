@@ -17,6 +17,13 @@ export {
   type ToolchainPaths,
 } from './layout/paths.js';
 export {
+  defaultSettings,
+  loadSettings,
+  resolveSettingsPath,
+  type Settings,
+  type SettingsInputs,
+} from './layout/settings.js';
+export {
   DEFAULT_MIRRORS,
   defaultUserDataDir,
   loadMirrorConfig,

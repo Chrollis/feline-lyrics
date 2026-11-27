@@ -9,6 +9,7 @@ export type ToolchainErrorCode =
   | 'python/checksum-failed'
   | 'python/version-mismatch'
   | 'mirrors/invalid'
+  | 'settings/invalid'
   | 'backend/not-provisioned'
   | 'backend/unavailable'
   | 'backend/timeout'

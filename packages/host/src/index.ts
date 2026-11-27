@@ -50,6 +50,7 @@ export {
 export {
   resolveHostPaths,
   type HostPathInputs,
+  type HostPathOverrides,
   type HostPaths,
 } from './paths.js';
 export {
