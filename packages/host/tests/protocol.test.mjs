@@ -189,6 +189,20 @@ async function until(predicate, timeoutMs = 2000) {
   }
 }
 
+function isAlive(pid) {
+  try {
+    process.kill(pid, 0);
+
+    return true;
+  } catch (error) {
+    if (error.code === 'ESRCH') {
+      return false;
+    }
+
+    throw error;
+  }
+}
+
 test('pairs each response with its own request', async () => {
   await withService({}, async (client) => {
     const [alpha, beta] = await Promise.all([
@@ -614,6 +628,7 @@ test('reports an assignment failure once and keeps serving', async () => {
 
 test('reports a tree kill that returns false', async () => {
   const stopErrors = [];
+  let backendPid;
 
   await withService(
     {
@@ -621,9 +636,120 @@ test('reports a tree kill that returns false', async () => {
       closeTimeoutMs: 50,
       killTimeoutMs: 50,
       killTree: async (pid) => {
-        // Kill the fixture directly so a failing fake does not leak it; the
-        // report is about the fake's answer, not about the process still
-        // running.
+        // The fake leaves the process running: this is a real failure to kill,
+        // not a race with an exit that already happened.
+        backendPid = pid;
+
+        return false;
+      },
+      onStopError: (error) => stopErrors.push(error),
+    },
+    async (client) => {
+      try {
+        const started = Date.now();
+        const code = await client.close();
+        const elapsed = Date.now() - started;
+
+        assert.ok(code === null || typeof code === 'number');
+        assert.equal(stopErrors.length, 1);
+        assert.match(stopErrors[0].message, /tree kill failed/);
+        assert.ok(elapsed < 2_000, `close took ${elapsed} ms`);
+        assert.ok(isAlive(backendPid));
+      } finally {
+        try {
+          process.kill(backendPid, 'SIGKILL');
+        } catch {
+          // Already gone.
+        }
+      }
+    },
+  );
+});
+
+test('reports a tree kill that throws', async () => {
+  const stopErrors = [];
+  let backendPid;
+
+  await withService(
+    {
+      extraArgs: ['--ignore-eof'],
+      closeTimeoutMs: 50,
+      killTimeoutMs: 50,
+      killTree: async (pid) => {
+        backendPid = pid;
+
+        throw new Error('taskkill failed');
+      },
+      onStopError: (error) => stopErrors.push(error),
+    },
+    async (client) => {
+      try {
+        const code = await client.close();
+
+        assert.ok(code === null || typeof code === 'number');
+        assert.equal(stopErrors.length, 1);
+        assert.match(stopErrors[0].message, /taskkill failed/);
+        assert.ok(isAlive(backendPid));
+      } finally {
+        try {
+          process.kill(backendPid, 'SIGKILL');
+        } catch {
+          // Already gone.
+        }
+      }
+    },
+  );
+});
+
+test('reports a tree kill that never finishes', async () => {
+  const stopErrors = [];
+  let backendPid;
+
+  await withService(
+    {
+      extraArgs: ['--ignore-eof'],
+      closeTimeoutMs: 50,
+      killTimeoutMs: 50,
+      killTree: async (pid) => {
+        backendPid = pid;
+
+        await new Promise(() => {});
+      },
+      onStopError: (error) => stopErrors.push(error),
+    },
+    async (client) => {
+      try {
+        const started = Date.now();
+        const code = await client.close();
+        const elapsed = Date.now() - started;
+
+        assert.ok(code === null || typeof code === 'number');
+        assert.equal(stopErrors.length, 1);
+        assert.match(stopErrors[0].message, /did not finish within 50 ms/);
+        assert.ok(elapsed < 2_000, `close took ${elapsed} ms`);
+        assert.ok(isAlive(backendPid));
+      } finally {
+        try {
+          process.kill(backendPid, 'SIGKILL');
+        } catch {
+          // Already gone.
+        }
+      }
+    },
+  );
+});
+
+test('does not report a tree kill after the backend already exited', async () => {
+  const stopErrors = [];
+
+  await withService(
+    {
+      extraArgs: ['--ignore-eof'],
+      closeTimeoutMs: 50,
+      killTimeoutMs: 50,
+      killTree: async (pid) => {
+        // The kill fails, but it raced an exit that already happened, so stop
+        // succeeded.
         process.kill(pid, 'SIGKILL');
 
         return false;
@@ -631,67 +757,10 @@ test('reports a tree kill that returns false', async () => {
       onStopError: (error) => stopErrors.push(error),
     },
     async (client) => {
-      const started = Date.now();
-      const code = await client.close();
-      const elapsed = Date.now() - started;
-
-      assert.ok(code === null || typeof code === 'number');
-      assert.equal(stopErrors.length, 1);
-      assert.match(stopErrors[0].message, /tree kill failed/);
-      assert.ok(elapsed < 2_000, `close took ${elapsed} ms`);
-    },
-  );
-});
-
-test('reports a tree kill that throws', async () => {
-  const stopErrors = [];
-
-  await withService(
-    {
-      extraArgs: ['--ignore-eof'],
-      closeTimeoutMs: 50,
-      killTimeoutMs: 50,
-      killTree: async (pid) => {
-        process.kill(pid, 'SIGKILL');
-
-        throw new Error('taskkill failed');
-      },
-      onStopError: (error) => stopErrors.push(error),
-    },
-    async (client) => {
       const code = await client.close();
 
       assert.ok(code === null || typeof code === 'number');
-      assert.equal(stopErrors.length, 1);
-      assert.match(stopErrors[0].message, /taskkill failed/);
-    },
-  );
-});
-
-test('reports a tree kill that never finishes', async () => {
-  const stopErrors = [];
-
-  await withService(
-    {
-      extraArgs: ['--ignore-eof'],
-      closeTimeoutMs: 50,
-      killTimeoutMs: 50,
-      killTree: async (pid) => {
-        process.kill(pid, 'SIGKILL');
-
-        await new Promise(() => {});
-      },
-      onStopError: (error) => stopErrors.push(error),
-    },
-    async (client) => {
-      const started = Date.now();
-      const code = await client.close();
-      const elapsed = Date.now() - started;
-
-      assert.ok(code === null || typeof code === 'number');
-      assert.equal(stopErrors.length, 1);
-      assert.match(stopErrors[0].message, /did not finish within 50 ms/);
-      assert.ok(elapsed < 2_000, `close took ${elapsed} ms`);
+      assert.deepEqual(stopErrors, []);
     },
   );
 });

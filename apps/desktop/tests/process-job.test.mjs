@@ -4,6 +4,8 @@ import { join } from 'node:path';
 import { createInterface } from 'node:readline';
 import { test } from 'node:test';
 
+import { startService } from '@felyrics/host';
+
 import { createProcessJob } from '../src/main/process-job.ts';
 
 const fixture = join(import.meta.dirname, 'fixtures', 'job-tree.mjs');
@@ -92,3 +94,28 @@ test('refuses an assignment after the job is closed', windowsOnly, () => {
   job.close();
   assert.throws(() => job.assign(process.pid), /already closed/);
 });
+
+test(
+  'a job close that kills the backend is not a stop failure',
+  windowsOnly,
+  async () => {
+    const stopErrors = [];
+    const client = startService({
+      pythonExe: process.execPath,
+      // Resumed stdin plus a live timer: EOF does not end this backend, so the
+      // only thing that can stop it is the job.
+      args: ['-e', 'process.stdin.resume(); setInterval(() => {}, 1000)'],
+      createJob: createProcessJob,
+      closeTimeoutMs: 100,
+      killTimeoutMs: 500,
+      onStopError: (error) => stopErrors.push(error),
+    });
+
+    const code = await client.close();
+
+    assert.ok(code === null || typeof code === 'number');
+    // The job already killed the process; the fallback taskkill races a pid
+    // that is gone and must not turn that into a stop failure.
+    assert.deepEqual(stopErrors, []);
+  },
+);

@@ -618,15 +618,21 @@ export function startService(options: ServiceOptions): ServiceClient {
 
   const KILL_TIMEOUT = Symbol('kill-timeout');
 
+  // Closing the job kills the tree on Windows. Give the process a moment to
+  // report its exit before running the fallback kill: `taskkill` on a pid that
+  // is already gone exits 128, which is not a stop failure.
+  const JOB_CLOSE_GRACE_MS = 100;
+
   /**
    * Runs the tree kill within `killTimeoutMs`, including a fake that never
-   * settles, and reports the failure instead of letting it reject `close()`.
+   * settles, and returns the failure instead of reporting it: `stop()` reports
+   * it only when the backend is still alive afterwards.
    */
-  const killBackendTree = async (): Promise<void> => {
+  const killBackendTree = async (): Promise<Error | undefined> => {
     const pid = child.pid;
 
     if (pid === undefined) {
-      return;
+      return undefined;
     }
 
     const killer = options.killTree ?? defaultKillTree;
@@ -642,18 +648,18 @@ export function startService(options: ServiceOptions): ServiceClient {
       ]);
 
       if (result === KILL_TIMEOUT) {
-        reportStopError(
-          new Error(
-            `the backend tree kill did not finish within ${killTimeoutMs} ms`,
-          ),
-        );
-      } else if (!result) {
-        reportStopError(
-          new Error(`the backend tree kill failed for pid ${pid}`),
+        return new Error(
+          `the backend tree kill did not finish within ${killTimeoutMs} ms`,
         );
       }
+
+      if (!result) {
+        return new Error(`the backend tree kill failed for pid ${pid}`);
+      }
+
+      return undefined;
     } catch (error) {
-      reportStopError(error);
+      return error instanceof Error ? error : new Error(String(error));
     } finally {
       if (timer !== undefined) {
         clearTimeout(timer);
@@ -683,13 +689,23 @@ export function startService(options: ServiceOptions): ServiceClient {
     }
 
     await closeJob();
-    await killBackendTree();
 
+    // The job close may already have killed the tree. A pid that is gone is a
+    // successful stop, not a failed taskkill.
+    if (await waitForExit(JOB_CLOSE_GRACE_MS)) {
+      return exitCode ?? null;
+    }
+
+    const killFailure = await killBackendTree();
+
+    // The kill only failed if the backend is still running. A kill that raced
+    // the exit it was trying to cause changed nothing, so it is not an error.
     if (!(await waitForExit(killTimeoutMs))) {
       reportStopError(
-        new Error(
-          `the backend did not exit within ${killTimeoutMs} ms of the kill`,
-        ),
+        killFailure ??
+          new Error(
+            `the backend did not exit within ${killTimeoutMs} ms of the kill`,
+          ),
       );
     }
 
