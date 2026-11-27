@@ -41,7 +41,8 @@ The human schedules; the planner starts subagents; no subagent starts another.
   command that is quietly red, and a dead import costs more to find later than to
   fix now.
 - Write only the files the plan named. A drive-by fix is a separate step,
-  proposed first.
+  proposed first. A builder that needs a decision returns the question instead
+  of choosing; the acceptance command is a gate, not a licence to widen the step.
 - Run the acceptance check and paste its real tail. If you did not run it, say
   "not run". Never describe a check you did not run.
 - Report a step in this order, and go quiet where it says quiet:
