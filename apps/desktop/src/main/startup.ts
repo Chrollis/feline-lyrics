@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, appendFile, rm } from 'node:fs/promises';
+import { mkdir, appendFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
 import { BackendError, ManifestError } from '@felyrics/host';
@@ -10,6 +10,7 @@ import {
   provision,
   readReadyMarker,
   ToolchainError,
+  withTempDir,
   type ProvisionStep,
   type ReadyMarker,
   type ResolvedMirrorConfig,
@@ -71,6 +72,8 @@ function progressTitle(
 export interface StartupOptions {
   readonly paths: ToolchainPaths;
   readonly userDataDir: string;
+  /** Root for per-run scratch; startup clears leftovers under it. */
+  readonly tempDir: string;
   readonly hostBackendRoot: string;
   readonly builtinPluginsRoot: string;
   /** Where the uv/python/package downloads come from, mirrors first. */
@@ -194,43 +197,43 @@ export async function runStartup(
       options.force === true ? false : await isReady(backend, marker);
 
     if (!ready) {
-      const tempDir = await mkdtemp(join(options.userDataDir, 'provision-'));
-
-      try {
-        await provision({
-          paths: options.paths,
-          tempDir,
-          requirements: environment.requirements,
-          importPaths: environment.importPaths,
-          mirrors: options.mirrors,
-          ...(options.fetchImpl === undefined ? {} : { fetchImpl: options.fetchImpl }),
-          ...(options.force === true ? { force: true } : {}),
-          onStep: (step) => {
-            lastProgress = { step: 'uv', title: '', at: 0 };
-            note(`step: ${step}`);
-            status({
-              phase: 'installing',
-              title: STEP_TITLES[step],
-              step,
-              log,
-            });
-          },
-          onProgress,
-          onOutput: (chunk) => {
-            push(chunk.trimEnd());
-
-            if (chunk.includes('\n')) {
+      await withTempDir(
+        'provision-',
+        async (tempDir) => {
+          await provision({
+            paths: options.paths,
+            tempDir,
+            requirements: environment.requirements,
+            importPaths: environment.importPaths,
+            mirrors: options.mirrors,
+            ...(options.fetchImpl === undefined ? {} : { fetchImpl: options.fetchImpl }),
+            ...(options.force === true ? { force: true } : {}),
+            onStep: (step) => {
+              lastProgress = { step: 'uv', title: '', at: 0 };
+              note(`step: ${step}`);
               status({
                 phase: 'installing',
-                title: 'Installing the Python environment',
+                title: STEP_TITLES[step],
+                step,
                 log,
               });
-            }
-          },
-        });
-      } finally {
-        await rm(tempDir, { recursive: true, force: true });
-      }
+            },
+            onProgress,
+            onOutput: (chunk) => {
+              push(chunk.trimEnd());
+
+              if (chunk.includes('\n')) {
+                status({
+                  phase: 'installing',
+                  title: 'Installing the Python environment',
+                  log,
+                });
+              }
+            },
+          });
+        },
+        options.tempDir,
+      );
     }
 
     status({

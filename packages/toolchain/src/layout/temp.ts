@@ -1,4 +1,5 @@
 import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
+import { readdir, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -23,5 +24,30 @@ export async function withTempDir<T>(
     return await fn(tempDir);
   } finally {
     rmSync(tempDir, { recursive: true, force: true });
+  }
+}
+
+/**
+ * Removes every entry under `root`, leaving the root itself in place. Startup
+ * uses this to clear residue from an interrupted operation; a missing root is
+ * not an error, because the first operation creates it.
+ */
+export async function clearTempDir(root: string): Promise<void> {
+  const entries = await readdir(root, { withFileTypes: true }).catch(
+    (error: unknown) => {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+        return null;
+      }
+
+      throw error;
+    },
+  );
+
+  if (entries === null) {
+    return;
+  }
+
+  for (const entry of entries) {
+    await rm(join(root, entry.name), { recursive: true, force: true });
   }
 }

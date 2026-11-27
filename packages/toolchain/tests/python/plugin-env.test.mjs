@@ -138,6 +138,31 @@ test('rebuilds when the requirements change', async () => {
   rmSync(root, { recursive: true, force: true });
 });
 
+test('rebuilds when the import paths move', async () => {
+  const { root, paths, envRoot } = makeRoot();
+  const calls = [];
+  const options = {
+    paths,
+    envRoot,
+    id: 'fixtures.echo',
+    importPaths: [join(root, 'host-a')],
+    requirements: ['av==19.0.2'],
+    tempDir: join(root, 'temp'),
+    run: fakeRun(calls),
+  };
+
+  await provisionPluginEnvironment(options);
+  const afterFirst = calls.length;
+  await provisionPluginEnvironment({ ...options, importPaths: [join(root, 'host-b')] });
+
+  assert.ok(calls.length > afterFirst, 'changed import paths rebuild the venv');
+
+  const marker = await readReadyMarker(backendPaths(join(envRoot, 'fixtures.echo')));
+  assert.equal(marker?.imports, resolve(join(root, 'host-b')));
+
+  rmSync(root, { recursive: true, force: true });
+});
+
 test('a failed install leaves no ready marker', async () => {
   const { root, paths, envRoot } = makeRoot();
   const calls = [];

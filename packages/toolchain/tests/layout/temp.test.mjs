@@ -1,10 +1,17 @@
 import assert from 'node:assert/strict';
-import { mkdtempSync, existsSync, rmSync } from 'node:fs';
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { test } from 'node:test';
 
-import { withTempDir } from '../../out/index.js';
+import { clearTempDir, withTempDir } from '../../out/index.js';
 
 test('hands over a directory and removes it afterwards', async () => {
   let seen;
@@ -73,4 +80,22 @@ test('creates a missing root and removes only its own directory', async () => {
 
   assert.equal(existsSync(seen), false);
   assert.equal(existsSync(root), false);
+});
+
+test('clears every entry and ignores a missing root', async () => {
+  const parent = mkdtempSync(join(tmpdir(), 'felyrics-clear-'));
+  const root = join(parent, 'scratch');
+
+  try {
+    mkdirSync(join(root, 'nested'), { recursive: true });
+    writeFileSync(join(root, 'note.txt'), 'x');
+    writeFileSync(join(root, 'nested', 'child.txt'), 'y');
+
+    await clearTempDir(root);
+    assert.deepEqual(readdirSync(root), []);
+    assert.equal(existsSync(join(parent, 'missing')), false);
+    await clearTempDir(join(parent, 'missing'));
+  } finally {
+    rmSync(parent, { recursive: true, force: true });
+  }
 });

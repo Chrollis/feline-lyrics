@@ -1,6 +1,6 @@
 import { app, BrowserWindow, dialog, ipcMain, net, shell, utilityProcess } from 'electron';
 import type { OpenDialogOptions } from 'electron';
-import { mkdir, mkdtemp, rm } from 'node:fs/promises';
+import { mkdir } from 'node:fs/promises';
 import { join } from 'node:path';
 
 import {
@@ -20,8 +20,10 @@ import {
   readPluginRequirements,
 } from './plugin-enable.js';
 import {
+  clearTempDir,
   mirrorConfigPath,
   provisionPluginEnvironment,
+  withTempDir,
   type ResolvedMirrorConfig,
 } from '@felyrics/toolchain';
 import { APP_ENTRY_URL } from './app-assets.js';
@@ -195,6 +197,14 @@ async function start(force = false): Promise<void> {
     console.log(`[paths] pluginEnvsRoot: ${host.pluginEnvsRoot}`);
     console.log(`[paths] userPluginsRoot: ${host.userPluginsRoot}`);
 
+    try {
+      await clearTempDir(host.tempDir);
+    } catch (error) {
+      // Residue is not a reason to fail startup; the next operation recreates
+      // whatever it needs.
+      console.error(`[temp] could not clear ${host.tempDir}`, error);
+    }
+
     const userDataDir = app.getPath('userData');
     let mirrors;
 
@@ -220,6 +230,7 @@ async function start(force = false): Promise<void> {
       runStartup({
         paths: resolvePaths(),
         userDataDir,
+        tempDir: host.tempDir,
         mirrors,
         fetchImpl: net.fetch as unknown as typeof fetch,
         hostBackendRoot: hostPaths().hostBackendRoot,
@@ -447,21 +458,21 @@ async function provisionUserPlugin(
 
   const host = hostPaths();
   const backendDirectory = join(manifest.directory, 'backend');
-  const tempDir = await mkdtemp(join(app.getPath('userData'), 'plugin-env-'));
 
-  try {
-    await provisionPluginEnvironment({
-      paths: resolvePaths(),
-      envRoot: host.pluginEnvsRoot,
-      id,
-      importPaths: [host.hostBackendRoot, backendDirectory],
-      requirements: readPluginRequirements(id, backendDirectory),
-      tempDir,
-      mirrors,
-    });
-  } finally {
-    await rm(tempDir, { recursive: true, force: true });
-  }
+  await withTempDir(
+    'plugin-env-',
+    (tempDir) =>
+      provisionPluginEnvironment({
+        paths: resolvePaths(),
+        envRoot: host.pluginEnvsRoot,
+        id,
+        importPaths: [host.hostBackendRoot, backendDirectory],
+        requirements: readPluginRequirements(id, backendDirectory),
+        tempDir,
+        mirrors,
+      }),
+    host.tempDir,
+  );
 }
 
 const userPlugins = new UserPluginController(findUserManifest, {
