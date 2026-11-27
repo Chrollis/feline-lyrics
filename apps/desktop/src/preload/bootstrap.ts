@@ -12,6 +12,8 @@ export interface BootstrapStatus {
   readonly log: readonly string[];
   readonly code?: string;
   readonly message?: string;
+  /** The file this failure is about, when the user can edit it. */
+  readonly configPath?: string;
 }
 
 export interface BootstrapApi {

@@ -36,6 +36,8 @@ export interface StartupStatus {
   /** Present when `phase` is failed. */
   readonly code?: string;
   readonly message?: string;
+  /** The file this failure is about, when the user can edit it. */
+  readonly configPath?: string;
 }
 
 const STEP_TITLES: Record<ProvisionStep, string> = {

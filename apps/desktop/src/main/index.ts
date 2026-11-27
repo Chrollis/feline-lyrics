@@ -35,6 +35,7 @@ import {
   callBackend,
   configureBackends,
   hostPaths,
+  hostSettingsPath,
   loadHostPaths,
   pingBackend,
   resolvePaths,
@@ -207,6 +208,7 @@ async function start(force = false): Promise<void> {
         title: 'The settings file is not usable',
         code: failure.code,
         message: failure.message,
+        configPath: hostSettingsPath(),
         log: latestStatus?.log ?? [],
       });
       throw error;
@@ -230,6 +232,7 @@ async function start(force = false): Promise<void> {
           title: 'The temp directory is not usable',
           code: failure.code,
           message: failure.message,
+          configPath: hostSettingsPath(),
           log: latestStatus?.log ?? [],
         });
         throw error;
@@ -254,6 +257,7 @@ async function start(force = false): Promise<void> {
         title: 'The mirror configuration is not usable',
         code: failure.code,
         message: failure.message,
+        configPath: mirrorConfigPath(userDataDir),
         log: latestStatus?.log ?? [],
       });
       throw error;
@@ -752,7 +756,10 @@ ipcMain.handle('bootstrap:open-log', async () => {
   await shell.openPath(join(app.getPath('userData'), 'logs', 'provision.log'));
 });
 ipcMain.handle('bootstrap:open-config', async () => {
-  await shell.openPath(mirrorConfigPath(app.getPath('userData')));
+  const target =
+    latestStatus?.configPath ?? mirrorConfigPath(app.getPath('userData'));
+
+  await shell.openPath(target);
 });
 
 /**

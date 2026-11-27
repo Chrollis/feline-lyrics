@@ -49,6 +49,14 @@ function settingsInputs(): SettingsInputs {
 }
 
 /**
+ * The file the app reads for settings. Exported so the failure window can name
+ * the file it is asking the user to edit.
+ */
+export function hostSettingsPath(): string {
+  return resolveSettingsPath(settingsInputs());
+}
+
+/**
  * Reads `settings.json` and caches the layout it describes. Called before
  * provisioning, and again on Retry, so an edited file is picked up without a
  * restart.
@@ -56,7 +64,7 @@ function settingsInputs(): SettingsInputs {
 export async function loadHostPaths(): Promise<HostPaths> {
   const inputs = hostPathInputs();
   const settingsInputsValue = settingsInputs();
-  const file = resolveSettingsPath(settingsInputsValue);
+  const file = hostSettingsPath();
   const settings = await loadSettings(file);
   const defaults = defaultSettings(settingsInputsValue);
   const merged: Required<Settings> = {

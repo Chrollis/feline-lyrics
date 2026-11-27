@@ -19,6 +19,7 @@ pytest-cache-files-*
 /python/
 /models/
 /mirrors.json
+/.temp/
 
 # Local settings
 /settings.json

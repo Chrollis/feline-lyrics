@@ -52,6 +52,7 @@ function App() {
 
       {failed && (
         <>
+          {status.configPath !== undefined && <p>{status.configPath}</p>}
           <p>
             {status.code}: {status.message}
           </p>

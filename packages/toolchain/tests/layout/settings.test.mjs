@@ -77,6 +77,14 @@ test('a missing file means all defaults', async () => {
   }
 });
 
+test('accepts a UTF-8 BOM before the JSON', async () => {
+  const cacheDir = resolve('bom-cache');
+
+  assert.deepEqual(await loadText(`\uFEFF${JSON.stringify({ cacheDir })}`), {
+    cacheDir,
+  });
+});
+
 test('reads the four writable roots', async () => {
   const settings = {
     backendRoot: resolve('custom-backend'),

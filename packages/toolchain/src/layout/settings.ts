@@ -190,8 +190,12 @@ export async function loadSettings(path: string): Promise<Settings> {
 
   let parsed: unknown;
 
+  // Notepad and PowerShell both like a UTF-8 BOM; JSON.parse does not. Strip one
+  // leading marker, the same way mirror-config.ts reads its file.
+  const body = text.replace(/^\uFEFF/, '');
+
   try {
-    parsed = JSON.parse(text);
+    parsed = JSON.parse(body);
   } catch (error) {
     invalid(undefined, `${DOCUMENT} is not valid JSON: ${String(error)}`);
   }
