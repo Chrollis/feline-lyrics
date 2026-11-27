@@ -30,8 +30,9 @@ import {
   addUserBackend,
   callBackend,
   configureBackends,
-  pingBackend,
   hostPaths,
+  loadHostPaths,
+  pingBackend,
   resolvePaths,
   shutdownBackend,
   stopPluginBackend,
@@ -61,15 +62,22 @@ const RENDERER_ROOT = join(import.meta.dirname, '../renderer');
 /** The plugin host entry, built beside this file as `out/main/utility.js`. */
 const UTILITY_ENTRY = join(import.meta.dirname, 'utility.js');
 
-/** The backend's job directories, exactly as it was told at launch. */
-const JOBS_ROOT = join(resolvePaths().cacheDir, 'jobs');
-
 /**
  * The ids a `app://job/<plugin>/<job>/<file>` URL may name. Discovery fills it
  * before the main window opens, so a stale URL cannot address a cache directory
  * whose plugin the app no longer has.
  */
 const jobPluginIds = new Set<string>();
+
+/**
+ * The protocol's view of the app. `jobsRoot` starts empty because settings are
+ * read just before startup and the protocol only serves requests after that.
+ */
+const appRoots = {
+  rendererRoot: RENDERER_ROOT,
+  jobsRoot: '',
+  pluginIds: jobPluginIds,
+};
 
 let pluginHosts: PluginHosts | null = null;
 let pluginFailures: readonly DiscoveryIssue[] = [];
@@ -166,6 +174,26 @@ async function start(force = false): Promise<void> {
     // The pool outlives the host table; close it too, or a pool that answered
     // a ping before Retry keeps its Python processes until the app exits.
     await shutdownBackend();
+
+    const host = await loadHostPaths().catch((error: unknown) => {
+      const failure = describeFailure(error);
+
+      publishStatus({
+        phase: 'failed',
+        title: 'The settings file is not usable',
+        code: failure.code,
+        message: failure.message,
+        log: latestStatus?.log ?? [],
+      });
+      throw error;
+    });
+
+    appRoots.jobsRoot = join(host.cacheDir, 'jobs');
+    console.log(`[paths] cacheDir: ${host.cacheDir}`);
+    console.log(`[paths] tempDir: ${host.tempDir}`);
+    console.log(`[paths] backendRoot: ${host.backendRoot}`);
+    console.log(`[paths] pluginEnvsRoot: ${host.pluginEnvsRoot}`);
+    console.log(`[paths] userPluginsRoot: ${host.userPluginsRoot}`);
 
     const userDataDir = app.getPath('userData');
     let mirrors;
@@ -547,11 +575,9 @@ function createWindow(): void {
 
 if (locked) {
   app.whenReady().then(async () => {
-    serveAppProtocol({
-      rendererRoot: RENDERER_ROOT,
-      jobsRoot: JOBS_ROOT,
-      pluginIds: jobPluginIds,
-    });
+    appRoots.jobsRoot = join(hostPaths().cacheDir, 'jobs');
+
+    serveAppProtocol(appRoots);
 
     progressWindow = createProgressWindow();
     await start();

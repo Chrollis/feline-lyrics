@@ -9,6 +9,7 @@ import {
   isReady,
   provision,
   readReadyMarker,
+  ToolchainError,
   type ProvisionStep,
   type ReadyMarker,
   type ResolvedMirrorConfig,
@@ -87,7 +88,11 @@ export interface StartupOptions {
 
 /** The line the window shows, and the line a failed install writes to disk. */
 export function describeFailure(error: unknown): { code: string; message: string } {
-  if (error instanceof ManifestError || error instanceof BackendError) {
+  if (
+    error instanceof ManifestError ||
+    error instanceof BackendError ||
+    error instanceof ToolchainError
+  ) {
     return { code: error.code, message: error.message };
   }
 

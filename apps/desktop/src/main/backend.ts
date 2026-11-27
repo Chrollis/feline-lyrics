@@ -1,9 +1,18 @@
 import { app } from 'electron';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 
-import { resolveHostPaths, type HostPaths } from '@felyrics/host';
+import {
+  resolveHostPaths,
+  type HostPathInputs,
+  type HostPaths,
+} from '@felyrics/host';
 
-import { backendPaths, type ToolchainPaths } from '@felyrics/toolchain';
+import {
+  backendPaths,
+  loadSettings,
+  resolveSettingsPath,
+  type ToolchainPaths,
+} from '@felyrics/toolchain';
 
 import { BackendPool } from './backend-pool.js';
 import {
@@ -13,23 +22,58 @@ import {
 } from './backend-registry.js';
 import { createProcessJob } from './process-job.js';
 
+/** The resolved layout, replaced after every settings load. */
+let current: HostPaths | null = null;
+
+function hostPathInputs(): HostPathInputs {
+  return {
+    packaged: app.isPackaged,
+    appPath: app.getAppPath(),
+    resourcesPath: process.resourcesPath,
+    userData: app.getPath('userData'),
+  };
+}
+
+function settingsPath(): string {
+  const inputs = hostPathInputs();
+
+  return resolveSettingsPath({
+    packaged: inputs.packaged,
+    userData: inputs.userData,
+    repoRoot: resolve(inputs.appPath, '..', '..'),
+  });
+}
+
+/**
+ * Reads `settings.json` and caches the layout it describes. Called before
+ * provisioning, and again on Retry, so an edited file is picked up without a
+ * restart.
+ */
+export async function loadHostPaths(): Promise<HostPaths> {
+  const inputs = hostPathInputs();
+  const settings = await loadSettings(settingsPath());
+
+  current = resolveHostPaths(inputs, settings);
+
+  return current;
+}
+
 /**
  * Where the four directories live for this process. Development points at the
  * repository so the CLI and the app see the same backend; a packaged app keeps
- * its writable state under userData. Both are defaults: the settings surface is
- * meant to override them later.
+ * its writable state under userData. Before the first settings load these are
+ * the build-kind defaults.
  *
  * Exported because the plugin hosts and the `app://job` handler have to serve
  * exactly the directories the backend was started with, and a second copy of
  * these rules would drift.
  */
 export function hostPaths(): HostPaths {
-  return resolveHostPaths({
-    packaged: app.isPackaged,
-    appPath: app.getAppPath(),
-    resourcesPath: process.resourcesPath,
-    userData: app.getPath('userData'),
-  });
+  if (current !== null) {
+    return current;
+  }
+
+  return resolveHostPaths(hostPathInputs());
 }
 
 /** The two directories the toolchain half still needs. */

@@ -1,5 +1,7 @@
 import assert from 'node:assert/strict';
-import { existsSync } from 'node:fs';
+import { mkdtempSync, existsSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { dirname, join } from 'node:path';
 import { test } from 'node:test';
 
 import { withTempDir } from '../../out/index.js';
@@ -48,4 +50,27 @@ test('gives each call its own directory', async () => {
   const second = await withTempDir('felyrics-temp-', async (dir) => dir);
 
   assert.notEqual(first, second);
+});
+
+test('creates a missing root and removes only its own directory', async () => {
+  const parent = mkdtempSync(join(tmpdir(), 'felyrics-root-'));
+  const root = join(parent, 'scratch');
+  let seen;
+
+  try {
+    await withTempDir(
+      'felyrics-temp-',
+      async (dir) => {
+        seen = dir;
+        assert.equal(existsSync(root), true);
+        assert.equal(dirname(dir), root);
+      },
+      root,
+    );
+  } finally {
+    rmSync(parent, { recursive: true, force: true });
+  }
+
+  assert.equal(existsSync(seen), false);
+  assert.equal(existsSync(root), false);
 });

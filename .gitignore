@@ -20,6 +20,9 @@ pytest-cache-files-*
 /models/
 /mirrors.json
 
+# Local settings
+/settings.json
+
 # Node
 node_modules
 dist

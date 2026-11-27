@@ -9,13 +9,8 @@ import { fileURLToPath } from 'node:url';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 
-// Development defaults: the checkout is the caller, so everything lives inside
-// it. The app supplies its own paths (userData for the cache, a chosen
-// directory for the backend) and never reaches this file.
-const paths = {
-  cacheDir: join(root, 'cache'),
-  backendRoot: join(root, 'python'),
-};
+// Development defaults come from the toolchain's settings module below, so the
+// app and this CLI read the same values; only the checkout location is local.
 
 // The host is a native dependency: its backend is not a plugin and never appears
 // under a plugin root, so only the checkout can name it.
@@ -112,6 +107,28 @@ async function loadToolchain() {
   }
 }
 
+async function loadPaths(toolchain) {
+  const defaults = toolchain.defaultSettings({
+    packaged: false,
+    userData: root,
+    repoRoot: root,
+  });
+  const file = join(root, 'settings.json');
+  let settings;
+
+  try {
+    settings = await toolchain.loadSettings(file);
+  } catch (error) {
+    fail(`cannot use ${file}: ${error.code ?? ''} ${error.message}`);
+  }
+
+  return {
+    cacheDir: settings.cacheDir ?? defaults.cacheDir,
+    backendRoot: settings.backendRoot ?? defaults.backendRoot,
+    tempDir: settings.tempDir ?? defaults.tempDir,
+  };
+}
+
 async function setup(toolchain) {
   const env = environment(toolchain);
   let mirrors;
@@ -135,6 +152,7 @@ async function setup(toolchain) {
         (stream === 'stdout' ? process.stdout : process.stderr).write(chunk);
       },
     }),
+    paths.tempDir,
   );
 
   console.log(`ready: uv ${marker.uv}, python ${marker.python}`);
@@ -142,6 +160,10 @@ async function setup(toolchain) {
 }
 
 async function doctor(toolchain) {
+  console.log(`cacheDir: ${paths.cacheDir}`);
+  console.log(`backendRoot: ${paths.backendRoot}`);
+  console.log(`tempDir: ${paths.tempDir}`);
+
   const env = environment(toolchain);
   const report = await toolchain.doctor(paths, {
     requirements: env.requirements,
@@ -176,6 +198,7 @@ function runPython(toolchain, args) {
 
 const args = process.argv.slice(2);
 const toolchain = await loadToolchain();
+const paths = await loadPaths(toolchain);
 
 if (args[0] === '--setup') {
   await setup(toolchain);
