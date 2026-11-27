@@ -62,6 +62,22 @@ export interface ServiceMessage {
   };
 }
 
+/**
+ * The operating system's container for one backend process tree.
+ *
+ * The protocol does not create one itself: a Windows Job Object is the only
+ * thing here that can bind a child started by a child, and that is a platform
+ * detail. The desktop app passes one in; tests pass a fake. Keeping it an
+ * interface also means a machine where the platform call is unavailable can
+ * still run the service, with the bounded kill as the fallback.
+ */
+export interface ServiceJob {
+  /** Puts `pid` and the processes it starts later under this job. */
+  assign(pid: number): void;
+  /** Releases the job; on Windows this also kills what is still inside it. */
+  close(): void | Promise<void>;
+}
+
 export interface ServiceOptions {
   /** The backend's interpreter: the venv python, never a system one. */
   readonly pythonExe: string;
@@ -78,9 +94,31 @@ export interface ServiceOptions {
    * can hang the caller for as long as the process lives.
    */
   readonly defaultTimeoutMs?: number;
+  /**
+   * Creates the job that will own the backend's process tree. Called before
+   * the spawn so no process can start outside it, except for the short window
+   * until `assign()` runs right after the spawn returns.
+   *
+   * A factory that throws leaves the service without a job: `close()` then
+   * falls back to killing the tree itself, so a missing platform library is a
+   * degraded stop rather than a backend that cannot start.
+   */
+  readonly createJob?: () => ServiceJob;
+  /** How long `close()` lets the backend exit before killing it. */
+  readonly closeTimeoutMs?: number;
+  /** How long `close()` waits for the process to die after the kill. */
+  readonly killTimeoutMs?: number;
+  /** Reports a failure while stopping; `close()` never rejects because of one. */
+  readonly onStopError?: (error: Error) => void;
 }
 
 export const DEFAULT_REQUEST_TIMEOUT_MS = 30_000;
+
+/** How long a shutdown may take before the backend is killed. */
+export const DEFAULT_CLOSE_TIMEOUT_MS = 2_000;
+
+/** How long the kill itself may take to be observed. */
+export const DEFAULT_KILL_TIMEOUT_MS = 1_000;
 
 export interface ServiceRequestOptions {
   /**
@@ -142,9 +180,46 @@ export class BackendError extends Error {
  * has to decide about, so the client only reports it.
  */
 export function startService(options: ServiceOptions): ServiceClient {
+  const closeTimeoutMs = options.closeTimeoutMs ?? DEFAULT_CLOSE_TIMEOUT_MS;
+  const killTimeoutMs = options.killTimeoutMs ?? DEFAULT_KILL_TIMEOUT_MS;
+  const onStopError = options.onStopError;
+  const reportStopError = (error: unknown): void => {
+    if (onStopError === undefined) {
+      return;
+    }
+
+    try {
+      onStopError(error instanceof Error ? error : new Error(String(error)));
+    } catch {
+      // A diagnostic callback must not become the failure it was reporting.
+    }
+  };
+
+  // The job exists before the process does. The assignment still happens after
+  // the spawn returns -- the pid is not known before -- so a backend that
+  // started a child right at startup could escape that child. The startup path
+  // therefore spawns nothing until it is asked to; `taskkill /T` covers a tree
+  // that was already running when the app went down, and the Job Object covers
+  // a crash, which has no chance to run any fallback.
+  let job: ServiceJob | undefined;
+
+  if (options.createJob !== undefined) {
+    try {
+      job = options.createJob();
+    } catch (error) {
+      // No job is a degraded stop, not a failed start: `close()` falls back to
+      // the platform's own tree kill.
+      reportStopError(error);
+    }
+  }
+
   const child = spawn(options.pythonExe, [...(options.args ?? [])], {
     ...(options.cwd ? { cwd: options.cwd } : {}),
     ...(options.env ? { env: options.env } : {}),
+    // The POSIX fallback kills the process group, which only exists if this
+    // child leads one. Windows has no equivalent step here: the Job Object
+    // covers the tree there.
+    detached: process.platform !== 'win32',
     stdio: ['pipe', 'pipe', 'pipe'],
   });
 
@@ -156,10 +231,51 @@ export function startService(options: ServiceOptions): ServiceClient {
   // `error` is part of it because a failed spawn (ENOENT on a missing python.exe)
   // emits `error` and never `exit`: waiting only for `exit` would hang the quit
   // path on exactly the machine where the backend is broken.
+  let exitCode: number | null | undefined;
   const exited = new Promise<number | null>((resolve) => {
-    child.once('exit', (code) => resolve(code));
-    child.once('error', () => resolve(null));
+    child.once('exit', (code) => {
+      exitCode = code;
+      resolve(code);
+    });
+    child.once('error', () => {
+      if (exitCode === undefined) {
+        exitCode = null;
+      }
+
+      resolve(null);
+    });
   });
+
+  const closeJob = (): Promise<void> => {
+    const current = job;
+
+    if (current === undefined) {
+      return Promise.resolve();
+    }
+
+    job = undefined;
+
+    try {
+      return Promise.resolve(current.close()).catch((error: unknown) => {
+        reportStopError(error);
+      });
+    } catch (error) {
+      reportStopError(error);
+      return Promise.resolve();
+    }
+  };
+
+  if (job !== undefined && child.pid !== undefined) {
+    try {
+      job.assign(child.pid);
+    } catch (error) {
+      // The tree is not contained, but the process still runs; closing the bare
+      // job releases the handle, and the fallback will do the killing.
+      reportStopError(error);
+      void closeJob();
+    }
+  }
+
 
   // One decoder per stream: a decoder holds the bytes of a half-received
   // character, so sharing it would let a partial stderr write swallow the head
@@ -175,6 +291,7 @@ export function startService(options: ServiceOptions): ServiceClient {
   let discardingOversize = false;
   let nextId = 1;
   let closed = false;
+  let closing: Promise<number | null> | undefined;
 
   const failAll = (error: Error): void => {
     for (const entry of pending.values()) {
@@ -409,6 +526,9 @@ export function startService(options: ServiceOptions): ServiceClient {
         { cause: error },
       ),
     );
+    // A spawn that failed never assigned a process, but the job handle exists
+    // before the spawn: release it or the app keeps a kernel handle per retry.
+    void closeJob();
   });
 
   child.on('exit', (code: number | null) => {
@@ -431,7 +551,86 @@ export function startService(options: ServiceOptions): ServiceClient {
         code === null ? {} : { status: code },
       ),
     );
+    // The process is gone, so nothing is left to kill; this only releases the
+    // job handle promptly instead of at some later close().
+    void closeJob();
   });
+
+  const waitForExit = (timeoutMs: number): Promise<boolean> =>
+    new Promise<boolean>((resolve) => {
+      let settled = false;
+      const finish = (value: boolean): void => {
+        if (settled) {
+          return;
+        }
+
+        settled = true;
+        clearTimeout(timer);
+        resolve(value);
+      };
+      const timer = setTimeout(() => finish(false), timeoutMs);
+
+      timer.unref();
+      void exited.then(() => finish(true));
+    });
+
+  const killProcessTree = (): void => {
+    const pid = child.pid;
+
+    if (pid === undefined) {
+      return;
+    }
+
+    if (process.platform === 'win32') {
+      // No job, or its close failed: `taskkill /T` walks the tree, including a
+      // child spawned during the assignment window.
+      const killer = spawn('taskkill', ['/pid', String(pid), '/T', '/F'], {
+        stdio: 'ignore',
+        windowsHide: true,
+      });
+
+      killer.on('error', reportStopError);
+      killer.unref();
+      return;
+    }
+
+    try {
+      // The child was spawned detached, so its pid is the process group id.
+      process.kill(-pid, 'SIGKILL');
+    } catch (error) {
+      reportStopError(error);
+    }
+  };
+
+  /**
+   * Stops the service within two bounds: `closeTimeoutMs` for a clean exit and
+   * `killTimeoutMs` for the kill to be observed. It resolves with the exit code
+   * when there is one and `null` when the process never answered; it never
+   * rejects, because a quit path cannot do anything with a failure.
+   */
+  const stop = async (): Promise<number | null> => {
+    if (!closed) {
+      closed = true;
+      failAll(
+        new ToolchainError('backend/unavailable', 'the service is closing', {}),
+      );
+      child.stdin.end();
+    }
+
+    // A clean stop is worth the wait: the backend can finish what it was
+    // writing instead of dying mid-line.
+    if (await waitForExit(closeTimeoutMs)) {
+      return exitCode ?? null;
+    }
+
+    await closeJob();
+    killProcessTree();
+    await waitForExit(killTimeoutMs);
+
+    // A process that ignored the kill is still running; reporting `null` is
+    // honest and keeps the quit path bounded.
+    return exitCode ?? null;
+  };
 
   return {
     request<T = unknown>(
@@ -484,14 +683,13 @@ export function startService(options: ServiceOptions): ServiceClient {
     },
 
     close(): Promise<number | null> {
-      if (!closed) {
-        closed = true;
-        child.stdin.end();
+      // One stop, shared by every caller: a second close must not start a
+      // second kill or wait on a promise the first one already resolved.
+      if (closing === undefined) {
+        closing = stop();
       }
 
-      // `exited` already exists, so nothing can be missed between the decision to
-      // wait and the wait starting.
-      return exited;
+      return closing;
     },
   };
 }

@@ -11,6 +11,7 @@ import {
   type BackendPlugins,
   type BackendService,
 } from './backend-registry.js';
+import { createProcessJob } from './process-job.js';
 
 /**
  * Where the four directories live for this process. Development points at the
@@ -50,6 +51,12 @@ function createPool(plugins: BackendPlugins): BackendService {
     user: plugins.user,
     userPython: (id) =>
       backendPaths(join(plugins.host.pluginEnvsRoot, id)).venvPython,
+    // On Windows every backend gets a job; its tree dies with the handle even
+    // when this process cannot run `taskkill`. Other platforms rely on the
+    // process group the service creates for itself.
+    ...(process.platform === 'win32'
+      ? { createJob: createProcessJob }
+      : {}),
   });
 }
 

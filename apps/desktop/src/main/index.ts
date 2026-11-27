@@ -79,6 +79,8 @@ let progressWindow: BrowserWindow | null = null;
 let mainWindow: BrowserWindow | null = null;
 let latestStatus: StartupStatus | null = null;
 let starting = false;
+let quitStarted = false;
+let quitReady = false;
 
 function publishStatus(status: StartupStatus): void {
   latestStatus = status;
@@ -663,8 +665,39 @@ ipcMain.handle('bootstrap:open-config', async () => {
 /**
  * Closing stdin is how the backend learns to stop: its read loop ends on EOF, so
  * the process exits on its own instead of being killed mid-write.
+ *
+ * Electron quits as soon as this event's handlers return, which would cut the
+ * shutdown short. So the first quit is held back until both halves have closed;
+ * each half is bounded by its own service, and a failure in one must not skip
+ * the other. A second quit request is ignored while the first is in flight.
  */
-app.on('before-quit', () => {
-  void shutdownPlugins();
-  void shutdownBackend();
+app.on('before-quit', (event) => {
+  if (quitReady) {
+    return;
+  }
+
+  event.preventDefault();
+
+  if (quitStarted) {
+    return;
+  }
+
+  quitStarted = true;
+
+  void (async () => {
+    try {
+      await shutdownPlugins();
+    } catch (error) {
+      console.error('[bootstrap] plugin shutdown failed', error);
+    }
+
+    try {
+      await shutdownBackend();
+    } catch (error) {
+      console.error('[bootstrap] backend shutdown failed', error);
+    }
+
+    quitReady = true;
+    app.quit();
+  })();
 });

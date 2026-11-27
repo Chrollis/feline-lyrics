@@ -17,6 +17,12 @@ const reply = (body) => JSON.stringify({ v: 1, ...body }) + '\\n';
 
 const lines = createInterface({ input: process.stdin });
 
+// A backend that ignores EOF: only the kill path can stop it, so close() has to
+// fall back instead of waiting forever.
+if (process.argv.includes('--ignore-eof')) {
+  setInterval(() => {}, 1_000);
+}
+
 // A backend that speaks another version: the client must not read the rest of
 // the line as if the format were the one it knows.
 if (process.argv.includes('--stale-version')) {
@@ -489,5 +495,69 @@ test('close resolves when the interpreter never started', async () => {
 test('close waits for the exit code', async () => {
   await withService({}, async (client) => {
     assert.equal(await client.close(), 0);
+  });
+});
+
+test('kills a backend that ignores EOF within the close deadline', async () => {
+  const stopErrors = [];
+
+  await withService(
+    {
+      extraArgs: ['--ignore-eof'],
+      closeTimeoutMs: 100,
+      killTimeoutMs: 5_000,
+      onStopError: (error) => stopErrors.push(error),
+    },
+    async (client) => {
+      const pending = client.request('hang');
+      const started = Date.now();
+      const [error, code] = await Promise.all([
+        pending.then(
+          () => null,
+          (reason) => reason,
+        ),
+        client.close(),
+      ]);
+      const elapsed = Date.now() - started;
+
+      // The pending request hears why it will never be answered, and close
+      // returns a code or null instead of hanging on a process that ignores
+      // stdin.
+      assert.ok(error instanceof ToolchainError);
+      assert.equal(error.code, 'backend/unavailable');
+      assert.match(error.message, /the service is closing/);
+      assert.ok(elapsed < 5_000, `close took ${elapsed} ms`);
+      assert.ok(code === null || typeof code === 'number');
+      assert.deepEqual(stopErrors, []);
+    },
+  );
+});
+
+test('assigns the job the spawned pid and closes it once', async () => {
+  const assigned = [];
+  let closed = 0;
+
+  const job = {
+    assign(pid) {
+      assigned.push(pid);
+    },
+    close() {
+      closed += 1;
+    },
+  };
+
+  await withService({ createJob: () => job }, async (client) => {
+    assert.deepEqual(await client.request('alpha'), { method: 'alpha' });
+    assert.equal(assigned.length, 1);
+    assert.ok(Number.isInteger(assigned[0]) && assigned[0] > 0);
+    assert.equal(closed, 0);
+
+    await client.close();
+    assert.equal(closed, 1);
+
+    // The shutdown path and the finally block both close; the job must hear it
+    // once.
+    await client.close();
+    assert.equal(closed, 1);
   });
 });

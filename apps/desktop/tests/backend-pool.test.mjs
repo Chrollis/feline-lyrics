@@ -257,3 +257,119 @@ test('a method without a plugin id is refused', async () => {
     code: 'protocol/unknown-method',
   });
 });
+
+test('closes every backend at the same time', async () => {
+  const starts = [];
+  const closes = [];
+  let release;
+  const gate = new Promise((resolve) => {
+    release = resolve;
+  });
+
+  const pool = new BackendPool({
+    cacheDir: 'C:\\cache',
+    cwd: 'C:\\backend',
+    builtinPython: 'C:\\backend\\venv\\python.exe',
+    builtin: [{ id: 'builtin.one', directory: 'C:\\plugins\\builtin.one' }],
+    user: [
+      { id: 'someone.one', directory: 'C:\\user\\someone.one' },
+      { id: 'someone.two', directory: 'C:\\user\\someone.two' },
+    ],
+    userPython: (id) => `C:\\envs\\${id}\\venv\\python.exe`,
+    start: (options) => {
+      starts.push(options);
+
+      return {
+        async request(method) {
+          return { method };
+        },
+        async close() {
+          closes.push(options.pythonExe);
+          await gate;
+
+          return 0;
+        },
+      };
+    },
+  });
+
+  await Promise.all([
+    pool.call('builtin.one/a', {}, 1000),
+    pool.call('someone.one/a', {}, 1000),
+    pool.call('someone.two/a', {}, 1000),
+  ]);
+  assert.equal(starts.length, 3);
+
+  const closed = pool.close();
+
+  await new Promise((resolve) => setImmediate(resolve));
+  // Each close reaches its own service before any of them returns: a serial
+  // loop would show one here and the other two only after the gate opens.
+  assert.equal(closes.length, 3);
+
+  release();
+  assert.equal(await closed, 0);
+});
+
+test('one backend that fails to close does not abort the others', async () => {
+  const closes = [];
+  const pool = new BackendPool({
+    cacheDir: 'C:\\cache',
+    cwd: 'C:\\backend',
+    builtinPython: 'C:\\backend\\venv\\python.exe',
+    builtin: [{ id: 'builtin.one', directory: 'C:\\plugins\\builtin.one' }],
+    user: [{ id: 'someone.echo', directory: 'C:\\user\\someone.echo' }],
+    userPython: () => 'C:\\envs\\someone.echo\\venv\\python.exe',
+    start: (options) => ({
+      async request() {
+        return {};
+      },
+      async close() {
+        closes.push(options.pythonExe);
+
+        if (options.args.includes('builtin.one')) {
+          throw new Error('stuck');
+        }
+
+        return 7;
+      },
+    }),
+  });
+
+  await pool.call('builtin.one/a', {}, 1000);
+  await pool.call('someone.echo/a', {}, 1000);
+
+  const originalError = console.error;
+  console.error = () => {};
+
+  try {
+    // The surviving close still reports its code, so quit learns what happened
+    // to the process that did exit.
+    assert.equal(await pool.close(), 7);
+  } finally {
+    console.error = originalError;
+  }
+
+  assert.equal(closes.length, 2);
+});
+
+test('hands the job factory and close deadline to every service', async () => {
+  const starts = [];
+  const job = { assign() {}, close() {} };
+  const pool = new BackendPool({
+    cacheDir: 'C:\\cache',
+    cwd: 'C:\\backend',
+    builtinPython: 'python.exe',
+    builtin: [{ id: 'builtin.one', directory: 'C:\\plugins\\builtin.one' }],
+    user: [],
+    userPython: () => 'unused',
+    createJob: () => job,
+    closeTimeoutMs: 250,
+    start: fakeStarter(starts, []),
+  });
+
+  await pool.call('builtin.one/a', {}, 1000);
+
+  assert.equal(starts[0].createJob(), job);
+  assert.equal(starts[0].closeTimeoutMs, 250);
+});

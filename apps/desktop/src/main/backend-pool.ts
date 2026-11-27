@@ -2,6 +2,7 @@ import {
   BackendError,
   startService,
   type ServiceClient,
+  type ServiceJob,
   type ServiceOptions,
 } from '@felyrics/host';
 
@@ -29,6 +30,10 @@ export interface BackendPoolOptions {
   readonly user: readonly PooledPlugin[];
   /** The interpreter of one user plugin's environment, provisioned earlier. */
   readonly userPython: (id: string) => string;
+  /** The OS container for one backend tree; the desktop app supplies a job. */
+  readonly createJob?: () => ServiceJob;
+  /** How long a close lets a backend exit before it is killed. */
+  readonly closeTimeoutMs?: number;
   /** A test seam; the default is the real spawn. */
   readonly start?: (options: ServiceOptions) => ServiceClient;
 }
@@ -182,6 +187,12 @@ export class BackendPool {
       pythonExe,
       args: hostArgs(this.#options.cacheDir, plugins),
       cwd: this.#options.cwd,
+      ...(this.#options.createJob === undefined
+        ? {}
+        : { createJob: this.#options.createJob }),
+      ...(this.#options.closeTimeoutMs === undefined
+        ? {}
+        : { closeTimeoutMs: this.#options.closeTimeoutMs }),
       onStderr: (line) => {
         console.error(`[backend:${label}]`, line);
       },
@@ -244,13 +255,21 @@ export class BackendPool {
     this.#builtin = null;
     this.#user.clear();
 
+    // Every close runs at the same time: each one is bounded by its own
+    // service, and making three Python processes wait for each other would
+    // turn one slow backend into a quit that takes three timeouts.
+    const results = await Promise.allSettled(
+      clients.map((client) => client.close()),
+    );
+
     let code: number | null = null;
 
-    for (const client of clients) {
-      try {
-        code = (await client.close()) ?? code;
-      } catch (error) {
-        console.error('[backend] close failed', error);
+    for (const result of results) {
+      if (result.status === 'fulfilled') {
+        code = result.value ?? code;
+      } else {
+        // One backend that fails to close must not keep the others open.
+        console.error('[backend] close failed', result.reason);
       }
     }
 

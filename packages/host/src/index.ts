@@ -71,6 +71,7 @@ export {
   PROTOCOL_VERSION,
   startService,
   type ServiceClient,
+  type ServiceJob,
   type ServiceMessage,
   type ServiceOptions,
   type ServiceRequestOptions,

@@ -7,9 +7,24 @@ directories:
 # The main, preload and renderer bundles come from electron-vite; everything the
 # app reads outside asar (host backend, builtin plugins) is copied verbatim by
 # extraResources so Python can see real files and the utility host can import them.
+#
+# koffi finds its prebuilt native module as `@koromix/koffi-<platform>-<arch>`
+# beside its own package directory, so both trees have to ship. The native
+# binary itself must stay outside asar: Windows loads it with dlopen, which
+# cannot read a file inside an archive.
 files:
   - out/**/*
   - package.json
+  - node_modules/koffi/**/*
+  - node_modules/@koromix/**/*
+
+asarUnpack:
+  - "**/node_modules/@koromix/**"
+  - "**/*.node"
+
+# koffi ships prebuilt binaries; rebuilding it with Electron's headers is not
+# needed and would fail where a C++ toolchain is absent.
+npmRebuild: false
 
 extraResources:
   - from: ../../packages/host/backend
