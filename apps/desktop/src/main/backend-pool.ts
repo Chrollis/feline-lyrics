@@ -199,6 +199,9 @@ export class BackendPool {
       onProtocolError: (line, error) => {
         console.error(`[backend:${label}]`, line, error.message);
       },
+      onStopError: (error) => {
+        console.error(`[backend:${label}] stop failed`, error);
+      },
     };
   }
 

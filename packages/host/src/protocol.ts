@@ -108,6 +108,12 @@ export interface ServiceOptions {
   readonly closeTimeoutMs?: number;
   /** How long `close()` waits for the process to die after the kill. */
   readonly killTimeoutMs?: number;
+  /**
+   * Replaces the platform tree kill. Tests inject a fake to exercise the
+   * failure paths; the default resolves `true` only when the kill ran and
+   * returned success.
+   */
+  readonly killTree?: (pid: number) => Promise<boolean>;
   /** Reports a failure while stopping; `close()` never rejects because of one. */
   readonly onStopError?: (error: Error) => void;
 }
@@ -574,31 +580,84 @@ export function startService(options: ServiceOptions): ServiceClient {
       void exited.then(() => finish(true));
     });
 
-  const killProcessTree = (): void => {
+  const defaultKillTree = async (pid: number): Promise<boolean> => {
+    if (process.platform === 'win32') {
+      // No job, or its close failed: `taskkill /T` walks the tree, including a
+      // child spawned during the assignment window. Its exit code is the only
+      // proof the kill ran; the old fire-and-forget call could not tell a
+      // missing process from a killed one.
+      const killer = spawn('taskkill', ['/pid', String(pid), '/T', '/F'], {
+        stdio: 'ignore',
+        windowsHide: true,
+      });
+
+      // The deadline below owns the wait; this taskkill must not keep quit
+      // alive if it is the last handle still open.
+      killer.unref();
+
+      return await new Promise<boolean>((resolve, reject) => {
+        killer.once('error', reject);
+        killer.once('exit', (code) => {
+          if (code === 0) {
+            resolve(true);
+            return;
+          }
+
+          reject(
+            new Error(
+              `taskkill exited with code ${code ?? 'null'} for pid ${pid}`,
+            ),
+          );
+        });
+      });
+    }
+
+    // The child was spawned detached, so its pid is the process group id.
+    return process.kill(-pid, 'SIGKILL');
+  };
+
+  const KILL_TIMEOUT = Symbol('kill-timeout');
+
+  /**
+   * Runs the tree kill within `killTimeoutMs`, including a fake that never
+   * settles, and reports the failure instead of letting it reject `close()`.
+   */
+  const killBackendTree = async (): Promise<void> => {
     const pid = child.pid;
 
     if (pid === undefined) {
       return;
     }
 
-    if (process.platform === 'win32') {
-      // No job, or its close failed: `taskkill /T` walks the tree, including a
-      // child spawned during the assignment window.
-      const killer = spawn('taskkill', ['/pid', String(pid), '/T', '/F'], {
-        stdio: 'ignore',
-        windowsHide: true,
-      });
-
-      killer.on('error', reportStopError);
-      killer.unref();
-      return;
-    }
+    const killer = options.killTree ?? defaultKillTree;
+    let timer: NodeJS.Timeout | undefined;
 
     try {
-      // The child was spawned detached, so its pid is the process group id.
-      process.kill(-pid, 'SIGKILL');
+      const result = await Promise.race([
+        killer(pid),
+        new Promise<typeof KILL_TIMEOUT>((resolve) => {
+          timer = setTimeout(() => resolve(KILL_TIMEOUT), killTimeoutMs);
+          timer.unref();
+        }),
+      ]);
+
+      if (result === KILL_TIMEOUT) {
+        reportStopError(
+          new Error(
+            `the backend tree kill did not finish within ${killTimeoutMs} ms`,
+          ),
+        );
+      } else if (!result) {
+        reportStopError(
+          new Error(`the backend tree kill failed for pid ${pid}`),
+        );
+      }
     } catch (error) {
       reportStopError(error);
+    } finally {
+      if (timer !== undefined) {
+        clearTimeout(timer);
+      }
     }
   };
 
@@ -624,8 +683,15 @@ export function startService(options: ServiceOptions): ServiceClient {
     }
 
     await closeJob();
-    killProcessTree();
-    await waitForExit(killTimeoutMs);
+    await killBackendTree();
+
+    if (!(await waitForExit(killTimeoutMs))) {
+      reportStopError(
+        new Error(
+          `the backend did not exit within ${killTimeoutMs} ms of the kill`,
+        ),
+      );
+    }
 
     // A process that ignored the kill is still running; reporting `null` is
     // honest and keeps the quit path bounded.

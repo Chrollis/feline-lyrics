@@ -373,3 +373,39 @@ test('hands the job factory and close deadline to every service', async () => {
   assert.equal(starts[0].createJob(), job);
   assert.equal(starts[0].closeTimeoutMs, 250);
 });
+
+test('reports a stop failure through console.error', async () => {
+  const starts = [];
+  const pool = new BackendPool({
+    cacheDir: 'C:\\cache',
+    cwd: 'C:\\backend',
+    builtinPython: 'C:\\backend\\venv\\python.exe',
+    builtin: [{ id: 'builtin.one', directory: 'C:\\plugins\\builtin.one' }],
+    user: [],
+    userPython: () => 'unused',
+    start: fakeStarter(starts, []),
+  });
+
+  await pool.call('builtin.one/a', {}, 1000);
+
+  assert.equal(typeof starts[0].onStopError, 'function');
+
+  const originalError = console.error;
+  const logged = [];
+  console.error = (...args) => {
+    logged.push(args);
+  };
+
+  try {
+    const error = new Error('no job');
+    starts[0].onStopError(error);
+
+    assert.equal(logged.length, 1);
+    assert.match(String(logged[0][0]), /\[backend:builtin\] stop failed/);
+    assert.equal(logged[0][1], error);
+  } finally {
+    console.error = originalError;
+  }
+
+  await pool.close();
+});

@@ -561,3 +561,137 @@ test('assigns the job the spawned pid and closes it once', async () => {
     assert.equal(closed, 1);
   });
 });
+
+test('reports a job factory failure and still serves', async () => {
+  const stopErrors = [];
+
+  await withService(
+    {
+      createJob: () => {
+        throw new Error('koffi is missing');
+      },
+      onStopError: (error) => stopErrors.push(error),
+    },
+    async (client) => {
+      assert.deepEqual(await client.request('alpha'), { method: 'alpha' });
+      assert.equal(stopErrors.length, 1);
+      assert.match(stopErrors[0].message, /koffi is missing/);
+
+      // A missing job is a degraded stop, not a failed start.
+      assert.equal(await client.close(), 0);
+      assert.equal(stopErrors.length, 1);
+    },
+  );
+});
+
+test('reports an assignment failure once and keeps serving', async () => {
+  const stopErrors = [];
+  let closed = 0;
+
+  const job = {
+    assign() {
+      throw new Error('assign failed');
+    },
+    close() {
+      closed += 1;
+    },
+  };
+
+  await withService(
+    { createJob: () => job, onStopError: (error) => stopErrors.push(error) },
+    async (client) => {
+      assert.deepEqual(await client.request('alpha'), { method: 'alpha' });
+      assert.equal(stopErrors.length, 1);
+      assert.match(stopErrors[0].message, /assign failed/);
+      assert.equal(closed, 1);
+
+      assert.deepEqual(await client.request('beta'), { method: 'beta' });
+      assert.equal(await client.close(), 0);
+      assert.equal(closed, 1);
+    },
+  );
+});
+
+test('reports a tree kill that returns false', async () => {
+  const stopErrors = [];
+
+  await withService(
+    {
+      extraArgs: ['--ignore-eof'],
+      closeTimeoutMs: 50,
+      killTimeoutMs: 50,
+      killTree: async (pid) => {
+        // Kill the fixture directly so a failing fake does not leak it; the
+        // report is about the fake's answer, not about the process still
+        // running.
+        process.kill(pid, 'SIGKILL');
+
+        return false;
+      },
+      onStopError: (error) => stopErrors.push(error),
+    },
+    async (client) => {
+      const started = Date.now();
+      const code = await client.close();
+      const elapsed = Date.now() - started;
+
+      assert.ok(code === null || typeof code === 'number');
+      assert.equal(stopErrors.length, 1);
+      assert.match(stopErrors[0].message, /tree kill failed/);
+      assert.ok(elapsed < 2_000, `close took ${elapsed} ms`);
+    },
+  );
+});
+
+test('reports a tree kill that throws', async () => {
+  const stopErrors = [];
+
+  await withService(
+    {
+      extraArgs: ['--ignore-eof'],
+      closeTimeoutMs: 50,
+      killTimeoutMs: 50,
+      killTree: async (pid) => {
+        process.kill(pid, 'SIGKILL');
+
+        throw new Error('taskkill failed');
+      },
+      onStopError: (error) => stopErrors.push(error),
+    },
+    async (client) => {
+      const code = await client.close();
+
+      assert.ok(code === null || typeof code === 'number');
+      assert.equal(stopErrors.length, 1);
+      assert.match(stopErrors[0].message, /taskkill failed/);
+    },
+  );
+});
+
+test('reports a tree kill that never finishes', async () => {
+  const stopErrors = [];
+
+  await withService(
+    {
+      extraArgs: ['--ignore-eof'],
+      closeTimeoutMs: 50,
+      killTimeoutMs: 50,
+      killTree: async (pid) => {
+        process.kill(pid, 'SIGKILL');
+
+        await new Promise(() => {});
+      },
+      onStopError: (error) => stopErrors.push(error),
+    },
+    async (client) => {
+      const started = Date.now();
+      const code = await client.close();
+      const elapsed = Date.now() - started;
+
+      assert.ok(code === null || typeof code === 'number');
+      assert.equal(stopErrors.length, 1);
+      assert.match(stopErrors[0].message, /did not finish within 50 ms/);
+      assert.ok(elapsed < 2_000, `close took ${elapsed} ms`);
+    },
+  );
+});
