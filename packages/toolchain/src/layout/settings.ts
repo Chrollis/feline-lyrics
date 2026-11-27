@@ -1,5 +1,5 @@
 import { readFile } from 'node:fs/promises';
-import { isAbsolute, join, resolve } from 'node:path';
+import { isAbsolute, join, resolve, sep, win32 } from 'node:path';
 
 import { ToolchainError } from '../errors.js';
 
@@ -45,6 +45,28 @@ function isObject(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
+/**
+ * A root such as `C:\` or `\\server\share`, or a Windows root-relative path
+ * such as `\foo` or `/foo`, names a location the user did not choose. All four
+ * settings are writable roots, so accepting one of those forms would let a typo
+ * point provisioning or cleanup at an entire volume or share.
+ */
+function isFilesystemRoot(value: string): boolean {
+  if (process.platform !== 'win32') {
+    return resolve(value) === '/';
+  }
+
+  const normalized = win32.normalize(value);
+
+  if (normalized === win32.parse(normalized).root) {
+    return true;
+  }
+
+  // `\foo` and `/foo` are absolute on Windows but relative to the current
+  // drive; a drive path or a UNC path always starts with a drive or `\\`.
+  return /^\\[^\\]/.test(normalized);
+}
+
 function absolutePath(value: unknown, key: string): string {
   if (typeof value !== 'string' || value.length === 0) {
     invalid(key, `${key} must be a non-empty string`);
@@ -54,7 +76,63 @@ function absolutePath(value: unknown, key: string): string {
     invalid(key, `${key} must be an absolute path`);
   }
 
+  if (isFilesystemRoot(value)) {
+    invalid(key, `${key} must not be a filesystem root or a root-relative path`);
+  }
+
   return value;
+}
+
+/**
+ * True when `parent` is the same directory as `child` or one of its ancestors.
+ * Windows compares case-insensitively and both sides are resolved, so `C:\Temp`
+ * and `c:\temp\jobs` overlap.
+ */
+function containsPath(parent: string, child: string): boolean {
+  const resolvedParent = resolve(parent);
+  const resolvedChild = resolve(child);
+  const fold = (value: string): string =>
+    process.platform === 'win32' ? value.toLowerCase() : value;
+  const parentPath = fold(resolvedParent);
+  const childPath = fold(resolvedChild);
+
+  if (parentPath === childPath) {
+    return true;
+  }
+
+  return childPath.startsWith(
+    parentPath.endsWith(sep) ? parentPath : `${parentPath}${sep}`,
+  );
+}
+
+/**
+ * The settings are individually valid but can still overlap: a temp root that
+ * contains the backend, the cache, the plugin storage, the settings file itself
+ * or the whole userData directory would clear data it does not own. The reverse
+ * is fine -- the dev `.temp` under the repo and the packaged `temp` under
+ * userData are both intended.
+ */
+export function assertWritableRoots(
+  merged: Required<Settings>,
+  settingsPath: string,
+  userData: string,
+): void {
+  const targets: ReadonlyArray<readonly [string, string]> = [
+    ['backendRoot', merged.backendRoot],
+    ['cacheDir', merged.cacheDir],
+    ['userPluginsRoot', merged.userPluginsRoot],
+    ['the settings file', settingsPath],
+    ['userData', userData],
+  ];
+
+  for (const [label, target] of targets) {
+    if (containsPath(merged.tempDir, target)) {
+      invalid(
+        'tempDir',
+        `tempDir must not be the same as or contain ${label}: ${resolve(target)}`,
+      );
+    }
+  }
 }
 
 /**

@@ -10,6 +10,7 @@ export type ToolchainErrorCode =
   | 'python/version-mismatch'
   | 'mirrors/invalid'
   | 'settings/invalid'
+  | 'temp/unowned'
   | 'backend/not-provisioned'
   | 'backend/unavailable'
   | 'backend/timeout'

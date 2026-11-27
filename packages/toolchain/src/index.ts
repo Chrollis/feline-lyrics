@@ -17,6 +17,7 @@ export {
   type ToolchainPaths,
 } from './layout/paths.js';
 export {
+  assertWritableRoots,
   defaultSettings,
   loadSettings,
   resolveSettingsPath,

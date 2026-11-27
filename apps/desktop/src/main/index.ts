@@ -23,6 +23,7 @@ import {
   clearTempDir,
   mirrorConfigPath,
   provisionPluginEnvironment,
+  ToolchainError,
   withTempDir,
   type ResolvedMirrorConfig,
 } from '@felyrics/toolchain';
@@ -200,8 +201,21 @@ async function start(force = false): Promise<void> {
     try {
       await clearTempDir(host.tempDir);
     } catch (error) {
-      // Residue is not a reason to fail startup; the next operation recreates
-      // whatever it needs.
+      if (error instanceof ToolchainError) {
+        const failure = describeFailure(error);
+
+        publishStatus({
+          phase: 'failed',
+          title: 'The temp directory is not usable',
+          code: failure.code,
+          message: failure.message,
+          log: latestStatus?.log ?? [],
+        });
+        throw error;
+      }
+
+      // A native EPERM/EBUSY here is residue we could not clear; the next
+      // operation recreates whatever it needs.
       console.error(`[temp] could not clear ${host.tempDir}`, error);
     }
 

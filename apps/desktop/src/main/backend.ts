@@ -8,9 +8,13 @@ import {
 } from '@felyrics/host';
 
 import {
+  assertWritableRoots,
   backendPaths,
+  defaultSettings,
   loadSettings,
   resolveSettingsPath,
+  type Settings,
+  type SettingsInputs,
   type ToolchainPaths,
 } from '@felyrics/toolchain';
 
@@ -34,14 +38,14 @@ function hostPathInputs(): HostPathInputs {
   };
 }
 
-function settingsPath(): string {
+function settingsInputs(): SettingsInputs {
   const inputs = hostPathInputs();
 
-  return resolveSettingsPath({
+  return {
     packaged: inputs.packaged,
     userData: inputs.userData,
     repoRoot: resolve(inputs.appPath, '..', '..'),
-  });
+  };
 }
 
 /**
@@ -51,9 +55,19 @@ function settingsPath(): string {
  */
 export async function loadHostPaths(): Promise<HostPaths> {
   const inputs = hostPathInputs();
-  const settings = await loadSettings(settingsPath());
+  const settingsInputsValue = settingsInputs();
+  const file = resolveSettingsPath(settingsInputsValue);
+  const settings = await loadSettings(file);
+  const defaults = defaultSettings(settingsInputsValue);
+  const merged: Required<Settings> = {
+    backendRoot: settings.backendRoot ?? defaults.backendRoot,
+    cacheDir: settings.cacheDir ?? defaults.cacheDir,
+    tempDir: settings.tempDir ?? defaults.tempDir,
+    userPluginsRoot: settings.userPluginsRoot ?? defaults.userPluginsRoot,
+  };
 
-  current = resolveHostPaths(inputs, settings);
+  assertWritableRoots(merged, file, inputs.userData);
+  current = resolveHostPaths(inputs, merged);
 
   return current;
 }

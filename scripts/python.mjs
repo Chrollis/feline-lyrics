@@ -114,18 +114,20 @@ async function loadPaths(toolchain) {
     repoRoot: root,
   });
   const file = join(root, 'settings.json');
-  let settings;
+  let merged;
 
   try {
-    settings = await toolchain.loadSettings(file);
+    const settings = await toolchain.loadSettings(file);
+    merged = { ...defaults, ...settings };
+    toolchain.assertWritableRoots(merged, file, root);
   } catch (error) {
     fail(`cannot use ${file}: ${error.code ?? ''} ${error.message}`);
   }
 
   return {
-    cacheDir: settings.cacheDir ?? defaults.cacheDir,
-    backendRoot: settings.backendRoot ?? defaults.backendRoot,
-    tempDir: settings.tempDir ?? defaults.tempDir,
+    cacheDir: merged.cacheDir,
+    backendRoot: merged.backendRoot,
+    tempDir: merged.tempDir,
   };
 }
 
