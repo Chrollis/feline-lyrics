@@ -191,6 +191,7 @@ export async function provision(
         }
       : {}),
   });
+  options.signal?.throwIfAborted();
   step('python');
   const install = options.ensurePython ?? ensurePython;
   const installed = await install({
@@ -207,6 +208,7 @@ export async function provision(
         }
       : {}),
   });
+  options.signal?.throwIfAborted();
   const installedMarker = expectedMarker(
     options.importPaths,
     requirements,
@@ -214,13 +216,16 @@ export async function provision(
     await readUvVersion(backend.uvExe, options.readUvVersion),
   );
   step('venv');
+  options.signal?.throwIfAborted();
   await createVenv(ctx, installed.pythonPath);
   step('pth');
   writePth(backend, options.importPaths);
+  options.signal?.throwIfAborted();
   step('packages');
   await installPackages(ctx, requirements, {
     ...(options.mirrors ? { indexes: options.mirrors.packages } : {}),
   });
+  options.signal?.throwIfAborted();
   step('marker');
   await writeReadyMarker(backend, installedMarker);
 

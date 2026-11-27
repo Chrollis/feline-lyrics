@@ -25,6 +25,7 @@ import {
   provisionPluginEnvironment,
   ToolchainError,
   withTempDir,
+  type ReadyMarker,
   type ResolvedMirrorConfig,
 } from '@felyrics/toolchain';
 import { APP_ENTRY_URL } from './app-assets.js';
@@ -43,6 +44,12 @@ import {
 import { restartBuiltinHosts, shutdownHosts } from './plugin-boot.js';
 import type { PluginSummary } from '../preload/api.js';
 import { describeFailure, runStartup, type StartupStatus } from './startup.js';
+import {
+  beginStartup,
+  settleStartup,
+  withDeadline,
+  type StartupAttempt,
+} from './startup-attempt.js';
 import { loadOrCreateMirrorConfig } from './mirror-config.js';
 import { installPickedPlugin } from './plugin-install-runtime.js';
 import { installPluginDirectory } from './plugin-install.js';
@@ -91,6 +98,11 @@ let progressWindow: BrowserWindow | null = null;
 let mainWindow: BrowserWindow | null = null;
 let latestStatus: StartupStatus | null = null;
 let starting = false;
+/**
+ * The attempt whose work still owns `tempDir` and `backendRoot`. Retry waits for
+ * it instead of clearing scratch another provision is still writing.
+ */
+let currentAttempt: StartupAttempt<ReadyMarker> | null = null;
 
 function publishStatus(status: StartupStatus): void {
   latestStatus = status;
@@ -142,25 +154,8 @@ function createProgressWindow(): BrowserWindow {
 /** A dead proxy must not leave the progress window spinning forever. */
 const STARTUP_DEADLINE_MS = 10 * 60_000;
 
-function withDeadline<T>(work: Promise<T>): Promise<T> {
-  return new Promise<T>((resolve, reject) => {
-    const timer = setTimeout(() => {
-      reject(new BackendError('core/timeout', 'the startup did not finish'));
-    }, STARTUP_DEADLINE_MS);
-
-    timer.unref?.();
-    work.then(
-      (value) => {
-        clearTimeout(timer);
-        resolve(value);
-      },
-      (error: unknown) => {
-        clearTimeout(timer);
-        reject(error);
-      },
-    );
-  });
-}
+/** How long Retry waits for an aborted attempt before refusing to race it. */
+const STARTUP_STOP_WAIT_MS = 5_000;
 
 /** Runs the environment check, then opens the real window once it verifies. */
 async function start(force = false): Promise<void> {
@@ -171,6 +166,32 @@ async function start(force = false): Promise<void> {
   starting = true;
 
   try {
+    // A timed-out attempt keeps running until its abort reaches a boundary. Its
+    // scratch and backend root are still in use, so Retry must wait for it to
+    // settle before clearing tempDir or starting a second provision.
+    const previous = currentAttempt;
+
+    if (previous !== null) {
+      const stopped = await settleStartup(previous, STARTUP_STOP_WAIT_MS);
+
+      if (!stopped) {
+        publishStatus({
+          phase: 'failed',
+          code: 'core/timeout',
+          title: 'The previous startup attempt is still stopping',
+          message:
+            'Felyrics is still stopping the previous attempt; retry again in a moment.',
+          log: latestStatus?.log ?? [],
+        });
+
+        return;
+      }
+
+      if (currentAttempt === previous) {
+        currentAttempt = null;
+      }
+    }
+
     // A retry replaces the host table; stopping the previous hosts first is
     // what keeps the old utility processes from piling up behind the new one.
     await shutdownPlugins();
@@ -240,7 +261,7 @@ async function start(force = false): Promise<void> {
 
     startupMirrors = mirrors;
 
-    const marker = await withDeadline(
+    const attempt = beginStartup((signal) =>
       runStartup({
         paths: resolvePaths(),
         userDataDir,
@@ -250,8 +271,22 @@ async function start(force = false): Promise<void> {
         hostBackendRoot: hostPaths().hostBackendRoot,
         builtinPluginsRoot: hostPaths().builtinPluginsRoot,
         ...(force ? { force: true } : {}),
+        signal,
         onStatus: publishStatus,
       }),
+    );
+
+    currentAttempt = attempt;
+    void attempt.settled.then(() => {
+      if (currentAttempt === attempt) {
+        currentAttempt = null;
+      }
+    });
+
+    const marker = await withDeadline(
+      attempt.work,
+      () => attempt.controller.abort(),
+      STARTUP_DEADLINE_MS,
     ).catch((error: unknown) => {
       if (latestStatus?.phase !== 'failed') {
         const failure = describeFailure(error);

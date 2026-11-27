@@ -86,6 +86,8 @@ export interface StartupOptions {
   readonly fetchImpl?: typeof fetch;
   /** Rebuild even when the marker matches. */
   readonly force?: boolean;
+  /** Set when a timed-out attempt must stop before Retry starts another one. */
+  readonly signal?: AbortSignal;
   readonly onStatus: (status: StartupStatus) => void;
 }
 
@@ -173,6 +175,7 @@ export async function runStartup(
   };
 
   try {
+    options.signal?.throwIfAborted();
     status({
       phase: 'checking',
       title: 'Checking the Python environment',
@@ -208,6 +211,7 @@ export async function runStartup(
             mirrors: options.mirrors,
             ...(options.fetchImpl === undefined ? {} : { fetchImpl: options.fetchImpl }),
             ...(options.force === true ? { force: true } : {}),
+            ...(options.signal === undefined ? {} : { signal: options.signal }),
             onStep: (step) => {
               lastProgress = { step: 'uv', title: '', at: 0 };
               note(`step: ${step}`);
@@ -236,6 +240,8 @@ export async function runStartup(
       );
     }
 
+    options.signal?.throwIfAborted();
+
     status({
       phase: 'verifying',
       title: 'Verifying the environment',
@@ -246,12 +252,14 @@ export async function runStartup(
     // The install may have picked a newer 3.12 patch than the pinned constant;
     // doctor trusts the marker for the version, not a number in the source.
     const current = await readReadyMarker(backend);
+    options.signal?.throwIfAborted();
     const report = await doctor(options.paths, {
       requirements: environment.requirements,
       importPaths: environment.importPaths,
       plugins: environment.plugins,
       ...(current === null ? {} : { pythonVersion: current.python }),
     });
+    options.signal?.throwIfAborted();
 
     if (!report.ok) {
       const failed = report.checks.find((check) => !check.ok);
@@ -279,13 +287,17 @@ export async function runStartup(
 
     push(`${failure.code}: ${failure.message}`);
     await appendLog(options.userDataDir, log);
-    status({
-      phase: 'failed',
-      title: 'The Python environment is not ready',
-      code: failure.code,
-      message: failure.message,
-      log,
-    });
+
+    if (options.signal?.aborted !== true) {
+      status({
+        phase: 'failed',
+        title: 'The Python environment is not ready',
+        code: failure.code,
+        message: failure.message,
+        log,
+      });
+    }
+
     throw error;
   }
 }
