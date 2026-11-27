@@ -204,6 +204,58 @@ export class PluginHandle {
     }
   }
 
+  /**
+   * Stops the plugin without asking it: closes the channel (which kills the
+   * utility child), rejects whatever is still waiting, and resolves an
+   * in-flight disposal so a quit deadline can get past `disable()`.
+   *
+   * This is the forced path, so it sends no `dispose` and never throws: the
+   * process is already on its way out.
+   */
+  forceClose(): void {
+    if (this.stateValue === 'DISPOSED') {
+      return;
+    }
+
+    this.stateValue = 'DISPOSED';
+
+    const error = new PluginLifecycleError(
+      'core/not-ready',
+      `${this.manifest.id} was closed`,
+    );
+
+    const disposed = this.disposed;
+    this.disposed = null;
+    disposed?.();
+
+    const ready = this.ready;
+    this.ready = null;
+    ready?.reject(error);
+
+    for (const pending of this.pending.values()) {
+      pending.reject(error);
+    }
+
+    this.pending.clear();
+
+    const channel = this.channel;
+    const unsubscribe = this.unsubscribe;
+    this.unsubscribe = null;
+    this.channel = null;
+
+    try {
+      unsubscribe?.();
+    } catch {
+      // The transport is already going away; keep the forced path silent.
+    }
+
+    try {
+      channel?.close();
+    } catch {
+      // The child may already be gone; a forced close is best effort.
+    }
+  }
+
   /** Calls one public method, e.g. `felyrics.media/probe`. */
   async request(
     publicName: string,
@@ -364,7 +416,13 @@ export class PluginHandle {
       this.stateValue = 'ACTIVE';
     } catch (error) {
       this.ready = null;
-      this.stateValue = 'FAILED';
+
+      // A forced close may have won while activation was in flight; it already
+      // set DISPOSED and a late rejection must not turn the handle FAILED.
+      if (this.stateValue !== 'DISPOSED') {
+        this.stateValue = 'FAILED';
+      }
+
       this.closeChannel();
       throw describeError(error);
     }
@@ -692,6 +750,20 @@ export class PluginHosts {
 
   async disable(id: string): Promise<void> {
     await this.get(id).disable();
+  }
+
+  /**
+   * The quit deadline's last resort: force every handle closed. One broken
+   * handle must not keep the rest alive, so each is attempted separately.
+   */
+  forceClose(): void {
+    for (const handle of this.handles.values()) {
+      try {
+        handle.forceClose();
+      } catch {
+        // forceClose is documented not to throw; keep going anyway.
+      }
+    }
   }
 
   async request(

@@ -582,3 +582,147 @@ test('a manifest installed later joins the table as PENDING', async () => {
     (error) => error.code === 'core/duplicate-id',
   );
 });
+
+test('forceClose closes an active plugin and rejects its pending request', async (t) => {
+  const directory = await fixture(`
+export async function activate(ctx) {
+  ctx.method('hang', () => new Promise(() => {}));
+}
+`);
+  t.after(() => rm(directory, { recursive: true, force: true }));
+
+  const channels = createPair();
+  servePlugin(channels.plugin);
+
+  let closes = 0;
+  const originalClose = channels.host.close;
+  channels.host.close = () => {
+    closes += 1;
+    originalClose();
+  };
+
+  const handle = new PluginHandle(manifest(directory, { methods: ['hang'] }), {
+    createChannel: () => channels.host,
+    activationTimeoutMs: 200,
+  });
+
+  await handle.enable();
+
+  const pending = assert.rejects(
+    handle.request('fixtures.echo/hang', {}),
+    (error) => error.code === 'core/not-ready',
+  );
+
+  handle.forceClose();
+  await pending;
+
+  assert.equal(closes, 1);
+  assert.equal(handle.state, 'DISPOSED');
+
+  handle.forceClose();
+  assert.equal(closes, 1);
+});
+
+test('forceClose rejects the ready promise of a plugin that is still loading', async (t) => {
+  const directory = await fixture(
+    'export async function activate() { return new Promise(() => {}); }',
+  );
+  t.after(() => rm(directory, { recursive: true, force: true }));
+
+  const channels = createPair();
+  servePlugin(channels.plugin);
+
+  let closes = 0;
+  const originalClose = channels.host.close;
+  channels.host.close = () => {
+    closes += 1;
+    originalClose();
+  };
+
+  const handle = new PluginHandle(manifest(directory), {
+    createChannel: () => channels.host,
+    activationTimeoutMs: 1_000,
+  });
+
+  const enabling = handle.enable();
+  handle.forceClose();
+
+  await assert.rejects(enabling, (error) => error.code === 'core/not-ready');
+  assert.equal(closes, 1);
+  assert.equal(handle.state, 'DISPOSED');
+});
+
+test('forceClose ends an in-flight disable instead of waiting for it', async (t) => {
+  const directory = await fixture(`
+export async function activate(ctx) {
+  ctx.method('echo', () => ({}));
+  ctx.onDispose(() => new Promise(() => {}));
+}
+`);
+  t.after(() => rm(directory, { recursive: true, force: true }));
+
+  const channels = createPair();
+  servePlugin(channels.plugin);
+
+  const handle = new PluginHandle(manifest(directory), {
+    createChannel: () => channels.host,
+    activationTimeoutMs: 200,
+    disposalTimeoutMs: 5_000,
+  });
+
+  await handle.enable();
+
+  const disabling = handle.disable();
+  handle.forceClose();
+  await disabling;
+
+  assert.equal(handle.state, 'DISPOSED');
+});
+
+test('PluginHosts.forceClose reaches every handle', async (t) => {
+  const ids = ['fixtures.one', 'fixtures.two'];
+  const directories = [];
+  const channelsById = new Map();
+  const closesById = new Map();
+  const manifests = [];
+
+  for (const id of ids) {
+    const directory = await fixture(ECHO);
+    directories.push(directory);
+    t.after(() => rm(directory, { recursive: true, force: true }));
+
+    const channels = createPair();
+    servePlugin(channels.plugin);
+
+    closesById.set(id, 0);
+    const originalClose = channels.host.close;
+    channels.host.close = () => {
+      closesById.set(id, closesById.get(id) + 1);
+      originalClose();
+    };
+
+    channelsById.set(id, channels.host);
+    manifests.push(manifest(directory, { id, name: id }));
+  }
+
+  const hosts = new PluginHosts(manifests, {
+    createChannel: (pluginManifest) => channelsById.get(pluginManifest.id),
+    activationTimeoutMs: 200,
+  });
+
+  await hosts.enable('fixtures.one');
+  await hosts.enable('fixtures.two');
+
+  hosts.forceClose();
+
+  for (const id of ids) {
+    assert.equal(hosts.handle(id).state, 'DISPOSED');
+    assert.equal(closesById.get(id), 1);
+  }
+
+  hosts.forceClose();
+
+  for (const id of ids) {
+    assert.equal(closesById.get(id), 1);
+  }
+});

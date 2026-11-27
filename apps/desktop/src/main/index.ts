@@ -42,6 +42,7 @@ import { describeFailure, runStartup, type StartupStatus } from './startup.js';
 import { loadOrCreateMirrorConfig } from './mirror-config.js';
 import { installPickedPlugin } from './plugin-install-runtime.js';
 import { installPluginDirectory } from './plugin-install.js';
+import { createQuitController } from './quit.js';
 
 // Before `app.whenReady()`: the scheme registry is frozen at startup.
 registerAppScheme();
@@ -79,8 +80,6 @@ let progressWindow: BrowserWindow | null = null;
 let mainWindow: BrowserWindow | null = null;
 let latestStatus: StartupStatus | null = null;
 let starting = false;
-let quitStarted = false;
-let quitReady = false;
 
 function publishStatus(status: StartupStatus): void {
   latestStatus = status;
@@ -473,15 +472,23 @@ async function disableUserPlugin(
 }
 
 /**
- * Closes plugin hosts on the way out; the process exit is the real deadline.
- * The table is cleared before the async stops so a second quit is a no-op.
+ * Closes plugin hosts on the way out. The table stays reachable until the
+ * stops finish so the quit deadline can force-close a host that is still busy;
+ * it is cleared in `finally` even when one of them fails.
  */
 async function shutdownPlugins(): Promise<void> {
   const hosts = pluginHosts;
-  pluginHosts = null;
 
-  if (hosts !== null) {
+  if (hosts === null) {
+    return;
+  }
+
+  try {
     await shutdownHosts(hosts);
+  } finally {
+    if (pluginHosts === hosts) {
+      pluginHosts = null;
+    }
   }
 }
 
@@ -666,38 +673,21 @@ ipcMain.handle('bootstrap:open-config', async () => {
  * Closing stdin is how the backend learns to stop: its read loop ends on EOF, so
  * the process exits on its own instead of being killed mid-write.
  *
- * Electron quits as soon as this event's handlers return, which would cut the
- * shutdown short. So the first quit is held back until both halves have closed;
- * each half is bounded by its own service, and a failure in one must not skip
- * the other. A second quit request is ignored while the first is in flight.
+ * The controller holds the first quit for at most five seconds while both halves
+ * close; a second quit skips the wait, and the deadline force-closes the
+ * utility children before exiting.
  */
+const quitController = createQuitController({
+  shutdownPlugins,
+  shutdownBackend,
+  forceClosePlugins: () => pluginHosts?.forceClose(),
+  quit: () => app.quit(),
+  exit: (code) => app.exit(code),
+  log: (message, error) => {
+    console.error(message, error);
+  },
+});
+
 app.on('before-quit', (event) => {
-  if (quitReady) {
-    return;
-  }
-
-  event.preventDefault();
-
-  if (quitStarted) {
-    return;
-  }
-
-  quitStarted = true;
-
-  void (async () => {
-    try {
-      await shutdownPlugins();
-    } catch (error) {
-      console.error('[bootstrap] plugin shutdown failed', error);
-    }
-
-    try {
-      await shutdownBackend();
-    } catch (error) {
-      console.error('[bootstrap] backend shutdown failed', error);
-    }
-
-    quitReady = true;
-    app.quit();
-  })();
+  quitController.beforeQuit(event);
 });
