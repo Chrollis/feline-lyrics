@@ -6,6 +6,7 @@ import {
   readFileSync,
   readdirSync,
   rmSync,
+  utimesSync,
   writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -13,14 +14,36 @@ import { dirname, join } from 'node:path';
 import { test } from 'node:test';
 
 import {
+  cleanTempResidue,
   clearLegacyTempEntries,
+  clearStaleTempEntries,
   clearTempDir,
+  ensureOwnedTempRoot,
   tempRoleRoot,
   ToolchainError,
   withTempDir,
 } from '../../out/index.js';
 
 const MARKER = '.felyrics-temp';
+const PID_MARKER = '.felyrics-temp-pid';
+const DEAD_PID = 99_999_999;
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+function makeScratch(root, name, { pid, ageMs } = {}) {
+  const dir = join(root, name);
+  mkdirSync(dir, { recursive: true });
+
+  if (pid !== undefined) {
+    writeFileSync(join(dir, PID_MARKER), String(pid));
+  }
+
+  if (ageMs !== undefined) {
+    const when = new Date(Date.now() - ageMs);
+    utimesSync(dir, when, when);
+  }
+
+  return dir;
+}
 
 test('hands over a directory and removes it afterwards', async () => {
   let seen;
@@ -220,6 +243,111 @@ test('names a role directory under the temp base', () => {
   assert.equal(tempRoleRoot(base, 'cli'), join(base, 'cli'));
 });
 
+test('ensures a missing base root by adopting it', async () => {
+  const parent = mkdtempSync(join(tmpdir(), 'felyrics-ensure-'));
+  const base = join(parent, 'temp');
+
+  try {
+    await ensureOwnedTempRoot(base);
+
+    assert.equal(existsSync(join(base, MARKER)), true);
+    assert.deepEqual(readdirSync(base), [MARKER]);
+  } finally {
+    rmSync(parent, { recursive: true, force: true });
+  }
+});
+
+test('ensures an empty base root by adopting it', async () => {
+  const parent = mkdtempSync(join(tmpdir(), 'felyrics-ensure-'));
+  const base = join(parent, 'temp');
+
+  try {
+    mkdirSync(base);
+
+    await ensureOwnedTempRoot(base);
+
+    assert.equal(existsSync(join(base, MARKER)), true);
+    assert.deepEqual(readdirSync(base), [MARKER]);
+  } finally {
+    rmSync(parent, { recursive: true, force: true });
+  }
+});
+
+test('adopts a base whose only entries are marked role directories', async () => {
+  const parent = mkdtempSync(join(tmpdir(), 'felyrics-ensure-'));
+  const base = join(parent, 'temp');
+
+  try {
+    mkdirSync(join(base, 'app'), { recursive: true });
+    mkdirSync(join(base, 'cli'), { recursive: true });
+    writeFileSync(join(base, 'app', MARKER), '');
+    writeFileSync(join(base, 'cli', MARKER), '');
+
+    await ensureOwnedTempRoot(base);
+
+    assert.deepEqual(readdirSync(base).sort(), [MARKER, 'app', 'cli']);
+  } finally {
+    rmSync(parent, { recursive: true, force: true });
+  }
+});
+
+test('refuses an unmarked base with a role directory without its marker', async () => {
+  const parent = mkdtempSync(join(tmpdir(), 'felyrics-ensure-'));
+  const base = join(parent, 'temp');
+
+  try {
+    mkdirSync(join(base, 'app'), { recursive: true });
+
+    await assert.rejects(ensureOwnedTempRoot(base), (error) => {
+      assert.equal(error.code, 'temp/unowned');
+
+      return true;
+    });
+    assert.equal(existsSync(join(base, MARKER)), false);
+    assert.equal(existsSync(join(base, 'app')), true);
+  } finally {
+    rmSync(parent, { recursive: true, force: true });
+  }
+});
+
+test('refuses an unmarked base with an unknown entry', async () => {
+  const parent = mkdtempSync(join(tmpdir(), 'felyrics-ensure-'));
+  const base = join(parent, 'temp');
+
+  try {
+    mkdirSync(base);
+    writeFileSync(join(base, 'notes.txt'), 'keep');
+
+    await assert.rejects(ensureOwnedTempRoot(base), (error) => {
+      assert.equal(error.code, 'temp/unowned');
+
+      return true;
+    });
+    assert.equal(existsSync(join(base, MARKER)), false);
+    assert.equal(readFileSync(join(base, 'notes.txt'), 'utf8'), 'keep');
+  } finally {
+    rmSync(parent, { recursive: true, force: true });
+  }
+});
+
+test('leaves a marked base root untouched', async () => {
+  const parent = mkdtempSync(join(tmpdir(), 'felyrics-ensure-'));
+  const base = join(parent, 'temp');
+
+  try {
+    mkdirSync(base);
+    writeFileSync(join(base, MARKER), '');
+    writeFileSync(join(base, 'keep.txt'), 'keep');
+
+    await ensureOwnedTempRoot(base);
+
+    assert.equal(readFileSync(join(base, MARKER), 'utf8'), '');
+    assert.equal(readFileSync(join(base, 'keep.txt'), 'utf8'), 'keep');
+  } finally {
+    rmSync(parent, { recursive: true, force: true });
+  }
+});
+
 test('clearing the app role leaves the cli role untouched', async () => {
   const parent = mkdtempSync(join(tmpdir(), 'felyrics-roles-'));
   const base = join(parent, 'temp');
@@ -356,6 +484,174 @@ test('returns the removed legacy entries sorted by name', async () => {
       'provision-z',
     ]);
     assert.deepEqual(readdirSync(root), [MARKER]);
+  } finally {
+    rmSync(parent, { recursive: true, force: true });
+  }
+});
+
+test('writes the owning pid beside a scratch directory', async () => {
+  let seen;
+
+  await withTempDir('felyrics-pid-', async (dir) => {
+    seen = readFileSync(join(dir, PID_MARKER), 'utf8');
+  });
+
+  assert.equal(seen, String(process.pid));
+});
+
+test('keeps a scratch whose recorded pid is still alive, even when old', async () => {
+  const parent = mkdtempSync(join(tmpdir(), 'felyrics-stale-'));
+  const root = join(parent, 'temp');
+  mkdirSync(root);
+  writeFileSync(join(root, MARKER), '');
+  makeScratch(root, 'felyrics-live', { pid: process.pid, ageMs: 2 * DAY_MS });
+
+  try {
+    assert.deepEqual(await clearStaleTempEntries(root), []);
+    assert.equal(existsSync(join(root, 'felyrics-live')), true);
+  } finally {
+    rmSync(parent, { recursive: true, force: true });
+  }
+});
+
+test('removes a fresh scratch whose recorded pid is dead', async () => {
+  const parent = mkdtempSync(join(tmpdir(), 'felyrics-stale-'));
+  const root = join(parent, 'temp');
+  mkdirSync(root);
+  writeFileSync(join(root, MARKER), '');
+  makeScratch(root, 'felyrics-dead', { pid: DEAD_PID });
+
+  try {
+    assert.deepEqual(await clearStaleTempEntries(root), ['felyrics-dead']);
+    assert.equal(existsSync(join(root, 'felyrics-dead')), false);
+  } finally {
+    rmSync(parent, { recursive: true, force: true });
+  }
+});
+
+test('removes an old scratch without a pid marker', async () => {
+  const parent = mkdtempSync(join(tmpdir(), 'felyrics-stale-'));
+  const root = join(parent, 'temp');
+  mkdirSync(root);
+  writeFileSync(join(root, MARKER), '');
+  makeScratch(root, 'felyrics-old', { ageMs: 2 * DAY_MS });
+
+  try {
+    assert.deepEqual(await clearStaleTempEntries(root), ['felyrics-old']);
+    assert.equal(existsSync(join(root, 'felyrics-old')), false);
+  } finally {
+    rmSync(parent, { recursive: true, force: true });
+  }
+});
+
+test('keeps a fresh scratch without a pid marker', async () => {
+  const parent = mkdtempSync(join(tmpdir(), 'felyrics-stale-'));
+  const root = join(parent, 'temp');
+  mkdirSync(root);
+  writeFileSync(join(root, MARKER), '');
+  makeScratch(root, 'felyrics-fresh');
+
+  try {
+    assert.deepEqual(await clearStaleTempEntries(root), []);
+    assert.equal(existsSync(join(root, 'felyrics-fresh')), true);
+  } finally {
+    rmSync(parent, { recursive: true, force: true });
+  }
+});
+
+test('leaves the marker, role directories and unknown entries alone', async () => {
+  const parent = mkdtempSync(join(tmpdir(), 'felyrics-stale-'));
+  const root = join(parent, 'temp');
+  mkdirSync(join(root, 'app'), { recursive: true });
+  mkdirSync(join(root, 'cli'), { recursive: true });
+  writeFileSync(join(root, MARKER), '');
+  writeFileSync(join(root, 'notes.txt'), 'keep');
+  makeScratch(root, 'felyrics-old', { ageMs: 2 * DAY_MS });
+
+  try {
+    assert.deepEqual(await clearStaleTempEntries(root), ['felyrics-old']);
+    assert.deepEqual(readdirSync(root).sort(), [
+      MARKER,
+      'app',
+      'cli',
+      'notes.txt',
+    ]);
+  } finally {
+    rmSync(parent, { recursive: true, force: true });
+  }
+});
+
+test('clearing stale entries under a missing root is a no-op', async () => {
+  const parent = mkdtempSync(join(tmpdir(), 'felyrics-stale-'));
+  const missing = join(parent, 'missing');
+
+  try {
+    assert.deepEqual(await clearStaleTempEntries(missing), []);
+    assert.equal(existsSync(missing), false);
+  } finally {
+    rmSync(parent, { recursive: true, force: true });
+  }
+});
+
+test('clearing stale entries refuses a root without a marker', async () => {
+  const parent = mkdtempSync(join(tmpdir(), 'felyrics-stale-'));
+  const root = join(parent, 'temp');
+  mkdirSync(root);
+  writeFileSync(join(root, 'felyrics-old'), 'x');
+  writeFileSync(join(root, 'keep.txt'), 'x');
+
+  try {
+    await assert.rejects(clearStaleTempEntries(root), (error) => {
+      assert.ok(error instanceof ToolchainError);
+      assert.equal(error.code, 'temp/unowned');
+      assert.equal(error.context.path, root);
+
+      return true;
+    });
+    assert.deepEqual(readdirSync(root).sort(), ['felyrics-old', 'keep.txt']);
+  } finally {
+    rmSync(parent, { recursive: true, force: true });
+  }
+});
+
+test('cleanTempResidue reclaims cli stale scratch and legacy entries', async () => {
+  const parent = mkdtempSync(join(tmpdir(), 'felyrics-residue-'));
+  const base = join(parent, 'temp');
+  const cli = tempRoleRoot(base, 'cli');
+  mkdirSync(base);
+  writeFileSync(join(base, MARKER), '');
+  mkdirSync(cli);
+  writeFileSync(join(cli, MARKER), '');
+  makeScratch(cli, 'felyrics-dead', { pid: DEAD_PID });
+  makeScratch(cli, 'felyrics-old', { ageMs: 2 * DAY_MS });
+  makeScratch(cli, 'provision-fresh');
+  makeScratch(cli, 'felyrics-live', { pid: process.pid, ageMs: 2 * DAY_MS });
+  mkdirSync(join(base, 'app'));
+  writeFileSync(join(base, 'notes.txt'), 'keep');
+  makeScratch(base, 'felyrics-legacy');
+
+  try {
+    const residue = await cleanTempResidue(base);
+
+    assert.equal(residue.cliRoot, cli);
+    assert.deepEqual(residue.cleaned, ['felyrics-dead', 'felyrics-old']);
+    assert.deepEqual(residue.legacy, ['felyrics-legacy']);
+    assert.deepEqual(readdirSync(cli).sort(), [
+      MARKER,
+      'felyrics-live',
+      'provision-fresh',
+    ]);
+    assert.deepEqual(readdirSync(base).sort(), [
+      MARKER,
+      'app',
+      'cli',
+      'notes.txt',
+    ]);
+    assert.equal(existsSync(join(cli, 'felyrics-dead')), false);
+    assert.equal(existsSync(join(cli, 'felyrics-old')), false);
+    assert.equal(existsSync(join(base, 'felyrics-legacy')), false);
+    assert.equal(existsSync(join(cli, 'felyrics-live')), true);
+    assert.equal(existsSync(join(cli, 'provision-fresh')), true);
   } finally {
     rmSync(parent, { recursive: true, force: true });
   }

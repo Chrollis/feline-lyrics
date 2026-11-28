@@ -5,7 +5,7 @@ import {
   writeFileSync,
   type Dirent,
 } from 'node:fs';
-import { readdir, rm } from 'node:fs/promises';
+import { readFile, readdir, rm, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -13,8 +13,26 @@ import { ToolchainError } from '../errors.js';
 
 const OWNER_MARKER = '.felyrics-temp';
 
+/** Per-scratch marker carrying the pid that created the directory. */
+const PID_MARKER = '.felyrics-temp-pid';
+
 /** Scratch prefixes left directly under the base before app/cli roles split. */
 const LEGACY_PREFIXES = ['felyrics-', 'provision-', 'plugin-env-'] as const;
+
+const ROLE_NAMES = new Set(['app', 'cli']);
+
+const DEFAULT_STALE_AGE_MS = 24 * 60 * 60 * 1000;
+
+export interface ClearStaleTempOptions {
+  readonly maxAgeMs?: number;
+  readonly prefixes?: readonly string[];
+}
+
+export interface TempResidue {
+  readonly cliRoot: string;
+  readonly cleaned: string[];
+  readonly legacy: string[];
+}
 
 function markerPath(root: string): string {
   return join(root, OWNER_MARKER);
@@ -79,6 +97,73 @@ async function ensureOwnedRoot(root: string): Promise<void> {
   }
 }
 
+async function hasOwnMarker(path: string): Promise<boolean> {
+  try {
+    const entries = await readdir(path, { withFileTypes: true });
+
+    return entries.some((entry) => entry.name === OWNER_MARKER);
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code;
+
+    if (code === 'ENOENT' || code === 'ENOTDIR') {
+      return false;
+    }
+
+    throw error;
+  }
+}
+
+/**
+ * The shared base is owned by the same marker as a role root. Older role-aware
+ * runs created `<base>/app` or `<base>/cli` without ever marking the base, so a
+ * base whose only entries are marked role directories is adopted instead of
+ * being rejected. Anything else without the marker still belongs to someone
+ * else and is refused.
+ *
+ * Call this before a base cleanup or before asking `withTempDir` for a role
+ * scratch root: both require an owned base.
+ */
+export async function ensureOwnedTempRoot(root: string): Promise<void> {
+  let entries: Dirent[];
+
+  try {
+    entries = await readdir(root, { withFileTypes: true });
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+      adoptRoot(root);
+      return;
+    }
+
+    throw error;
+  }
+
+  if (entries.length === 0) {
+    adoptRoot(root);
+    return;
+  }
+
+  if (entries.some((entry) => entry.name === OWNER_MARKER)) {
+    return;
+  }
+
+  const rolesOnly = entries.every(
+    (entry) => entry.isDirectory() && ROLE_NAMES.has(entry.name),
+  );
+
+  if (rolesOnly) {
+    for (const entry of entries) {
+      if (!(await hasOwnMarker(join(root, entry.name)))) {
+        unowned(root);
+      }
+    }
+
+    adoptRoot(root);
+    return;
+  }
+
+  unowned(root);
+}
+
 async function makeTempDir<T>(
   prefix: string,
   fn: (tempDir: string) => Promise<T>,
@@ -87,6 +172,8 @@ async function makeTempDir<T>(
   const tempDir = mkdtempSync(join(root, prefix));
 
   try {
+    writeFileSync(join(tempDir, PID_MARKER), String(process.pid));
+
     return await fn(tempDir);
   } finally {
     rmSync(tempDir, { recursive: true, force: true });
@@ -197,4 +284,127 @@ export async function clearLegacyTempEntries(
   }
 
   return removed;
+}
+
+/** A pid probe is only a hint; EPERM means the process exists but is not ours. */
+function isProcessAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    return (error as NodeJS.ErrnoException).code === 'EPERM';
+  }
+}
+
+function parsePid(text: string): number | undefined {
+  const trimmed = text.trim();
+
+  if (!/^[0-9]+$/.test(trimmed)) {
+    return undefined;
+  }
+
+  const pid = Number(trimmed);
+
+  return Number.isSafeInteger(pid) && pid > 0 ? pid : undefined;
+}
+
+async function isStaleTempEntry(
+  root: string,
+  name: string,
+  maxAgeMs: number,
+): Promise<boolean> {
+  const entryPath = join(root, name);
+  let pid: number | undefined;
+
+  try {
+    pid = parsePid(await readFile(join(entryPath, PID_MARKER), 'utf8'));
+  } catch {
+    // No pid marker (or an unreadable one): fall back to age.
+  }
+
+  if (pid !== undefined) {
+    return !isProcessAlive(pid);
+  }
+
+  try {
+    const info = await stat(entryPath);
+
+    return Date.now() - info.mtimeMs > maxAgeMs;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+      return false;
+    }
+
+    throw error;
+  }
+}
+
+/**
+ * Removes scratch directories left by runs that are no longer alive. A scratch
+ * with a live owner pid stays even when old; a scratch whose recorded pid is
+ * dead goes immediately; a scratch without a usable pid goes only after
+ * `maxAgeMs`. The ownership marker, the role directories and unrecognised
+ * entries are never candidates. A missing root is a no-op; a non-empty root
+ * without the marker is refused before anything is touched.
+ */
+export async function clearStaleTempEntries(
+  root: string,
+  options: ClearStaleTempOptions = {},
+): Promise<string[]> {
+  const maxAgeMs = options.maxAgeMs ?? DEFAULT_STALE_AGE_MS;
+  const prefixes = options.prefixes ?? LEGACY_PREFIXES;
+  let entries: Dirent[];
+
+  try {
+    entries = await readdir(root, { withFileTypes: true });
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+      return [];
+    }
+
+    throw error;
+  }
+
+  if (entries.length === 0) {
+    return [];
+  }
+
+  if (!entries.some((entry) => entry.name === OWNER_MARKER)) {
+    unowned(root);
+  }
+
+  const removed: string[] = [];
+  const candidates = entries
+    .map((entry) => entry.name)
+    .filter(
+      (name) =>
+        name !== OWNER_MARKER &&
+        name !== PID_MARKER &&
+        !ROLE_NAMES.has(name) &&
+        prefixes.some((prefix) => name.startsWith(prefix)),
+    )
+    .sort();
+
+  for (const name of candidates) {
+    if (!(await isStaleTempEntry(root, name, maxAgeMs))) {
+      continue;
+    }
+
+    await rm(join(root, name), { recursive: true, force: true });
+    removed.push(name);
+  }
+
+  return removed;
+}
+
+/**
+ * Reclaims both kinds of residue a CLI run can leave: role scratch under
+ * `<root>/cli` and the legacy scratch directories directly under the base.
+ */
+export async function cleanTempResidue(root: string): Promise<TempResidue> {
+  const cliRoot = tempRoleRoot(root, 'cli');
+  const cleaned = await clearStaleTempEntries(cliRoot);
+  const legacy = await clearLegacyTempEntries(root);
+
+  return { cliRoot, cleaned, legacy };
 }

@@ -91,10 +91,15 @@ export {
   type RunBinary,
 } from './python/doctor.js';
 export {
+  cleanTempResidue,
   clearLegacyTempEntries,
+  clearStaleTempEntries,
   clearTempDir,
+  ensureOwnedTempRoot,
   tempRoleRoot,
   withTempDir,
+  type ClearStaleTempOptions,
+  type TempResidue,
 } from './layout/temp.js';
 export {
   extractZip,

@@ -141,6 +141,17 @@ async function setup(toolchain) {
     fail(`cannot use ${mirrorsPath}: ${error.code ?? ''} ${error.message}`);
   }
 
+  // Reclaim what a killed CLI run left before asking for new scratch.
+  try {
+    await toolchain.ensureOwnedTempRoot(paths.tempDir);
+    await toolchain.clearStaleTempEntries(
+      toolchain.tempRoleRoot(paths.tempDir, 'cli'),
+    );
+    await toolchain.clearStaleTempEntries(paths.tempDir);
+  } catch (error) {
+    fail(`cannot clean ${paths.tempDir}: ${error.code ?? ''} ${error.message}`);
+  }
+
   // The scratch directory is the caller's: the toolchain never remembers it,
   // so a killed run cannot leave a directory behind that nobody owns.
   const marker = await toolchain.withTempDir('felyrics-', (tempDir) =>
@@ -162,18 +173,20 @@ async function setup(toolchain) {
 }
 
 async function clean(toolchain) {
-  const cliRoot = toolchain.tempRoleRoot(paths.tempDir, 'cli');
-  let removed;
+  let residue;
 
   try {
-    await toolchain.clearTempDir(cliRoot);
-    removed = await toolchain.clearLegacyTempEntries(paths.tempDir);
+    residue = await toolchain.cleanTempResidue(paths.tempDir);
   } catch (error) {
     fail(`cannot clean ${paths.tempDir}: ${error.code ?? ''} ${error.message}`);
   }
 
-  console.log(`cleaned: ${cliRoot}`);
-  console.log(`legacy: ${removed.length === 0 ? 'none' : removed.join(', ')}`);
+  console.log(
+    `cleaned: ${residue.cleaned.length === 0 ? 'none' : residue.cleaned.join(', ')}`,
+  );
+  console.log(
+    `legacy: ${residue.legacy.length === 0 ? 'none' : residue.legacy.join(', ')}`,
+  );
 }
 
 async function doctor(toolchain) {

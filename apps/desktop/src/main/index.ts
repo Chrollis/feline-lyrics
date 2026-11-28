@@ -20,7 +20,9 @@ import {
   readPluginRequirements,
 } from './plugin-enable.js';
 import {
+  clearStaleTempEntries,
   clearTempDir,
+  ensureOwnedTempRoot,
   mirrorConfigPath,
   provisionPluginEnvironment,
   tempRoleRoot,
@@ -235,7 +237,14 @@ async function start(force = false): Promise<void> {
     console.log(`[paths] userPluginsRoot: ${host.userPluginsRoot}`);
 
     try {
+      await ensureOwnedTempRoot(host.tempDir);
       await clearTempDir(appTempDir);
+
+      const stale = await clearStaleTempEntries(host.tempDir);
+
+      if (stale.length > 0) {
+        console.log(`[temp] removed stale: ${stale.join(', ')}`);
+      }
     } catch (error) {
       if (error instanceof ToolchainError) {
         const failure = describeFailure(error);
