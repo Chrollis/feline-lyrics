@@ -56,6 +56,16 @@ import { loadOrCreateMirrorConfig } from './mirror-config.js';
 import { installPickedPlugin } from './plugin-install-runtime.js';
 import { installPluginDirectory } from './plugin-install.js';
 import { createQuitController } from './quit.js';
+import { parseSelfTestArgs, runPackagedKoffiSmoke } from './self-test.js';
+
+// A packaged smoke launched by `scripts/check-package.mjs` gets its own
+// userData before the single-instance lock, so it cannot focus or join a
+// running Felyrics and leaves nothing behind in the real profile.
+const selfTest = parseSelfTestArgs(process.argv);
+
+if (selfTest !== null) {
+  app.setPath('userData', selfTest.dir);
+}
 
 // Before `app.whenReady()`: the scheme registry is frozen at startup.
 registerAppScheme();
@@ -642,6 +652,14 @@ function createWindow(): void {
 
 if (locked) {
   app.whenReady().then(async () => {
+    if (selfTest !== null) {
+      const ok = await runPackagedKoffiSmoke(selfTest.dir);
+
+      app.exit(ok ? 0 : 1);
+
+      return;
+    }
+
     appRoots.jobsRoot = join(hostPaths().cacheDir, 'jobs');
 
     serveAppProtocol(appRoots);
