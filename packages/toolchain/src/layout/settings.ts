@@ -1,3 +1,4 @@
+import { statSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import { isAbsolute, join, resolve, sep, win32 } from 'node:path';
 
@@ -106,26 +107,70 @@ function containsPath(parent: string, child: string): boolean {
 }
 
 /**
- * The settings are individually valid but can still overlap: a temp root that
- * contains the backend, the cache, the plugin storage, the settings file itself
- * or the whole userData directory would clear data it does not own. The reverse
- * is fine -- the dev `.temp` under the repo and the packaged `temp` under
- * userData are both intended.
+ * A tempDir that is an existing file cannot be a scratch directory. ENOENT is
+ * fine because the directory is created at startup; every other stat failure is
+ * a settings problem too, not leftover state to ignore.
+ */
+function assertTempDirectory(path: string): void {
+  let stats;
+
+  try {
+    stats = statSync(path);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+      return;
+    }
+
+    invalid(
+      'tempDir',
+      `tempDir cannot be inspected: ${resolve(path)}: ${String(error)}`,
+    );
+  }
+
+  if (!stats.isDirectory()) {
+    invalid('tempDir', `tempDir must be a directory: ${resolve(path)}`);
+  }
+}
+
+/**
+ * The settings are individually valid but can still overlap. A temp root that
+ * contains the backend, the cache, the plugin storage, the logs, the settings
+ * file itself or the whole userData directory would clear data it does not own.
+ * It must also not sit inside a managed root: clearing it on startup would
+ * delete that root's contents. The reverse is fine only for userData and the
+ * repository -- the dev `.temp` under the repo and the packaged `temp` under
+ * userData are both intended, and neither is a managed root.
  */
 export function assertWritableRoots(
   merged: Required<Settings>,
   settingsPath: string,
   userData: string,
 ): void {
-  const targets: ReadonlyArray<readonly [string, string]> = [
+  const managedTargets: ReadonlyArray<readonly [string, string]> = [
     ['backendRoot', merged.backendRoot],
     ['cacheDir', merged.cacheDir],
     ['userPluginsRoot', merged.userPluginsRoot],
+    ['the logs directory', join(resolve(userData), 'logs')],
+  ];
+
+  for (const [label, target] of managedTargets) {
+    if (
+      containsPath(merged.tempDir, target) ||
+      containsPath(target, merged.tempDir)
+    ) {
+      invalid(
+        'tempDir',
+        `tempDir must not overlap ${label}: ${resolve(target)}`,
+      );
+    }
+  }
+
+  const containers: ReadonlyArray<readonly [string, string]> = [
     ['the settings file', settingsPath],
     ['userData', userData],
   ];
 
-  for (const [label, target] of targets) {
+  for (const [label, target] of containers) {
     if (containsPath(merged.tempDir, target)) {
       invalid(
         'tempDir',
@@ -133,6 +178,8 @@ export function assertWritableRoots(
       );
     }
   }
+
+  assertTempDirectory(merged.tempDir);
 }
 
 /**

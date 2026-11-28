@@ -299,6 +299,38 @@ test('refuses a temp directory equal to userData', () => {
   rejectsWritable(mergedSettings({ tempDir: settingsUserData }));
 });
 
+test('refuses a temp directory inside cacheDir', () => {
+  rejectsWritable(
+    mergedSettings({ tempDir: join(writableRoot, 'cache', 'jobs') }),
+  );
+});
+
+test('refuses a temp directory inside backendRoot', () => {
+  for (const name of ['plugin-envs', 'venv']) {
+    rejectsWritable(
+      mergedSettings({ tempDir: join(writableRoot, 'backend', name) }),
+    );
+  }
+});
+
+test('refuses a temp directory equal to the logs directory', () => {
+  rejectsWritable(
+    mergedSettings({ tempDir: join(settingsUserData, 'logs') }),
+  );
+});
+
+test('refuses a temp directory that is an existing file', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'felyrics-settings-file-'));
+
+  try {
+    const file = join(directory, 'temp.txt');
+    await writeFile(file, 'not a directory', 'utf8');
+    rejectsWritable(mergedSettings({ tempDir: file }));
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
 test(
   'folds case on Windows',
   { skip: process.platform !== 'win32' },
