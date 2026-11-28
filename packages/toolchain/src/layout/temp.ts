@@ -17,6 +17,15 @@ function markerPath(root: string): string {
   return join(root, OWNER_MARKER);
 }
 
+/**
+ * The scratch root a role owns under the shared temp base. Two roles keep
+ * separate directories so one role's startup clear cannot delete the other's
+ * live provisioning scratch.
+ */
+export function tempRoleRoot(root: string, role: 'app' | 'cli'): string {
+  return join(root, role);
+}
+
 /** Creates the marker with `wx`, so a concurrent adopter loses the race safely. */
 function adoptRoot(root: string): void {
   mkdirSync(root, { recursive: true });

@@ -14,6 +14,7 @@ import { test } from 'node:test';
 
 import {
   clearTempDir,
+  tempRoleRoot,
   ToolchainError,
   withTempDir,
 } from '../../out/index.js';
@@ -206,6 +207,47 @@ test('clearing an unowned root rejects and deletes nothing', async () => {
     });
     assert.deepEqual(readdirSync(root), ['keep.txt']);
     assert.equal(readFileSync(join(root, 'keep.txt'), 'utf8'), 'x');
+  } finally {
+    rmSync(parent, { recursive: true, force: true });
+  }
+});
+
+test('names a role directory under the temp base', () => {
+  const base = join(tmpdir(), 'felyrics-base');
+
+  assert.equal(tempRoleRoot(base, 'app'), join(base, 'app'));
+  assert.equal(tempRoleRoot(base, 'cli'), join(base, 'cli'));
+});
+
+test('clearing the app role leaves the cli role untouched', async () => {
+  const parent = mkdtempSync(join(tmpdir(), 'felyrics-roles-'));
+  const base = join(parent, 'temp');
+  const appRoot = tempRoleRoot(base, 'app');
+  const cliRoot = tempRoleRoot(base, 'cli');
+
+  try {
+    await withTempDir(
+      'app-',
+      async (dir) => {
+        writeFileSync(join(dir, 'scratch.txt'), 'x');
+      },
+      appRoot,
+    );
+    await withTempDir(
+      'cli-',
+      async (dir) => {
+        writeFileSync(join(dir, 'scratch.txt'), 'y');
+      },
+      cliRoot,
+    );
+    writeFileSync(join(cliRoot, 'keep.txt'), 'y');
+
+    await clearTempDir(appRoot);
+
+    assert.equal(readFileSync(join(cliRoot, 'keep.txt'), 'utf8'), 'y');
+    assert.equal(existsSync(join(appRoot, MARKER)), true);
+    assert.equal(existsSync(join(cliRoot, MARKER)), true);
+    assert.deepEqual(readdirSync(appRoot), [MARKER]);
   } finally {
     rmSync(parent, { recursive: true, force: true });
   }

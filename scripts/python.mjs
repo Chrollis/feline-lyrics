@@ -154,7 +154,7 @@ async function setup(toolchain) {
         (stream === 'stdout' ? process.stdout : process.stderr).write(chunk);
       },
     }),
-    paths.tempDir,
+    toolchain.tempRoleRoot(paths.tempDir, 'cli'),
   );
 
   console.log(`ready: uv ${marker.uv}, python ${marker.python}`);

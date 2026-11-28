@@ -23,6 +23,7 @@ import {
   clearTempDir,
   mirrorConfigPath,
   provisionPluginEnvironment,
+  tempRoleRoot,
   ToolchainError,
   withTempDir,
   type ReadyMarker,
@@ -215,14 +216,16 @@ async function start(force = false): Promise<void> {
     });
 
     appRoots.jobsRoot = join(host.cacheDir, 'jobs');
+    const appTempDir = tempRoleRoot(host.tempDir, 'app');
     console.log(`[paths] cacheDir: ${host.cacheDir}`);
     console.log(`[paths] tempDir: ${host.tempDir}`);
+    console.log(`[paths] appTempDir: ${appTempDir}`);
     console.log(`[paths] backendRoot: ${host.backendRoot}`);
     console.log(`[paths] pluginEnvsRoot: ${host.pluginEnvsRoot}`);
     console.log(`[paths] userPluginsRoot: ${host.userPluginsRoot}`);
 
     try {
-      await clearTempDir(host.tempDir);
+      await clearTempDir(appTempDir);
     } catch (error) {
       if (error instanceof ToolchainError) {
         const failure = describeFailure(error);
@@ -240,7 +243,7 @@ async function start(force = false): Promise<void> {
 
       // A native EPERM/EBUSY here is residue we could not clear; the next
       // operation recreates whatever it needs.
-      console.error(`[temp] could not clear ${host.tempDir}`, error);
+      console.error(`[temp] could not clear ${appTempDir}`, error);
     }
 
     const userDataDir = app.getPath('userData');
@@ -269,7 +272,7 @@ async function start(force = false): Promise<void> {
       runStartup({
         paths: resolvePaths(),
         userDataDir,
-        tempDir: host.tempDir,
+        tempDir: appTempDir,
         mirrors,
         fetchImpl: net.fetch as unknown as typeof fetch,
         hostBackendRoot: hostPaths().hostBackendRoot,
@@ -524,7 +527,7 @@ async function provisionUserPlugin(
         tempDir,
         mirrors,
       }),
-    host.tempDir,
+    tempRoleRoot(host.tempDir, 'app'),
   );
 }
 

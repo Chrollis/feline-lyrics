@@ -90,7 +90,11 @@ export {
   type PluginDoctorSpec,
   type RunBinary,
 } from './python/doctor.js';
-export { clearTempDir, withTempDir } from './layout/temp.js';
+export {
+  clearTempDir,
+  tempRoleRoot,
+  withTempDir,
+} from './layout/temp.js';
 export {
   extractZip,
   listEntries,
