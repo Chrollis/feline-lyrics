@@ -73,7 +73,7 @@ export async function runUv(
   const child = execa(uvExe, [...args], {
     reject: false,
     env: options.env,
-    ...(options.signal ? { signal: options.signal } : {}),
+    ...(options.signal ? { cancelSignal: options.signal } : {}),
   });
 
   const decode = {

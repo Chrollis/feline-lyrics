@@ -358,6 +358,17 @@ test('decodes a character split across two chunks', async () => {
   assert.doesNotMatch(chunks.join(''), /\ufffd/);
 });
 
+test('passes an abort signal as execa cancelSignal', async () => {
+  const controller = new AbortController();
+  const result = await runUv(process.execPath, ['-e', 'process.stdout.write("ok")'], {
+    env: process.env,
+    signal: controller.signal,
+  });
+
+  assert.equal(result.status, 0);
+  assert.equal(result.stdout, 'ok');
+});
+
 test('turns a non-zero exit into a result, not a rejection', async () => {
   const result = await runUv(process.execPath, ['-e', 'process.exit(3)'], {
     env: process.env,
