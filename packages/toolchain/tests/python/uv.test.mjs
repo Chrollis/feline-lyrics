@@ -358,7 +358,7 @@ test('decodes a character split across two chunks', async () => {
   assert.doesNotMatch(chunks.join(''), /\ufffd/);
 });
 
-test('passes an abort signal as execa cancelSignal', async () => {
+test('accepts an abort signal without aborting', async () => {
   const controller = new AbortController();
   const result = await runUv(process.execPath, ['-e', 'process.stdout.write("ok")'], {
     env: process.env,
@@ -368,6 +368,34 @@ test('passes an abort signal as execa cancelSignal', async () => {
   assert.equal(result.status, 0);
   assert.equal(result.stdout, 'ok');
 });
+
+test(
+  'cancels the child when the abort signal fires',
+  { timeout: 15_000 },
+  async () => {
+    const controller = new AbortController();
+    const started = Date.now();
+    const pending = runUv(
+      process.execPath,
+      ['-e', 'setTimeout(() => {}, 30000)'],
+      { env: process.env, signal: controller.signal },
+    );
+    const abort = setTimeout(() => controller.abort(), 100);
+
+    try {
+      const result = await pending;
+      const elapsed = Date.now() - started;
+
+      assert.equal(result.status, null);
+      assert.ok(
+        elapsed < 5_000,
+        `the child was not killed promptly (${elapsed} ms)`,
+      );
+    } finally {
+      clearTimeout(abort);
+    }
+  },
+);
 
 test('turns a non-zero exit into a result, not a rejection', async () => {
   const result = await runUv(process.execPath, ['-e', 'process.exit(3)'], {
