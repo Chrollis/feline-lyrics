@@ -28,6 +28,7 @@
     "typecheck": "npm run typecheck --workspaces --if-present",
     "pretest": "npm run build -w @felyrics/toolchain && npm run build -w @felyrics/host && npm run build -w @felyrics/media",
     "test": "npm run test --workspaces --if-present",
+    "test:package": "node scripts/check-package.mjs",
     "test:python": "npm run python -- -m unittest discover -s packages/host/backend/tests -v && npm run python -- -m unittest discover -s plugins/felyrics.media/backend/tests -v",
     "lint": "eslint .",
     "format": "prettier --write .",
