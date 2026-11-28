@@ -23,6 +23,7 @@
     "dist": "npm run build && npm run dist -w @felyrics/desktop",
     "dist:dir": "npm run build && npm run dist:dir -w @felyrics/desktop",
     "python": "node scripts/python.mjs",
+    "icon": "node scripts/icon.mjs",
     "pretypecheck": "npm run build -w @felyrics/toolchain && npm run build -w @felyrics/host && npm run build -w @felyrics/media",
     "typecheck": "npm run typecheck --workspaces --if-present",
     "pretest": "npm run build -w @felyrics/toolchain && npm run build -w @felyrics/host && npm run build -w @felyrics/media",
@@ -35,6 +36,7 @@
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
+    "@resvg/resvg-js": "^2.6.2",
     "eslint": "^10.14.0",
     "eslint-config-prettier": "^10.1.8",
     "eslint-plugin-react-hooks": "^7.1.1",
