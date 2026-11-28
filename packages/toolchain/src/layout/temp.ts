@@ -403,6 +403,28 @@ export async function clearStaleTempEntries(
  */
 export async function cleanTempResidue(root: string): Promise<TempResidue> {
   const cliRoot = tempRoleRoot(root, 'cli');
+  let entries: Dirent[];
+
+  // Reading first makes a missing or empty base a true no-op: adopting it here
+  // would create a marker for a directory this call was never asked to own.
+  try {
+    entries = await readdir(root, { withFileTypes: true });
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+      return { cliRoot, cleaned: [], legacy: [] };
+    }
+
+    throw error;
+  }
+
+  if (entries.length === 0) {
+    return { cliRoot, cleaned: [], legacy: [] };
+  }
+
+  // Refuse an unowned base before touching its role directory: the old order
+  // cleared `<root>/cli` first and only then rejected the base.
+  await ensureOwnedTempRoot(root);
+
   const cleaned = await clearStaleTempEntries(cliRoot);
   const legacy = await clearLegacyTempEntries(root);
 

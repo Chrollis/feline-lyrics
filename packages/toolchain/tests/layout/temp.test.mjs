@@ -656,3 +656,86 @@ test('cleanTempResidue reclaims cli stale scratch and legacy entries', async () 
     rmSync(parent, { recursive: true, force: true });
   }
 });
+
+test('cleanTempResidue adopts a role-only base before clearing it', async () => {
+  const parent = mkdtempSync(join(tmpdir(), 'felyrics-residue-'));
+  const base = join(parent, 'temp');
+  const cli = tempRoleRoot(base, 'cli');
+  mkdirSync(cli, { recursive: true });
+  writeFileSync(join(cli, MARKER), '');
+  makeScratch(cli, 'felyrics-dead', { pid: DEAD_PID });
+
+  try {
+    const residue = await cleanTempResidue(base);
+
+    assert.equal(residue.cliRoot, cli);
+    assert.deepEqual(residue.cleaned, ['felyrics-dead']);
+    assert.deepEqual(residue.legacy, []);
+    assert.equal(existsSync(join(base, MARKER)), true);
+    assert.equal(existsSync(join(cli, MARKER)), true);
+    assert.deepEqual(readdirSync(base).sort(), [MARKER, 'cli']);
+    assert.deepEqual(readdirSync(cli), [MARKER]);
+  } finally {
+    rmSync(parent, { recursive: true, force: true });
+  }
+});
+
+test('cleanTempResidue refuses an unowned base before removing anything', async () => {
+  const parent = mkdtempSync(join(tmpdir(), 'felyrics-residue-'));
+  const base = join(parent, 'temp');
+  const cli = tempRoleRoot(base, 'cli');
+  mkdirSync(cli, { recursive: true });
+  writeFileSync(join(cli, MARKER), '');
+  makeScratch(cli, 'felyrics-dead', { pid: DEAD_PID });
+  writeFileSync(join(base, 'notes.txt'), 'keep');
+
+  try {
+    await assert.rejects(cleanTempResidue(base), (error) => {
+      assert.ok(error instanceof ToolchainError);
+      assert.equal(error.code, 'temp/unowned');
+      assert.equal(error.context.path, base);
+
+      return true;
+    });
+
+    assert.deepEqual(readdirSync(base).sort(), ['cli', 'notes.txt']);
+    assert.deepEqual(readdirSync(cli).sort(), [MARKER, 'felyrics-dead']);
+    assert.equal(existsSync(join(base, MARKER)), false);
+    assert.equal(existsSync(join(cli, 'felyrics-dead')), true);
+  } finally {
+    rmSync(parent, { recursive: true, force: true });
+  }
+});
+
+test('cleanTempResidue leaves a missing base missing', async () => {
+  const parent = mkdtempSync(join(tmpdir(), 'felyrics-residue-'));
+  const base = join(parent, 'missing');
+
+  try {
+    const residue = await cleanTempResidue(base);
+
+    assert.equal(residue.cliRoot, tempRoleRoot(base, 'cli'));
+    assert.deepEqual(residue.cleaned, []);
+    assert.deepEqual(residue.legacy, []);
+    assert.equal(existsSync(base), false);
+  } finally {
+    rmSync(parent, { recursive: true, force: true });
+  }
+});
+
+test('cleanTempResidue leaves an empty base empty and unmarked', async () => {
+  const parent = mkdtempSync(join(tmpdir(), 'felyrics-residue-'));
+  const base = join(parent, 'temp');
+  mkdirSync(base);
+
+  try {
+    const residue = await cleanTempResidue(base);
+
+    assert.deepEqual(residue.cleaned, []);
+    assert.deepEqual(residue.legacy, []);
+    assert.deepEqual(readdirSync(base), []);
+    assert.equal(existsSync(join(base, MARKER)), false);
+  } finally {
+    rmSync(parent, { recursive: true, force: true });
+  }
+});
