@@ -13,6 +13,7 @@ import { dirname, join } from 'node:path';
 import { test } from 'node:test';
 
 import {
+  clearLegacyTempEntries,
   clearTempDir,
   tempRoleRoot,
   ToolchainError,
@@ -248,6 +249,113 @@ test('clearing the app role leaves the cli role untouched', async () => {
     assert.equal(existsSync(join(appRoot, MARKER)), true);
     assert.equal(existsSync(join(cliRoot, MARKER)), true);
     assert.deepEqual(readdirSync(appRoot), [MARKER]);
+  } finally {
+    rmSync(parent, { recursive: true, force: true });
+  }
+});
+
+test('clears only legacy temp entries and keeps roles, marker and unknown entries', async () => {
+  const parent = mkdtempSync(join(tmpdir(), 'felyrics-legacy-'));
+  const root = join(parent, 'temp');
+  mkdirSync(join(root, 'felyrics-old', 'nested'), { recursive: true });
+  mkdirSync(join(root, 'provision-old'), { recursive: true });
+  mkdirSync(join(root, 'plugin-env-old'), { recursive: true });
+  mkdirSync(join(root, 'app'), { recursive: true });
+  mkdirSync(join(root, 'cli'), { recursive: true });
+  writeFileSync(join(root, MARKER), '');
+  writeFileSync(join(root, 'notes.txt'), 'keep');
+  writeFileSync(join(root, 'felyrics-old', 'nested', 'file.txt'), 'x');
+  writeFileSync(join(root, 'provision-old', 'file.txt'), 'x');
+  writeFileSync(join(root, 'plugin-env-old', 'file.txt'), 'x');
+  writeFileSync(join(root, 'app', 'keep.txt'), 'app');
+  writeFileSync(join(root, 'cli', 'keep.txt'), 'cli');
+
+  try {
+    const removed = await clearLegacyTempEntries(root);
+
+    assert.deepEqual(removed, [
+      'felyrics-old',
+      'plugin-env-old',
+      'provision-old',
+    ]);
+    assert.deepEqual(readdirSync(root).sort(), [
+      MARKER,
+      'app',
+      'cli',
+      'notes.txt',
+    ]);
+    assert.equal(readFileSync(join(root, 'app', 'keep.txt'), 'utf8'), 'app');
+    assert.equal(readFileSync(join(root, 'cli', 'keep.txt'), 'utf8'), 'cli');
+    assert.equal(readFileSync(join(root, 'notes.txt'), 'utf8'), 'keep');
+  } finally {
+    rmSync(parent, { recursive: true, force: true });
+  }
+});
+
+test('clearing legacy entries under a missing root is a no-op', async () => {
+  const parent = mkdtempSync(join(tmpdir(), 'felyrics-legacy-'));
+  const missing = join(parent, 'missing');
+
+  try {
+    assert.deepEqual(await clearLegacyTempEntries(missing), []);
+    assert.equal(existsSync(missing), false);
+  } finally {
+    rmSync(parent, { recursive: true, force: true });
+  }
+});
+
+test('clearing legacy entries under an empty root leaves it empty', async () => {
+  const parent = mkdtempSync(join(tmpdir(), 'felyrics-legacy-'));
+  const root = join(parent, 'temp');
+  mkdirSync(root);
+
+  try {
+    assert.deepEqual(await clearLegacyTempEntries(root), []);
+    assert.deepEqual(readdirSync(root), []);
+  } finally {
+    rmSync(parent, { recursive: true, force: true });
+  }
+});
+
+test('clearing legacy entries refuses a root without a marker', async () => {
+  const parent = mkdtempSync(join(tmpdir(), 'felyrics-legacy-'));
+  const root = join(parent, 'temp');
+  mkdirSync(root);
+  writeFileSync(join(root, 'felyrics-old'), 'x');
+  writeFileSync(join(root, 'keep.txt'), 'x');
+
+  try {
+    await assert.rejects(clearLegacyTempEntries(root), (error) => {
+      assert.ok(error instanceof ToolchainError);
+      assert.equal(error.code, 'temp/unowned');
+      assert.equal(error.context.path, root);
+
+      return true;
+    });
+    assert.deepEqual(readdirSync(root).sort(), ['felyrics-old', 'keep.txt']);
+  } finally {
+    rmSync(parent, { recursive: true, force: true });
+  }
+});
+
+test('returns the removed legacy entries sorted by name', async () => {
+  const parent = mkdtempSync(join(tmpdir(), 'felyrics-legacy-'));
+  const root = join(parent, 'temp');
+  mkdirSync(root);
+  writeFileSync(join(root, MARKER), '');
+  writeFileSync(join(root, 'provision-z'), 'x');
+  writeFileSync(join(root, 'felyrics-b'), 'x');
+  writeFileSync(join(root, 'plugin-env-a'), 'x');
+  writeFileSync(join(root, 'felyrics-a'), 'x');
+
+  try {
+    assert.deepEqual(await clearLegacyTempEntries(root), [
+      'felyrics-a',
+      'felyrics-b',
+      'plugin-env-a',
+      'provision-z',
+    ]);
+    assert.deepEqual(readdirSync(root), [MARKER]);
   } finally {
     rmSync(parent, { recursive: true, force: true });
   }

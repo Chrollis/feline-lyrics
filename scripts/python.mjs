@@ -161,6 +161,21 @@ async function setup(toolchain) {
   console.log(`imports: ${marker.imports.split('\n').join(', ')}`);
 }
 
+async function clean(toolchain) {
+  const cliRoot = toolchain.tempRoleRoot(paths.tempDir, 'cli');
+  let removed;
+
+  try {
+    await toolchain.clearTempDir(cliRoot);
+    removed = await toolchain.clearLegacyTempEntries(paths.tempDir);
+  } catch (error) {
+    fail(`cannot clean ${paths.tempDir}: ${error.code ?? ''} ${error.message}`);
+  }
+
+  console.log(`cleaned: ${cliRoot}`);
+  console.log(`legacy: ${removed.length === 0 ? 'none' : removed.join(', ')}`);
+}
+
 async function doctor(toolchain) {
   console.log(`cacheDir: ${paths.cacheDir}`);
   console.log(`backendRoot: ${paths.backendRoot}`);
@@ -206,9 +221,11 @@ if (args[0] === '--setup') {
   await setup(toolchain);
 } else if (args[0] === '--doctor') {
   await doctor(toolchain);
+} else if (args[0] === '--clean') {
+  await clean(toolchain);
 } else if (args.length === 0) {
   console.error(
-    'usage: npm run python -- --setup | --doctor | <python arguments...>',
+    'usage: npm run python -- --setup | --doctor | --clean | <python arguments...>',
   );
   process.exitCode = 1;
 } else {

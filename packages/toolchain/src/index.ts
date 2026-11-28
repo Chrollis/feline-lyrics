@@ -91,6 +91,7 @@ export {
   type RunBinary,
 } from './python/doctor.js';
 export {
+  clearLegacyTempEntries,
   clearTempDir,
   tempRoleRoot,
   withTempDir,

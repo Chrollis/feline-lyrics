@@ -13,6 +13,9 @@ import { ToolchainError } from '../errors.js';
 
 const OWNER_MARKER = '.felyrics-temp';
 
+/** Scratch prefixes left directly under the base before app/cli roles split. */
+const LEGACY_PREFIXES = ['felyrics-', 'provision-', 'plugin-env-'] as const;
+
 function markerPath(root: string): string {
   return join(root, OWNER_MARKER);
 }
@@ -150,4 +153,48 @@ export async function clearTempDir(root: string): Promise<void> {
 
     await rm(join(root, entry.name), { recursive: true, force: true });
   }
+}
+
+/**
+ * Removes scratch directories that older CLI runs left directly under the temp
+ * base, before app and CLI scratch moved into role directories. Only the known
+ * legacy prefixes go; the ownership marker, the role directories and anything
+ * unrecognised stay. A missing or empty base is a no-op, and a non-empty base
+ * without the marker is refused before anything is touched.
+ */
+export async function clearLegacyTempEntries(
+  root: string,
+): Promise<string[]> {
+  let entries: Dirent[];
+
+  try {
+    entries = await readdir(root, { withFileTypes: true });
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+      return [];
+    }
+
+    throw error;
+  }
+
+  if (entries.length === 0) {
+    return [];
+  }
+
+  if (!entries.some((entry) => entry.name === OWNER_MARKER)) {
+    unowned(root);
+  }
+
+  const removed = entries
+    .map((entry) => entry.name)
+    .filter((name) =>
+      LEGACY_PREFIXES.some((prefix) => name.startsWith(prefix)),
+    )
+    .sort();
+
+  for (const name of removed) {
+    await rm(join(root, name), { recursive: true, force: true });
+  }
+
+  return removed;
 }
