@@ -11,7 +11,7 @@ import {
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const ROOT = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const RESOURCES = path.join(
@@ -46,65 +46,6 @@ function fail(message) {
   process.exit(1);
 }
 
-if (!existsSync(ASAR_PATH)) {
-  fail(
-    `packaged release is missing: ${ASAR_PATH}; run \`npm.cmd run dist:dir\` first`,
-  );
-}
-
-let header;
-
-try {
-  const buffer = readFileSync(ASAR_PATH);
-  const jsonSize = buffer.readUInt32LE(12);
-  header = JSON.parse(buffer.subarray(16, 16 + jsonSize).toString('utf8'));
-} catch (error) {
-  fail(`cannot read the asar header at ${ASAR_PATH}: ${error.message}`);
-}
-
-const modules = header?.files?.node_modules?.files;
-const koromix = modules?.['@koromix']?.files?.['koffi-win32-x64'];
-
-if (modules?.koffi === undefined) {
-  fail(`koffi is missing from ${ASAR_PATH}`);
-}
-
-if (koromix === undefined) {
-  fail(`@koromix/koffi-win32-x64 is missing from ${ASAR_PATH}`);
-}
-
-if (koromix.unpacked !== true) {
-  fail(`@koromix/koffi-win32-x64 is not unpacked in ${ASAR_PATH}`);
-}
-
-if (!existsSync(NATIVE_PATH)) {
-  fail(`the unpacked native module is missing: ${NATIVE_PATH}`);
-}
-
-if (statSync(NATIVE_PATH).size === 0) {
-  fail(`the unpacked native module is empty: ${NATIVE_PATH}`);
-}
-
-const loaded = { exports: {} };
-
-try {
-  process.dlopen(loaded, NATIVE_PATH);
-} catch (error) {
-  fail(`cannot load ${NATIVE_PATH}: ${error.message}`);
-}
-
-if (
-  typeof loaded.exports !== 'object' ||
-  loaded.exports === null ||
-  Object.keys(loaded.exports).length === 0
-) {
-  fail(`the native module at ${NATIVE_PATH} exported nothing`);
-}
-
-console.log(`app.asar: ${path.relative(ROOT, ASAR_PATH)}`);
-console.log(`koffi.node: ${path.relative(ROOT, NATIVE_PATH)}`);
-console.log('packaged koffi ok');
-
 function waitForExit(child, timeoutMs) {
   return new Promise((resolve) => {
     let settled = false;
@@ -124,10 +65,19 @@ function waitForExit(child, timeoutMs) {
   });
 }
 
-async function smokeElectron() {
-  if (!existsSync(EXE_PATH)) {
+/**
+ * Runs the packaged self-test and returns its result text. The result file is
+ * read before the exit status is judged, so a failure reason written by the app
+ * survives in the thrown error even when the process exits non-zero.
+ */
+export async function runSelfTest({
+  exePath = EXE_PATH,
+  timeoutMs = 30_000,
+  selfTestArgs = (dir) => ['--self-test=packaged-koffi', `--self-test-dir=${dir}`],
+} = {}) {
+  if (!existsSync(exePath)) {
     throw new Error(
-      `the packaged executable is missing: ${EXE_PATH}; run \`npm.cmd run dist:dir\` first`,
+      `the packaged executable is missing: ${exePath}; run \`npm.cmd run dist:dir\` first`,
     );
   }
 
@@ -141,11 +91,11 @@ async function smokeElectron() {
   let child;
 
   try {
-    child = spawn(
-      EXE_PATH,
-      ['--self-test=packaged-koffi', `--self-test-dir=${dir}`],
-      { env, stdio: ['ignore', 'ignore', 'pipe'], windowsHide: true },
-    );
+    child = spawn(exePath, selfTestArgs(dir), {
+      env,
+      stdio: ['ignore', 'ignore', 'pipe'],
+      windowsHide: true,
+    });
 
     let stderr = '';
     child.stderr?.setEncoding('utf8');
@@ -153,41 +103,43 @@ async function smokeElectron() {
       stderr += chunk;
     });
 
-    const outcome = await waitForExit(child, 30_000);
+    const outcome = await waitForExit(child, timeoutMs);
+    const resultPath = path.join(dir, 'result.txt');
+    const result = existsSync(resultPath)
+      ? readFileSync(resultPath, 'utf8').trim()
+      : undefined;
+    const reason = result === undefined ? '' : `: ${result}`;
+    const output = stderr.length > 0 ? `\n${stderr}` : '';
 
     if (outcome.error !== undefined) {
       throw new Error(
-        `cannot start ${EXE_PATH}: ${outcome.error.message}\n${stderr}`,
+        `cannot start ${exePath}: ${outcome.error.message}${reason}${output}`,
       );
     }
 
     if (outcome.timedOut === true) {
       throw new Error(
-        `the self-test did not exit within 30000 ms\n${stderr}`,
+        `the self-test did not exit within ${timeoutMs} ms${reason}${output}`,
       );
     }
 
     if (outcome.code !== 0) {
       throw new Error(
-        `the self-test exited with code ${outcome.code}\n${stderr}`,
+        `the self-test exited with code ${outcome.code}${reason}${output}`,
       );
     }
 
-    const resultPath = path.join(dir, 'result.txt');
-
-    if (!existsSync(resultPath)) {
+    if (result === undefined) {
       throw new Error(
-        `the self-test wrote no result at ${resultPath}\n${stderr}`,
+        `the self-test wrote no result at ${resultPath}${output}`,
       );
     }
-
-    const result = readFileSync(resultPath, 'utf8').trim();
 
     if (result !== 'packaged koffi ok') {
-      throw new Error(`the self-test result was "${result}"\n${stderr}`);
+      throw new Error(`the self-test result was "${result}"${output}`);
     }
 
-    console.log('packaged koffi ok (electron)');
+    return result;
   } finally {
     if (
       child !== undefined &&
@@ -201,8 +153,78 @@ async function smokeElectron() {
   }
 }
 
-try {
-  await smokeElectron();
-} catch (error) {
-  fail(error instanceof Error ? error.message : String(error));
+async function main() {
+  if (!existsSync(ASAR_PATH)) {
+    fail(
+      `packaged release is missing: ${ASAR_PATH}; run \`npm.cmd run dist:dir\` first`,
+    );
+  }
+
+  let header;
+
+  try {
+    const buffer = readFileSync(ASAR_PATH);
+    const jsonSize = buffer.readUInt32LE(12);
+    header = JSON.parse(buffer.subarray(16, 16 + jsonSize).toString('utf8'));
+  } catch (error) {
+    fail(`cannot read the asar header at ${ASAR_PATH}: ${error.message}`);
+  }
+
+  const modules = header?.files?.node_modules?.files;
+  const koromix = modules?.['@koromix']?.files?.['koffi-win32-x64'];
+
+  if (modules?.koffi === undefined) {
+    fail(`koffi is missing from ${ASAR_PATH}`);
+  }
+
+  if (koromix === undefined) {
+    fail(`@koromix/koffi-win32-x64 is missing from ${ASAR_PATH}`);
+  }
+
+  if (koromix.unpacked !== true) {
+    fail(`@koromix/koffi-win32-x64 is not unpacked in ${ASAR_PATH}`);
+  }
+
+  if (!existsSync(NATIVE_PATH)) {
+    fail(`the unpacked native module is missing: ${NATIVE_PATH}`);
+  }
+
+  if (statSync(NATIVE_PATH).size === 0) {
+    fail(`the unpacked native module is empty: ${NATIVE_PATH}`);
+  }
+
+  const loaded = { exports: {} };
+
+  try {
+    process.dlopen(loaded, NATIVE_PATH);
+  } catch (error) {
+    fail(`cannot load ${NATIVE_PATH}: ${error.message}`);
+  }
+
+  if (
+    typeof loaded.exports !== 'object' ||
+    loaded.exports === null ||
+    Object.keys(loaded.exports).length === 0
+  ) {
+    fail(`the native module at ${NATIVE_PATH} exported nothing`);
+  }
+
+  console.log(`app.asar: ${path.relative(ROOT, ASAR_PATH)}`);
+  console.log(`koffi.node: ${path.relative(ROOT, NATIVE_PATH)}`);
+  console.log('packaged koffi ok');
+
+  await runSelfTest();
+  console.log('packaged koffi ok (electron)');
+}
+
+const executedDirectly =
+  process.argv[1] !== undefined &&
+  pathToFileURL(path.resolve(process.argv[1])).href === import.meta.url;
+
+if (executedDirectly) {
+  try {
+    await main();
+  } catch (error) {
+    fail(error instanceof Error ? error.message : String(error));
+  }
 }
